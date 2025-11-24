@@ -2,9 +2,13 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>星罗 (Stars v3.6.4)</title>
+    <title>星罗 (Stars v4.0 Refined)</title>
+    <!-- 引入 D3.js -->
     <script src="https://d3js.org/d3.v7.min.js"></script>
+    <!-- 引入 UUID -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuid.min.js"></script>
+    <!-- 引入 Marked.js 用于 Markdown 渲染 -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         /* --- 基础样式 --- */
         body { margin: 0; overflow: hidden; background-color: #050508; font-family: 'Segoe UI', sans-serif; color: #ddd; }
@@ -17,14 +21,31 @@
             padding: 25px; box-sizing: border-box; display: flex; flex-direction: column; z-index: 10;
             box-shadow: -5px 0 20px rgba(0,0,0,0.8);
         }
-        input, textarea { background: transparent; border: none; color: #eee; outline: none; width: 100%; display: block; transition: 0.3s; }
+        input, textarea { background: transparent; border: none; color: #eee; outline: none; width: 100%; display: block; transition: 0.3s; font-family: 'Segoe UI', sans-serif; }
         input::placeholder, textarea::placeholder { color: #444; font-style: italic; }
+        
         #node-label { font-size: 28px; font-weight: 700; margin-bottom: 8px; color: #4facfe; border-bottom: 2px solid #2a2a30; padding-bottom: 8px; }
+        #node-label:focus { border-bottom-color: #4facfe; }
+        
         #node-uuid { font-size: 10px; color: #444; font-family: monospace; margin-bottom: 5px; user-select: all;}
+        
         #link-status { font-size: 12px; font-family: monospace; margin-bottom: 15px; color: #666; font-weight: bold; display: flex; justify-content: space-between;}
         #link-status.full { color: #ff4d4d; }
-        #node-summary { font-size: 14px; color: #888; margin-bottom: 20px; line-height: 1.4; }
-        #node-content { flex-grow: 1; background: #0a0a0c; border: 1px solid #222; padding: 15px; resize: none; font-family: 'Consolas', monospace; line-height: 1.7; border-radius: 6px; font-size: 13px; color: #ccc; }
+        
+        /* 总结改为多行文本域 */
+        #node-summary { 
+            font-size: 14px; color: #aaa; margin-bottom: 20px; line-height: 1.5; 
+            background: #0d0d0f; border: 1px solid transparent; border-radius: 4px; padding: 5px;
+            height: 60px; resize: vertical; 
+        }
+        #node-summary:focus { border-color: #333; background: #151518; }
+
+        #node-content { 
+            flex-grow: 1; background: #0a0a0c; border: 1px solid #222; padding: 15px; 
+            resize: none; font-family: 'Consolas', 'Courier New', monospace; line-height: 1.7; 
+            border-radius: 6px; font-size: 13px; color: #ccc; 
+        }
+        #node-content:focus { border-color: #4facfe; }
 
         #node-color-container { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
         #node-color-input { width: 30px; height: 30px; background: transparent; border: none; cursor: pointer; padding: 0; }
@@ -80,6 +101,26 @@
             text-transform: uppercase; letter-spacing: 1px;
         }
 
+        /* --- 内容渲染模态框 --- */
+        #content-modal {
+            display: none; position: fixed; top: 0; left: 0; width: calc(100vw - 340px); height: 100vh;
+            background: rgba(0,0,0,0.85); z-index: 300; justify-content: center; align-items: center;
+        }
+        #content-modal.active { display: flex; }
+        #modal-body {
+            background: #161619; width: 800px; max-width: 90%; height: 85%; border: 1px solid #333; border-radius: 8px;
+            padding: 40px; box-sizing: border-box; overflow-y: auto; color: #ccc;
+            box-shadow: 0 0 50px rgba(0,0,0,1);
+        }
+        /* Markdown 样式微调 */
+        #modal-body h1, #modal-body h2, #modal-body h3 { color: #fff; border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 20px;}
+        #modal-body a { color: #4facfe; text-decoration: none; }
+        #modal-body code { background: #222; padding: 2px 5px; border-radius: 3px; font-family: monospace; color: #ff7675; }
+        #modal-body pre { background: #111; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        #modal-body pre code { background: transparent; color: #ddd; padding: 0; }
+        #modal-body blockquote { border-left: 4px solid #444; margin: 0; padding-left: 15px; color: #888; }
+        #modal-body img { max-width: 100%; border-radius: 4px; }
+
         #io-controls { position: fixed; bottom: 20px; left: 25px; z-index: 5; display: flex; gap: 10px; }
         button { background: #1a1a1d; color: #777; border: 1px solid #333; padding: 6px 12px; cursor: pointer; font-size: 11px; border-radius: 3px; transition: 0.2s; }
         button:hover { background: #333; color: #fff; border-color: #555; }
@@ -88,7 +129,7 @@
 <body>
 
 <div id="hud">
-    <h1>星罗 <span style="font-size:10px; opacity:0.5">v3.6.4</span></h1>
+    <h1>星罗 <span style="font-size:10px; opacity:0.5">v4.0 Refined</span></h1>
     <div id="slot-bar">
         <div class="slot" id="slot-1" onclick="handleSlot(0)"><div class="slot-circle"><span class="slot-num">1</span></div><span class="slot-name">-</span></div>
         <div class="slot" id="slot-2" onclick="handleSlot(1)"><div class="slot-circle"><span class="slot-num">2</span></div><span class="slot-name">-</span></div>
@@ -97,11 +138,11 @@
     </div>
     <div id="view-controls">视野范围: <span id="layer-indicator">1</span> 层 (按 +/- 调整)<br>当前可见: <span id="visible-count">0</span> 节点</div>
     <div class="controls">
-        <span class="key">↑↓←→</span> <span class="key">/</span> <span class="key">?</span> 飞行 <span class="key">Space</span> 编辑<br>
-        <span class="key">,</span> <span class="key">.</span> 预览邻居 <span class="key">↑</span> <span class="key">/</span> 确认<br>
-        <span class="key">&lt;</span> <span class="key">&gt;</span> 旋转视图 <span class="key">H</span> 回家 <span class="key">B</span> 后退<br>
-        <span class="key">1-4</span> 交换 <span class="key">Shift+1-4</span> 存入<br>
-        <span class="key">N</span> 新建 <span class="key">L</span> 链接 <span class="key">D</span> 删点 <span class="key">E</span> 删链
+        <span class="key">Tab</span> <span class="key">N</span> 关联新建 <span class="key">Shift+Tab</span> <span class="key">Shift+N</span> 独立新建 <span class="key">D</span> <span class="key">Del</span> 删除<br>
+        <span class="key">F2</span> 改名 <span class="key">Space</span> 编辑 <span class="key">Enter</span> 查看 <span class="key">E</span> 连线管理<br>
+        <span class="key">L</span> 连接 <span class="key">Shift+L</span> 连接上一个 <span class="key">1-4</span> 交换 <span class="key">Shift+1-4</span> 存入<br>
+        <span class="key">↑↓←→ /?</span> 移动 <span class="key">H</span> 回家 <span class="key">B</span> <span class="key">Esc</span> 历史后退<br>
+        <span class="key">, .</span> 预览扫描(旋转) <span class="key">&lt; &gt;</span> 自由旋转
     </div>
 </div>
 
@@ -109,6 +150,7 @@
 <div id="relation-picker" class="overlay-menu"></div>
 <div id="link-manager" class="overlay-menu" style="bottom: 150px;"></div>
 <div id="slot-picker" class="overlay-menu" style="bottom: 250px;"></div>
+<div id="content-modal" onclick="closeContentModal()"><div id="modal-body" onclick="event.stopPropagation()"></div></div>
 
 <div id="io-controls">
     <button onclick="saveToLocal()">保存</button>
@@ -122,12 +164,12 @@
     <input type="text" id="node-label" placeholder="概念名称">
     <div id="node-uuid">UUID: -</div>
     <div id="link-status">连接数: -/-</div>
-    <input type="text" id="node-summary" placeholder="一行摘要...">
+    <textarea id="node-summary" placeholder="简短摘要 (Markdown/HTML)..."></textarea>
     <div id="node-color-container">
         <input type="color" id="node-color-input">
         <input type="text" id="node-color-hex" placeholder="#FFFFFF">
     </div>
-    <textarea id="node-content" placeholder="详细笔记..."></textarea>
+    <textarea id="node-content" placeholder="详细笔记 (Markdown支持)..."></textarea>
 </div>
 
 <div id="tooltip"></div>
@@ -159,7 +201,7 @@
     const keyState = {};
 
     function initSystem() {
-        const saved = localStorage.getItem('stars_v3');
+        const saved = localStorage.getItem('stars_v4');
         if (saved) {
             try {
                 const raw = JSON.parse(saved);
@@ -192,11 +234,11 @@
 
     function resetSystem() {
         if(confirm("重置系统将清空所有数据，确定吗？")) {
-            localStorage.removeItem('stars_v3'); location.reload();
+            localStorage.removeItem('stars_v4'); location.reload();
         }
     }
 
-    // --- 2. Core Logic (Deep Safety Check) ---
+    // --- 2. Core Logic ---
 
     function getNodeLinkCount(nodeUuid) {
         return data.links.filter(l => l.source.uuid === nodeUuid || l.target.uuid === nodeUuid).length;
@@ -208,18 +250,16 @@
         setTimeout(() => { el.style.opacity = 0; }, 2000);
     }
 
-    // 通用可达性分析 BFS
+    // 安全性检查：防止操作导致节点孤立
     function findReachable(allNodes, allLinks, startNodes) {
         const reachable = new Set();
         const queue = [];
-
         startNodes.forEach(s => {
             if (s && !reachable.has(s.uuid)) {
                 const exists = allNodes.find(n => n.uuid === s.uuid);
                 if(exists) { reachable.add(s.uuid); queue.push(exists); }
             }
         });
-
         const adj = {};
         allLinks.forEach(l => {
             const s = l.source.uuid || l.source;
@@ -227,7 +267,6 @@
             if(!adj[s]) adj[s] = []; adj[s].push(t);
             if(!adj[t]) adj[t] = []; adj[t].push(s);
         });
-
         let head = 0;
         while(head < queue.length) {
             const curr = queue[head++];
@@ -243,42 +282,26 @@
         return reachable;
     }
 
-    function simulateAndCheck(proposedState) {
-        const { nodes, links, nextFocus, nextSlots } = proposedState;
-
+    function executeSafeAction(simulator, executor) {
+        const proposed = simulator();
+        const { nodes, links, nextFocus, nextSlots } = proposed;
         const anchors = [];
         const root = nodes.find(n => n.isRoot);
         if (root) anchors.push(root);
-
         if (nextFocus) anchors.push(nextFocus);
         nextSlots.forEach(s => { if(s) anchors.push(s); });
 
         const reachableUUIDs = findReachable(nodes, links, anchors);
-
         const lostNodes = nodes.filter(n => !reachableUUIDs.has(n.uuid));
-        return lostNodes;
-    }
-
-    function cleanDeadNodes(deadNodes) {
-        const deadUUIDs = new Set(deadNodes.map(n => n.uuid));
-        data.nodes = data.nodes.filter(n => !deadUUIDs.has(n.uuid));
-        data.links = data.links.filter(l => !deadUUIDs.has(l.source.uuid) && !deadUUIDs.has(l.target.uuid));
-        const firstDeadIndex = navHistory.findIndex(n => deadUUIDs.has(n.uuid));
-        if (firstDeadIndex !== -1) navHistory = navHistory.slice(0, firstDeadIndex);
-        slots = slots.map(s => (s && deadUUIDs.has(s.uuid)) ? null : s);
-    }
-
-    function executeSafeAction(simulator, executor, confirmMsg = null) {
-        const proposed = simulator();
-        const lostNodes = simulateAndCheck(proposed);
 
         if (lostNodes.length > 0) {
-            const labels = lostNodes.slice(0, 3).map(n => n.label).join(", ");
-            const warning = `警告：此操作将导致 ${lostNodes.length} 个节点 (${labels}...) 与主网络断开并丢失。\n\n（原因：它们无法通过 原点、当前槽位 或 您的新落脚点 访问到）\n\n是否确认操作？`;
-
-            if (confirm(warning)) {
+            if (confirm(`警告：此操作将导致 ${lostNodes.length} 个节点丢失（如 ${lostNodes[0].label}...）。是否继续？`)) {
                 executor();
-                cleanDeadNodes(lostNodes);
+                const deadUUIDs = new Set(lostNodes.map(n => n.uuid));
+                data.nodes = data.nodes.filter(n => !deadUUIDs.has(n.uuid));
+                data.links = data.links.filter(l => !deadUUIDs.has(l.source.uuid) && !deadUUIDs.has(l.target.uuid));
+                navHistory = navHistory.filter(n => !deadUUIDs.has(n.uuid));
+                slots = slots.map(s => (s && deadUUIDs.has(s.uuid)) ? null : s);
                 restartSim();
                 return true;
             }
@@ -295,97 +318,50 @@
     function handleSlot(index) {
         const slotNode = slots[index];
         const currentFocus = focusNode;
-
         if (slotNode === currentFocus) return;
-
         if (slotNode) {
             executeSafeAction(
-                () => {
-                    const nextSlots = [...slots];
-                    nextSlots[index] = currentFocus;
-                    return {
-                        nodes: data.nodes,
-                        links: data.links,
-                        nextFocus: slotNode,
-                        nextSlots: nextSlots
-                    };
-                },
-                () => {
-                    slots[index] = currentFocus;
-                    navigateTo(slotNode, true, false);
-                    updateSlotUI(); // <-- 修复点：在交换后更新槽位显示
-                }
+                () => ({ nodes: data.nodes, links: data.links, nextFocus: slotNode, nextSlots: slots.map((s,i)=>i===index?currentFocus:s) }),
+                () => { slots[index] = currentFocus; navigateTo(slotNode, true, false); updateSlotUI(); }
             );
         } else {
-            slots[index] = currentFocus;
-            updateSlotUI(); saveToLocal();
+            slots[index] = currentFocus; updateSlotUI(); saveToLocal();
         }
     }
 
     function handleSlotStore(index) {
         const currentFocus = focusNode;
-        const oldSlotNode = slots[index];
-
-        if (oldSlotNode === currentFocus) return;
-
+        if (slots[index] === currentFocus) return;
         executeSafeAction(
-            () => {
-                const nextSlots = [...slots];
-                nextSlots[index] = currentFocus;
-
-                return {
-                    nodes: data.nodes,
-                    links: data.links,
-                    nextFocus: currentFocus,
-                    nextSlots: nextSlots
-                };
-            },
-            () => {
-                slots[index] = currentFocus;
-                updateSlotUI(); saveToLocal();
-            }
+            () => ({ nodes: data.nodes, links: data.links, nextFocus: currentFocus, nextSlots: slots.map((s,i)=>i===index?currentFocus:s) }),
+            () => { slots[index] = currentFocus; updateSlotUI(); saveToLocal(); }
         );
     }
 
     function safeNavigate(targetNode, isHistoryBack = false) {
         if(!targetNode) return;
-
         executeSafeAction(
-            () => ({
-                nodes: data.nodes,
-                links: data.links,
-                nextFocus: targetNode,
-                nextSlots: slots
-            }),
-            () => {
-                navigateTo(targetNode, !isHistoryBack, false);
-            }
+            () => ({ nodes: data.nodes, links: data.links, nextFocus: targetNode, nextSlots: slots }),
+            () => { navigateTo(targetNode, !isHistoryBack, false); }
         );
     }
 
     function safeDeleteNode() {
         if (focusNode.isRoot) { alert("初始奇点不可删除。"); return; }
-
         let fallback = navHistory.length > 0 ? navHistory[navHistory.length - 1] : null;
         if (fallback && fallback.uuid === focusNode.uuid) fallback = null;
         if (!fallback) fallback = data.nodes.find(n => n.isRoot);
 
         executeSafeAction(
-            () => {
-                const remainingNodes = data.nodes.filter(n => n.uuid !== focusNode.uuid);
-                const remainingLinks = data.links.filter(l => l.source.uuid !== focusNode.uuid && l.target.uuid !== focusNode.uuid);
-                const nextSlots = slots.map(s => (s && s.uuid === focusNode.uuid) ? null : s);
-
-                return {
-                    nodes: remainingNodes,
-                    links: remainingLinks,
-                    nextFocus: fallback,
-                    nextSlots: nextSlots
-                };
-            },
+            () => ({
+                nodes: data.nodes.filter(n => n.uuid !== focusNode.uuid),
+                links: data.links.filter(l => l.source.uuid !== focusNode.uuid && l.target.uuid !== focusNode.uuid),
+                nextFocus: fallback,
+                nextSlots: slots.map(s => (s && s.uuid === focusNode.uuid) ? null : s)
+            }),
             () => {
                 const del = focusNode;
-                slots.forEach((s, i) => { if(s && s.uuid === del.uuid) slots[i]=null; });
+                slots = slots.map(s => (s && s.uuid === del.uuid) ? null : s);
                 data.links = data.links.filter(l => l.source.uuid !== del.uuid && l.target.uuid !== del.uuid);
                 data.nodes = data.nodes.filter(n => n.uuid !== del.uuid);
                 navigateTo(fallback, false, false);
@@ -396,15 +372,8 @@
 
     function safeDeleteLink(link) {
         executeSafeAction(
-            () => ({
-                nodes: data.nodes,
-                links: data.links.filter(l => l !== link),
-                nextFocus: focusNode,
-                nextSlots: slots
-            }),
-            () => {
-                data.links = data.links.filter(l => l !== link);
-            }
+            () => ({ nodes: data.nodes, links: data.links.filter(l => l !== link), nextFocus: focusNode, nextSlots: slots }),
+            () => { data.links = data.links.filter(l => l !== link); restartSim(); }
         );
     }
 
@@ -430,7 +399,7 @@
         }
     }
 
-    // --- 3. D3 & Render (Standard) ---
+    // --- 3. D3 & Render ---
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     let width = window.innerWidth - 340, height = window.innerHeight;
@@ -458,6 +427,10 @@
         viewY += ((-focusNode.y * viewK + targetY) - viewY) * 0.1;
         if (keyState['<']) targetRotation += 0.05;
         if (keyState['>']) targetRotation -= 0.05;
+        if ((keyState['<'] || keyState['>']) && previewNode) {
+            previewNode = null;
+            hideTooltip();
+        }
         let diff = targetRotation - viewRotation;
         while (diff > Math.PI) diff -= 2 * Math.PI; while (diff < -Math.PI) diff += 2 * Math.PI;
         viewRotation += diff * 0.1;
@@ -495,6 +468,45 @@
         if (hoverNode && hoverNode !== focusNode) addNeighbors(hoverNode, 1);
         if (previewNode && previewNode !== focusNode) addNeighbors(previewNode, 1);
 
+        // 动态更新模拟范围（计算更大范围以保持稳定）
+        const SIMULATION_LAYERS = 7; // 始终计算 7 层节点
+        const simulationTargets = new Set();
+        const addSimulationNeighbors = (startNode, depth) => {
+            if(!startNode) return;
+            let queue = [{n: startNode, d: 0}];
+            simulationTargets.add(startNode.uuid);
+            let head = 0;
+            while(head < queue.length) {
+                const {n, d} = queue[head++];
+                if (d >= depth) continue;
+                data.links.forEach(l => {
+                    const s = l.source, t = l.target;
+                    if (s.uuid === n.uuid) {
+                        if(!simulationTargets.has(t.uuid)) { 
+                            simulationTargets.add(t.uuid); 
+                            queue.push({n: t, d: d+1}); 
+                        }
+                    } else if (t.uuid === n.uuid) {
+                        if(!simulationTargets.has(s.uuid)) { 
+                            simulationTargets.add(s.uuid); 
+                            queue.push({n: s, d: d+1}); 
+                        }
+                    }
+                });
+            }
+        };
+        if (focusNode) addSimulationNeighbors(focusNode, SIMULATION_LAYERS);
+        const activeNodes = data.nodes.filter(n => simulationTargets.has(n.uuid));
+        const activeLinks = data.links.filter(l => 
+            simulationTargets.has(l.source.uuid) && simulationTargets.has(l.target.uuid)
+        );
+        simulation.nodes(activeNodes);
+        simulation.force("link").links(activeLinks);
+        // 温和重启
+        if (simulation.alpha() < 0.1) {
+            simulation.alpha(0.3).restart();
+        }
+
         let visibleCount = 0;
 
         data.links.forEach(link => {
@@ -509,19 +521,16 @@
             if (link.alpha > 0.01) {
                 const src = link.source, tgt = link.target;
                 const isFocusLink = (src === focusNode || tgt === focusNode);
-                const isPreviewLink = (src === previewNode || tgt === previewNode || src === hoverNode || tgt === hoverNode);
-
-                ctx.globalAlpha = link.alpha * (isFocusLink || isPreviewLink ? 0.9 : 0.2);
-                ctx.lineWidth = (isFocusLink || isPreviewLink) ? 2.5 : 1;
+                ctx.globalAlpha = link.alpha * (isFocusLink ? 0.9 : 0.2);
+                ctx.lineWidth = isFocusLink ? 2.5 : 1;
                 const typeColor = RELATION_PRESETS.find(p=>p.val===link.type)?.color || '#666';
 
                 const grad = ctx.createLinearGradient(src.x, src.y, tgt.x, tgt.y);
                 grad.addColorStop(0, typeColor); grad.addColorStop(0.7, "#444"); grad.addColorStop(1, "#222");
                 ctx.strokeStyle = grad;
-
                 ctx.beginPath(); ctx.moveTo(src.x, src.y); ctx.lineTo(tgt.x, tgt.y); ctx.stroke();
-
-                if (link.type && (isFocusLink || isPreviewLink)) {
+                
+                if (link.type && isFocusLink) {
                      const mx = (src.x+tgt.x)/2, my = (src.y+tgt.y)/2;
                      ctx.save(); ctx.translate(mx, my); ctx.rotate(-viewRotation);
                      ctx.fillStyle = typeColor; ctx.font = "11px Arial"; ctx.textAlign="center";
@@ -556,18 +565,13 @@
                 ctx.fillStyle = node.color || DEFAULT_NODE_COLOR;
 
                 if(isFocus) {
-                    ctx.shadowBlur = 35;
-                    ctx.shadowColor = isFull ? "#ff4d4d" : ctx.fillStyle;
+                    ctx.shadowBlur = 35; ctx.shadowColor = isFull ? "#ff4d4d" : ctx.fillStyle;
                 } else if(isPreview) {
-                    ctx.shadowBlur = 20;
-                    ctx.shadowColor = ctx.fillStyle;
+                    ctx.shadowBlur = 20; ctx.shadowColor = ctx.fillStyle;
                 }
 
-                if (isFull && isFocus) {
-                     ctx.strokeStyle = "#ff4d4d"; ctx.lineWidth = 3; ctx.stroke();
-                } else if(isSlot && !isFocus) {
-                    ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
-                }
+                if (isFull && isFocus) { ctx.strokeStyle = "#ff4d4d"; ctx.lineWidth = 3; ctx.stroke(); }
+                else if(isSlot && !isFocus) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke(); }
 
                 ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle = "transparent";
 
@@ -587,7 +591,6 @@
         document.getElementById('visible-count').innerText = visibleCount;
         requestAnimationFrame(render);
     }
-    simulation.on("tick", () => {});
     requestAnimationFrame(render);
 
     // --- 4. Interaction ---
@@ -600,8 +603,7 @@
             if(other) {
                 const rawAngle = Math.atan2(other.y - focusNode.y, other.x - focusNode.x);
                 let visualAngle = rawAngle + viewRotation;
-                while(visualAngle > Math.PI) visualAngle -= 2*Math.PI;
-                while(visualAngle <= -Math.PI) visualAngle += 2*Math.PI;
+                while(visualAngle > Math.PI) visualAngle -= 2*Math.PI; while(visualAngle <= -Math.PI) visualAngle += 2*Math.PI;
                 neighbors.push({ node: other, vAngle: visualAngle, rawAngle: rawAngle });
             }
         });
@@ -612,26 +614,62 @@
     function cyclePreview(dir) {
         const neighbors = getNeighborsWithAngle();
         if (neighbors.length === 0) return;
-
-        let currentIdx = -1;
-        if (previewNode) currentIdx = neighbors.findIndex(n => n.node.uuid === previewNode.uuid);
-
-        if (currentIdx === -1) {
-            let minDiff = Infinity;
-            neighbors.forEach((n, i) => {
-                let diff = Math.abs(n.vAngle - (-Math.PI/2));
-                if(diff > Math.PI) diff = 2*Math.PI - diff;
-                if(diff < minDiff) { minDiff = diff; currentIdx = i; }
-            });
-            dir = 0;
+        
+        // 重置 tooltip 位置（清除之前的鼠标模式定位）
+        hideTooltip()
+        
+        const UP_ANGLE = -Math.PI / 2; // 屏幕正上方的角度
+        const EXACT_THRESHOLD = 5 * Math.PI / 180; // 5度的容差
+        
+        // 检查是否有节点正好在正上方
+        const exactMatch = neighbors.find(n => Math.abs(n.vAngle - UP_ANGLE) < EXACT_THRESHOLD);
+        
+        // 如果当前正在预览正上方的节点，且用户再次按下预览键，应该跳过它
+        const shouldSkipExact = exactMatch && previewNode && previewNode.uuid === exactMatch.node.uuid;
+        
+        // 如果有正上方的节点，且当前没在预览它（或应该跳过），优先选择它
+        if (exactMatch && !shouldSkipExact) {
+            previewNode = exactMatch.node;
+            setTargetRotation(-Math.PI/2 - exactMatch.rawAngle);
+            showTooltip(`<strong>预览: ${previewNode.label}</strong><br>${previewNode.summary||''}<br><span style='color:#af4cae'>按 <span class="key">↑</span> <span class="key">/</span> 跳转</span>`, 0, 0, 'fixed');
+            return;
         }
-
-        let nextIdx = (currentIdx + dir + neighbors.length) % neighbors.length;
-        const target = neighbors[nextIdx];
-
-        setTargetRotation(-Math.PI/2 - target.rawAngle);
-        previewNode = target.node;
-        showTooltip(`<strong>预览: ${previewNode.label}</strong><br>${previewNode.summary||''}<br><span style='color:#af4cae'>按 <span class="key">↑</span> <span class="key">/</span> 跳转</span>`, 0, 0, 'fixed');
+        
+        // 否则，按方向查找下一个节点
+        // dir = 1: 顺时针（找角度更大的）, dir = -1: 逆时针（找角度更小的）
+        let targetNode = null;
+        
+        if (dir > 0) {
+            // 顺时针：找第一个角度 > UP_ANGLE 的节点
+            targetNode = neighbors.find(n => n.vAngle > UP_ANGLE && (!shouldSkipExact || n.node.uuid !== exactMatch.node.uuid));
+            // 如果没找到，循环到开头
+            if (!targetNode) {
+                targetNode = neighbors.find(n => (!shouldSkipExact || !exactMatch || n.node.uuid !== exactMatch.node.uuid));
+            }
+        } else {
+            // 逆时针：找最后一个角度 < UP_ANGLE 的节点
+            for (let i = neighbors.length - 1; i >= 0; i--) {
+                if (neighbors[i].vAngle < UP_ANGLE && (!shouldSkipExact || neighbors[i].node.uuid !== exactMatch.node.uuid)) {
+                    targetNode = neighbors[i];
+                    break;
+                }
+            }
+            // 如果没找到，循环到末尾
+            if (!targetNode) {
+                for (let i = neighbors.length - 1; i >= 0; i--) {
+                    if (!shouldSkipExact || !exactMatch || neighbors[i].node.uuid !== exactMatch.node.uuid) {
+                        targetNode = neighbors[i];
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if (targetNode) {
+            previewNode = targetNode.node;
+            setTargetRotation(-Math.PI/2 - targetNode.rawAngle);
+            showTooltip(`<strong>预览: ${previewNode.label}</strong><br>${previewNode.summary||''}<br><span style='color:#af4cae'>按 <span class="key">↑</span> <span class="key">/</span> 跳转</span>`, 0, 0, 'fixed');
+        }
     }
 
     function setTargetRotation(target) {
@@ -647,63 +685,95 @@
             tooltipEl.className = ''; tooltipEl.style.left = (x + 15) + 'px'; tooltipEl.style.top = (y + 15) + 'px'; tooltipEl.style.transform = 'none';
         } else { tooltipEl.className = 'fixed-mode'; }
     }
-    function hideTooltip() { tooltipEl.style.opacity = 0; }
-    function screenToWorld(sx, sy) {
-        let x = sx - width/2, y = sy - height/2;
-        const cos = Math.cos(-viewRotation), sin = Math.sin(-viewRotation);
-        let rx = x * cos - y * sin; let ry = x * sin + y * cos;
-        return { x: (rx + width/2 - viewX) / viewK, y: (ry + height/2 - viewY) / viewK };
+    function hideTooltip() {
+        tooltipEl.style.opacity = 0;
+        tooltipEl.className = '';
+        tooltipEl.style.left = '';
+        tooltipEl.style.top = '';
+        tooltipEl.style.transform = '';
     }
 
+    // 还原准确的屏幕转世界坐标函数
+    function screenToWorld(sx, sy) {
+        let x = sx - width/2, y = sy - height/2;
+        // 逆向旋转
+        const cos = Math.cos(-viewRotation), sin = Math.sin(-viewRotation);
+        let rx = x * cos - y * sin; let ry = x * sin + y * cos;
+        // 逆向位移和缩放
+        return { x: (rx + width/2 - viewX) / viewK, y: (ry + height/2 - viewY) / viewK };
+    }
+    // 鼠标事件
     canvas.addEventListener('mousemove', e => {
+        // 如果模态框打开，阻止画布交互
+        if (document.getElementById('content-modal').classList.contains('active')) return;
         const pos = screenToWorld(e.clientX, e.clientY);
+        
+        // 查找鼠标下的节点 (检查半径约 24px)
         const found = data.nodes.find(n => {
             return n.alpha > 0.5 && (n.x-pos.x)**2 + (n.y-pos.y)**2 < 600;
         });
-
         if(found && found !== focusNode) {
             hoverNode = found;
-            previewNode = null;
-            showTooltip(`<strong>${hoverNode.label}</strong><br>${hoverNode.summary||''}<br><span style='color:#666'>点击跳转</span>`, e.clientX, e.clientY, 'mouse');
+            previewNode = null; // 鼠标悬浮优先于键盘预览
+            
+            // 使用 marked 解析摘要，如果没引入 marked 则直接显示文本
+            const summaryText = found.summary || '';
+            const summaryHtml = typeof marked !== 'undefined' ? marked.parseInline(summaryText) : summaryText;
+            
+            showTooltip(`<strong>${found.label}</strong><br>${summaryHtml}<br><span style='color:#666'>点击跳转</span>`, e.clientX, e.clientY, 'mouse');
         } else {
             hoverNode = null;
             if (!previewNode) hideTooltip();
         }
     });
 
-    canvas.addEventListener('click', e => {
-        if(hoverNode) {
-            safeNavigate(hoverNode);
-        }
-    });
+    canvas.addEventListener('click', e => { if(hoverNode) safeNavigate(hoverNode); });
     canvas.addEventListener('wheel', e => { e.preventDefault(); viewK -= e.deltaY * 0.001; viewK = Math.max(0.1, Math.min(5, viewK)); }, { passive: false });
 
+    // 键盘事件处理
     window.addEventListener('keydown', e => {
-        keyState[e.key] = true; if (e.shiftKey) keyState['Shift'] = true;
-
-        if (['INPUT','TEXTAREA'].includes(e.target.tagName)) { if(e.key === 'Escape') e.target.blur(); return; }
+        const tag = e.target.tagName;
+        const isInput = (tag === 'INPUT' || tag === 'TEXTAREA');
 
         if (relationPicker.active || slotPicker.active || linkManager.active) {
-             if (relationPicker.active && e.key >= '1' && e.key <= '6') relationPicker.resolve(RELATION_PRESETS[parseInt(e.key)-1].val);
-             if (slotPicker.active && e.key >= '1' && e.key <= '4') slotPicker.resolve(parseInt(e.key)-1);
-             if (linkManager.active && e.key >= '1' && e.key <= '9') { /* handled inside */ }
-             if (e.key === 'Escape') { relationPicker.reject(); slotPicker.reject(); linkManager.close(); }
-             return;
+             if (relationPicker.active) relationPicker.handleInput(e);
+             if (slotPicker.active) slotPicker.handleInput(e);
+             if (linkManager.active) linkManager.handleInput(e);
+             return; // 模态菜单激活时，阻止其他键
         }
+
+        // --- 编辑器内的特殊行为 ---
+        if (isInput) {
+            // Esc: 失去焦点，回到 Canvas
+            if (e.key === 'Escape') {
+                e.target.blur();
+                canvas.focus();
+                return;
+            }
+            // Title Input Enter: 返回 Canvas
+            if (e.key === 'Enter' && e.target.id === 'node-label') {
+                e.preventDefault();
+                e.target.blur();
+                canvas.focus();
+                return;
+            }
+            // 允许默认 Tab 在输入框间切换（浏览器默认行为），但要阻止全局 Tab 触发创建节点
+            if (e.key === 'Tab') {
+                // 不做任何阻止，让它自然切换，但要在下方阻止全局逻辑
+                return;
+            }
+            return; // 其他输入框内的按键不触发全局快捷键
+        }
+
+        // --- 全局快捷键 (非输入状态) ---
+        keyState[e.key] = true; if (e.shiftKey) keyState['Shift'] = true;
 
         const isSlotKey = (e.key >= '1' && e.key <= '4');
         const isShiftSymbol = ['!', '@', '#', '$'].includes(e.key);
 
-        if (isShiftSymbol) {
-            const map = {'!':0, '@':1, '#':2, '$':3};
-            handleSlotStore(map[e.key]); return;
-        }
-        if (e.shiftKey && isSlotKey) {
-            handleSlotStore(parseInt(e.key) - 1); return;
-        }
-        if (!e.shiftKey && isSlotKey) {
-            handleSlot(parseInt(e.key) - 1); return;
-        }
+        if (isShiftSymbol) { handleSlotStore({'!':0, '@':1, '#':2, '$':3}[e.key]); return; }
+        if (e.shiftKey && isSlotKey) { handleSlotStore(parseInt(e.key) - 1); return; }
+        if (!e.shiftKey && isSlotKey) { handleSlot(parseInt(e.key) - 1); return; }
 
         const neighbors = getNeighborsWithAngle();
         switch(e.key) {
@@ -714,29 +784,53 @@
             case 'ArrowDown': case '?': jumpDirection(Math.PI/2, neighbors); break;
             case 'ArrowLeft': jumpDirection(-Math.PI, neighbors); break;
             case 'ArrowRight': jumpDirection(0, neighbors); break;
-            case ' ': e.preventDefault(); document.getElementById('node-content').focus(); break;
             case '.': cyclePreview(1); break; case ',': cyclePreview(-1); break;
             case '=': case '+': viewLayers = Math.max(MIN_VIEW_LAYERS, viewLayers - 1); adjustZoomByLayer(); document.getElementById('layer-indicator').innerText = viewLayers; break;
             case '-': case '_': viewLayers = Math.min(MAX_VIEW_LAYERS, viewLayers + 1); adjustZoomByLayer(); document.getElementById('layer-indicator').innerText = viewLayers; break;
-            case 'n': case 'N': createNewNodeFlow(); break;
-            case 'l': case 'L': linkToSlotFlow(); break;
+            
+            // 新按键映射
+            case 'Tab': 
+            case 'n': case 'N':
+                e.preventDefault();
+                if(e.shiftKey) createIndependentNodeFlow(); // Shift+Tab
+                else createConnectedNodeFlow(); // Tab
+                break;
+            case 'F2': 
+                e.preventDefault(); 
+                const labelInp = document.getElementById('node-label');
+                labelInp.focus(); labelInp.select();
+                break;
+            case ' ': // Space -> Summary
+                e.preventDefault();
+                const sumInp = document.getElementById('node-summary');
+                sumInp.focus(); sumInp.select();
+                break;
+            case 'Enter': // Enter -> Content Modal
+                if(!isInput && focusNode) showContentModal();
+                break;
+            
+            case 'l': case 'L': 
+                if(e.shiftKey) linkToBackFlow(); // Shift+L
+                else linkToSlotFlow(); // L
+                break;
             case 'e': case 'E': linkManager.open(); break;
-            case 'h': case 'H':
+            case 'h': case 'H': 
                 const root = data.nodes.find(n=>n.isRoot);
                 if(root) safeNavigate(root);
                 break;
-            case 'b': case 'B':
+            case 'Escape': case 'b': case 'B':
                 if(navHistory.length) {
                     let target = null;
+                    // 找到上一个不同的节点
                     for(let i = navHistory.length - 1; i >= 0; i--) {
-                        if(data.nodes.find(n => n.uuid === navHistory[i].uuid)) {
+                        if(data.nodes.find(n => n.uuid === navHistory[i].uuid) && navHistory[i].uuid !== focusNode.uuid) {
                             target = navHistory[i]; break;
                         }
                     }
                     if(target) safeNavigate(target, true);
                 }
                 break;
-            case 'd': case 'D': safeDeleteNode(); break;
+            case 'Delete': case 'd': case 'D': safeDeleteNode(); break;
         }
     });
     window.addEventListener('keyup', e => { keyState[e.key] = false; if(e.key==='Shift') keyState['Shift']=false; });
@@ -747,10 +841,9 @@
             let diff = Math.abs(n.vAngle - targetAng); if (diff > Math.PI) diff = 2*Math.PI - diff;
             if (diff < minDiff) { minDiff = diff; best = n.node; }
         });
-        if (best && minDiff < 1.2) {
-            safeNavigate(best);
-        }
+        if (best && minDiff < 1.2) safeNavigate(best);
     }
+    
     function navigateTo(node, record, resetRot) {
         if(!node) return;
         if(focusNode && record && focusNode !== node) { navHistory.push(focusNode); if(navHistory.length>50) navHistory.shift(); }
@@ -759,65 +852,40 @@
         updateUI(); saveToLocal();
     }
 
+    // --- Overlay Menus ---
     const relationPicker = {
-        el: document.getElementById('relation-picker'), active: false, resolve: null, reject: null,
-        // 新增一个 flag 来判断是否是自定义命名模式
-        customNamingMode: false,
-        // 新增一个 _handler 来管理键盘事件
-        _handler: null,
+        el: document.getElementById('relation-picker'), active: false, resolve: null, reject: null, customMode: false,
         show: function() {
             return new Promise((res, rej) => {
-                let html = `<div class="menu-title">选择连接类型 <span style="font-weight:normal; color:#888;">(按 <span class="key">Space</span> 自定义命名)</span></div>`;
-                const firstPresetVal = RELATION_PRESETS.length > 0 ? RELATION_PRESETS[0].val : 'default';
-                html += RELATION_PRESETS.map(p => `<div class="menu-opt" onclick="relationPicker.resolve('${p.val}')"><span class="menu-key" style="color:${p.color}">[${p.key}]</span>${p.label}</div>`).join('');
-                this.el.innerHTML = html; this.el.classList.add('active'); this.active = true;
-                this.customNamingMode = false;
-                this.resolve = (v) => { this.close(); res(v); };
-                this.reject = () => { this.close(); rej(); };
-                // 监听键盘事件
-                this._handler = (e) => {
-                    if (this.active) {
-                        if (e.key >= '1' && e.key <= '6') {
-                            e.preventDefault();
-                            const preset = RELATION_PRESETS[parseInt(e.key) - 1];
-                            if (preset) {
-                                this.resolve(preset.val);
-                            }
-                        } else if (e.key === ' ') {
-                            e.preventDefault();
-                            this.customNamingMode = true;
-                            this.close();
-                            this.resolve('CUSTOM_NAMING_TRIGGERED');
-                        } else if (e.key === 'Enter') {
-                            e.preventDefault();
-                            this.close();
-                            this.resolve(firstPresetVal);
-                        } else if (e.key === 'Escape') {
-                            e.preventDefault();
-                            this.reject();
-                        }
-                    }
-                };
-                window.addEventListener('keydown', this._handler);
+                let html = `<div class="menu-title">选择连接类型 <span style="font-weight:normal; color:#888;">(Space 自定义)</span></div>`;
+                html += RELATION_PRESETS.map(p => `<div class="menu-opt" onclick="relationPicker.pick('${p.val}')"><span class="menu-key" style="color:${p.color}">[${p.key}]</span>${p.label}</div>`).join('');
+                this.el.innerHTML = html; this.el.classList.add('active'); this.active = true; this.customMode = false;
+                this.resolve = res; this.reject = rej;
             });
         },
-        close: function() {
-            this.el.classList.remove('active');
-            this.active = false;
-            if (this._handler) {
-                window.removeEventListener('keydown', this._handler);
-                this._handler = null;
-            }
-        }
+        handleInput: function(e) {
+            if (e.key >= '1' && e.key <= '6') { e.preventDefault(); this.pick(RELATION_PRESETS[parseInt(e.key)-1].val); }
+            else if (e.key === ' ') { e.preventDefault(); this.customMode = true; this.close(); this.resolve('CUSTOM'); }
+            else if (e.key === 'Enter') { e.preventDefault(); this.pick(RELATION_PRESETS[0].val); }
+            else if (e.key === 'Escape') { e.preventDefault(); this.reject(); this.close(); }
+        },
+        pick: function(val) { this.close(); this.resolve(val); },
+        close: function() { this.el.classList.remove('active'); this.active = false; }
     };
     const slotPicker = {
         el: document.getElementById('slot-picker'), active: false, resolve: null, reject: null,
         show: function() { return new Promise((res, rej) => {
                 let html = `<div class="menu-title">按 [1-4] 选择要链接的槽位节点</div>`;
-                slots.forEach((s, i) => { const label = s ? s.label : "<空>"; html += `<div class="menu-opt" onclick="slotPicker.resolve(${i})"><span class="menu-key">[${i+1}]</span> ${label}</div>`; });
+                slots.forEach((s, i) => { const label = s ? s.label : "<空>"; html += `<div class="menu-opt" onclick="slotPicker.pick(${i})"><span class="menu-key">[${i+1}]</span> ${label}</div>`; });
                 this.el.innerHTML = html; this.el.classList.add('active'); this.active = true;
-                this.resolve = (v) => { this.close(); res(v); }; this.reject = () => { this.close(); rej(); };
-        });}, close: function() { this.el.classList.remove('active'); this.active = false; }
+                this.resolve = res; this.reject = rej;
+        });},
+        handleInput: function(e) {
+            if (e.key >= '1' && e.key <= '4') { e.preventDefault(); this.pick(parseInt(e.key)-1); }
+            else if (e.key === 'Escape') { e.preventDefault(); this.reject(); this.close(); }
+        },
+        pick: function(idx) { this.close(); this.resolve(idx); },
+        close: function() { this.el.classList.remove('active'); this.active = false; }
     };
     const linkManager = {
         el: document.getElementById('link-manager'), active: false, currentLinks: [],
@@ -834,82 +902,157 @@
                 html += `<div class="menu-opt" onclick="linkManager.handle(${i})"><span class="menu-key">[${i+1}]</span><span style="color:#666; margin-right:5px;">${dir}</span><span style="flex-grow:1;">${other.label}</span><span style="color:${linkColor}; font-size:10px;">(${l.type})</span><span class="menu-del">✕</span></div>`;
             });
             this.el.innerHTML = html; this.el.classList.add('active'); this.active = true; this.currentLinks = displayLinks;
-            this._handler = (e) => {
-                if (e.key >= '1' && e.key <= Math.min(9, displayLinks.length).toString()) { e.preventDefault(); this.handle(parseInt(e.key) - 1); }
-                if (e.key === 'Escape') { e.preventDefault(); this.close(); }
-            }; window.addEventListener('keydown', this._handler);
+        },
+        handleInput: function(e) {
+            if (e.key >= '1' && e.key <= Math.min(9, this.currentLinks.length).toString()) { e.preventDefault(); this.handle(parseInt(e.key) - 1); }
+            if (e.key === 'Escape') { e.preventDefault(); this.close(); }
         },
         handle: function(idx) {
             const link = this.currentLinks[idx];
             const other = link.source.uuid === focusNode.uuid ? link.target : link.source;
             const action = prompt(`链接到 [${other.label}]\n输入新关系名称，或 'del' 删除:`, link.type);
-            if (action === 'del' || action === 'd') {
-                safeDeleteLink(link);
-            } else if (action) { link.type = action; restartSim(); }
+            if (action === 'del' || action === 'd') { safeDeleteLink(link); }
+            else if (action) { link.type = action; restartSim(); }
             this.close();
         },
-        close: function() { this.el.classList.remove('active'); this.active = false; if(this._handler) window.removeEventListener('keydown', this._handler); }
+        close: function() { this.el.classList.remove('active'); this.active = false; }
     };
-
-    async function createNewNodeFlow() {
+    // --- 5. New Logic Implementation ---
+    // [Tab] 关联新建
+    async function createConnectedNodeFlow() {
         if (getNodeLinkCount(focusNode.uuid) >= MAX_LINKS_PER_NODE) {
-            showFlashMessage(`连接已满 (${MAX_LINKS_PER_NODE}/${MAX_LINKS_PER_NODE}) - 无法创建`); return;
+            showFlashMessage(`连接已满 - 无法创建`); return;
         }
-        const label = prompt("新概念名称："); if(!label) return;
         try {
-            let type = null;
-            let pickerResult = await relationPicker.show();
-            if (relationPicker.customNamingMode) {
-                type = prompt("请输入链接关系名称:");
-                if (!type) {
-                    showFlashMessage("创建链接已取消");
-                    return;
-                }
-            } else {
-                type = pickerResult;
-            }
-            const newNode = { uuid: uuid.v4(), label: label, x: focusNode.x + (Math.random()-.5)*50, y: focusNode.y + (Math.random()-.5)*50, summary: "新概念", color: getRandomColor(), alpha: 0 };
+            let type = await relationPicker.show();
+            if (type === 'CUSTOM') { type = prompt("请输入链接关系名称:"); if (!type) return; }
+            
+            const newNode = { 
+                uuid: uuid.v4(), label: "新概念", 
+                x: focusNode.x + (Math.random()-.5)*100, y: focusNode.y + (Math.random()-.5)*100, 
+                summary: "", content: "", color: getRandomColor(), alpha: 0 
+            };
             data.nodes.push(newNode);
             data.links.push({ source: focusNode, target: newNode, type: type, alpha: 0 });
             restartSim();
             navigateTo(newNode, true, false);
-        } catch(e) {
-            showFlashMessage("创建链接已取消");
-        }
+            focusTitle(); // 自动跳转编辑标题
+        } catch(e) { /* Cancelled */ }
     }
-
-    async function linkToSlotFlow() {
-        if (getNodeLinkCount(focusNode.uuid) >= MAX_LINKS_PER_NODE) {
-            showFlashMessage(`当前节点连接已满`); return;
-        }
-        const slotIdx = await slotPicker.show();
-        const target = slots[slotIdx];
-        if (!target) { showFlashMessage("该槽位为空。"); return; }
-        if (target.uuid === focusNode.uuid) { showFlashMessage("无法自连接。"); return; }
-        if (getNodeLinkCount(target.uuid) >= MAX_LINKS_PER_NODE) {
-            showFlashMessage(`目标节点连接已满`); return;
-        }
-        const exists = data.links.some(l => (l.source.uuid === focusNode.uuid && l.target.uuid === target.uuid) || (l.target.uuid === focusNode.uuid && l.source.uuid === target.uuid));
-        if(exists) { showFlashMessage("链接已存在。"); return; }
-        try {
-            let type = null;
-            let pickerResult = await relationPicker.show();
-            if (relationPicker.customNamingMode) {
-                type = prompt("请输入链接关系名称:");
-                if (!type) {
-                    showFlashMessage("创建链接已取消");
-                    return;
-                }
-            } else {
-                type = pickerResult;
+    // [Shift+Tab] 独立新建
+    function createIndependentNodeFlow() {
+        const newNode = { 
+            uuid: uuid.v4(), label: "独立概念", 
+            x: focusNode.x + 150, y: focusNode.y + 50, 
+            summary: "", content: "", color: getRandomColor(), alpha: 0 
+        };
+        data.nodes.push(newNode);
+        restartSim();
+        navigateTo(newNode, true, false);
+        focusTitle(); // 自动跳转编辑标题
+    }
+    // [Shift+L] 连接到上一个历史节点
+    async function linkToBackFlow() {
+        let target = null;
+        for(let i = navHistory.length - 1; i >= 0; i--) {
+            if(data.nodes.find(n => n.uuid === navHistory[i].uuid) && navHistory[i].uuid !== focusNode.uuid) {
+                target = navHistory[i]; break;
             }
+        }
+        if (!target) { showFlashMessage("没有有效的历史节点"); return; }
+        await createLinkProcess(target);
+    }
+    // [L] 连接到槽位
+    async function linkToSlotFlow() {
+        try {
+            const slotIdx = await slotPicker.show();
+            const target = slots[slotIdx];
+            if (!target) { showFlashMessage("槽位为空"); return; }
+            if (target.uuid === focusNode.uuid) { showFlashMessage("无法自连接"); return; }
+            await createLinkProcess(target);
+        } catch (e) {}
+    }
+    // 通用连接处理（含覆盖逻辑）
+    async function createLinkProcess(target) {
+        // 检查是否存在现有链接（无论方向）
+        const existingLink = data.links.find(l => 
+            (l.source.uuid === focusNode.uuid && l.target.uuid === target.uuid) || 
+            (l.source.uuid === target.uuid && l.target.uuid === focusNode.uuid)
+        );
+        if (existingLink) {
+            // 计算当前请求的方向是否与现有链接相反
+            // 现有: existingLink.source -> existingLink.target
+            // 请求: focusNode -> target
+            const isReverse = existingLink.source.uuid === target.uuid;
+            const directionStr = isReverse ? " (反向覆盖)" : "";
+            if (confirm(`已存在与 [${target.label}] 的链接 (${existingLink.type})。\n要覆盖它吗？${directionStr}`)) {
+                try {
+                    let type = await relationPicker.show();
+                    if (type === 'CUSTOM') { type = prompt("请输入链接关系名称:", existingLink.type); if (!type) return; }
+                    
+                    // 更新类型
+                    existingLink.type = type;
+                    
+                    // 如果方向相反，需要交换 source 和 target 以更新方向
+                    if (isReverse) {
+                        existingLink.source = focusNode;
+                        existingLink.target = target;
+                    }
+                    showFlashMessage("链接关系及方向已更新");
+                    restartSim();
+                } catch(e) {}
+            }
+            return;
+        }
+        // 新建链接的逻辑...
+        if (getNodeLinkCount(focusNode.uuid) >= MAX_LINKS_PER_NODE || getNodeLinkCount(target.uuid) >= MAX_LINKS_PER_NODE) {
+            showFlashMessage(`连接数已满`); return;
+        }
+        try {
+            let type = await relationPicker.show();
+            if (type === 'CUSTOM') { type = prompt("请输入链接关系名称:"); if (!type) return; }
             data.links.push({ source: focusNode, target: target, type: type, alpha: 0 });
             restartSim();
-        } catch(e) {
-            showFlashMessage("创建链接已取消");
-        }
+        } catch(e) {}
     }
-
+    // 聚焦标题并全选
+    function focusTitle() {
+        setTimeout(() => {
+            const el = document.getElementById('node-label');
+            el.focus(); el.select();
+        }, 50);
+    }
+    // --- Content Modal ---
+    const modal = document.getElementById('content-modal');
+    const modalBody = document.getElementById('modal-body');
+    function showContentModal() {
+        if(!focusNode) return;
+        // 使用 marked.js 渲染 Markdown
+        const htmlContent = marked.parse(focusNode.content || "*暂无正文内容*");
+        modalBody.innerHTML = `
+            <div style="font-size:2em; font-weight:bold; color:#4facfe; margin-bottom:10px;">${focusNode.label}</div>
+            <div style="color:#666; font-style:italic; margin-bottom:20px; border-left:3px solid #555; padding-left:10px;">
+                ${focusNode.summary ? marked.parse(focusNode.summary) : '无摘要'}
+            </div>
+            <hr style="border:0; border-bottom:1px solid #333; margin-bottom:20px;">
+            <div style="line-height:1.8; font-size:16px;">${htmlContent}</div>
+            <div style="margin-top:50px; text-align:center; font-size:12px; color:#444;">按 ESC 关闭</div>
+        `;
+        modal.classList.add('active');
+        
+        // 模态框内的按键监听
+        const closeModalHandler = (e) => {
+            if (e.key === 'Escape') {
+                closeContentModal();
+                window.removeEventListener('keydown', closeModalHandler);
+            }
+        };
+        window.addEventListener('keydown', closeModalHandler);
+    }
+    function closeContentModal() {
+        modal.classList.remove('active');
+    }
+    // --- Helpers & UI ---
     function getRandomColor() {
         const h = Math.random(); const s = 1; const v = 1; let r, g, b;
         const i = Math.floor(h * 6); const f = h * 6 - i; const p = v * (1 - s); const q = v * (1 - f * s); const t = v * (1 - (1 - f) * s);
@@ -919,9 +1062,15 @@
         }
         const toHex = (c) => Math.round(c * 255).toString(16).padStart(2, '0'); return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
     }
-
-    const ui = { label: document.getElementById('node-label'), uuid: document.getElementById('node-uuid'), linkStatus: document.getElementById('link-status'), summary: document.getElementById('node-summary'), content: document.getElementById('node-content'), colorInput: document.getElementById('node-color-input'), colorHex: document.getElementById('node-color-hex') };
-
+    const ui = { 
+        label: document.getElementById('node-label'), 
+        uuid: document.getElementById('node-uuid'), 
+        linkStatus: document.getElementById('link-status'), 
+        summary: document.getElementById('node-summary'), 
+        content: document.getElementById('node-content'), 
+        colorInput: document.getElementById('node-color-input'), 
+        colorHex: document.getElementById('node-color-hex') 
+    };
     function updateUI() {
         if(!focusNode) return;
         ui.label.value = focusNode.label;
@@ -930,23 +1079,45 @@
         ui.content.value = focusNode.content || "";
         ui.colorInput.value = focusNode.color || DEFAULT_NODE_COLOR;
         ui.colorHex.value = focusNode.color || DEFAULT_NODE_COLOR;
-
         const count = getNodeLinkCount(focusNode.uuid);
         ui.linkStatus.innerText = `Links: ${count} / ${MAX_LINKS_PER_NODE}`;
         if(count >= MAX_LINKS_PER_NODE) ui.linkStatus.classList.add('full'); else ui.linkStatus.classList.remove('full');
     }
+    // 自定义编辑器 Tab 切换逻辑
+    function handleEditorTab(e, nextId, prevId) {
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            const targetId = e.shiftKey ? prevId : nextId;
+            if (targetId) {
+                const el = document.getElementById(targetId);
+                el.focus();
+                // 如果是文本输入框，全选内容
+                if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') el.select();
+            }
+        }
+    }
     ui.label.addEventListener('input', () => { if(focusNode) { focusNode.label = ui.label.value; updateSlotUI(); saveToLocal(); } });
+    ui.label.addEventListener('keydown', (e) => handleEditorTab(e, 'node-summary', 'node-content'));
     ui.summary.addEventListener('input', () => { if(focusNode) { focusNode.summary = ui.summary.value; saveToLocal(); } });
+    ui.summary.addEventListener('keydown', (e) => handleEditorTab(e, 'node-content', 'node-label'));
     ui.content.addEventListener('input', () => { if(focusNode) { focusNode.content = ui.content.value; saveToLocal(); } });
+    ui.content.addEventListener('keydown', (e) => handleEditorTab(e, 'node-label', 'node-summary'));
     ui.colorInput.addEventListener('input', () => { if(focusNode) { focusNode.color = ui.colorInput.value; ui.colorHex.value = ui.colorInput.value; saveToLocal(); updateSlotUI(); } });
+    
     function restartSim() { simulation.nodes(data.nodes); simulation.force("link").links(data.links); simulation.alpha(1).restart(); saveToLocal(); updateUI(); }
+    
     function saveToLocal() {
         const payload = { data: { nodes: data.nodes.map(n => ({ uuid: n.uuid, label: n.label, isRoot: n.isRoot, x: n.x, y: n.y, summary: n.summary, content: n.content, color: n.color })), links: data.links.map(l => ({ source: l.source.uuid, target: l.target.uuid, type: l.type })) }, slots: slots.map(s => s ? s.uuid : null), viewLayers: viewLayers };
-        localStorage.setItem('stars_v3', JSON.stringify(payload));
+        localStorage.setItem('stars_v4', JSON.stringify(payload));
     }
-    function exportData() { saveToLocal(); const b = new Blob([localStorage.getItem('stars_v3')], {type:'application/json'}); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'stars_v3.json'; a.click(); }
-    function importData(inp) { const f = inp.files[0]; if(f) { const r = new FileReader(); r.onload = e => { localStorage.setItem('stars_v3', e.target.result); location.reload(); }; r.readAsText(f); } }
+    
+    function exportData() { saveToLocal(); const b = new Blob([localStorage.getItem('stars_v4')], {type:'application/json'}); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'stars_v4.json'; a.click(); }
+    
+    function importData(inp) { const f = inp.files[0]; if(f) { const r = new FileReader(); r.onload = e => { localStorage.setItem('stars_v4', e.target.result); location.reload(); }; r.readAsText(f); } }
+    
     window.addEventListener('resize', () => { width=window.innerWidth-340; height=window.innerHeight; canvas.width=width; canvas.height=height; });
+    
+    // Start
     initSystem();
 </script>
 </body>
