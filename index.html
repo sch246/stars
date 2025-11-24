@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>星罗 (Stars v4.0 Refined)</title>
+    <title>星罗 (Stars v4.1 Refined)</title>
     <!-- 引入 D3.js -->
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <!-- 引入 UUID -->
@@ -141,12 +141,35 @@
         #io-controls { position: fixed; bottom: 20px; left: 25px; z-index: 5; display: flex; gap: 10px; }
         button { background: #1a1a1d; color: #777; border: 1px solid #333; padding: 6px 12px; cursor: pointer; font-size: 11px; border-radius: 3px; transition: 0.2s; }
         button:hover { background: #333; color: #fff; border-color: #555; }
+
+        /* --- 预设编辑器样式 --- */
+        #preset-editor {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: #161619; border: 1px solid #333; border-radius: 8px;
+            padding: 20px; width: 500px; max-width: 90%; z-index: 400;
+            display: none; flex-direction: column; gap: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+        }
+        #preset-editor.active { display: flex; }
+        .preset-list { max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+        .preset-row { display: flex; gap: 10px; align-items: center; background: #0a0a0c; padding: 5px; border-radius: 4px; border: 1px solid #222; }
+        .preset-row:hover { border-color: #444; }
+        .preset-input { background: transparent; border: none; color: #ddd; font-family: monospace; font-size: 12px; padding: 4px; border-bottom: 1px solid transparent; }
+        .preset-input:focus { border-bottom-color: #4facfe; }
+        .preset-color { width: 25px; height: 25px; border: none; background: none; cursor: pointer; padding: 0; }
+        .preset-idx { color: #4facfe; font-weight: bold; font-family: monospace; width: 20px; text-align: center; user-select: none; }
+        .preset-del { color: #e74c3c; cursor: pointer; font-weight: bold; padding: 0 5px; user-select: none; }
+        .preset-del:hover { color: #ff6b6b; }
+        .preset-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; border-top: 1px solid #333; padding-top: 10px; }
+        .btn-primary { background: #2980b9; color: white; border-color: #3498db; }
+        .btn-primary:hover { background: #3498db; }
+
     </style>
 </head>
 <body>
 
 <div id="hud">
-    <h1>星罗 <span style="font-size:10px; opacity:0.5">v4.0 Refined</span></h1>
+    <h1>星罗 <span style="font-size:10px; opacity:0.5">v4.1 Refined</span></h1>
     <div id="slot-bar">
         <div class="slot" id="slot-1" onclick="handleSlot(0)"><div class="slot-circle"><span class="slot-num">1</span></div><span class="slot-name">-</span></div>
         <div class="slot" id="slot-2" onclick="handleSlot(1)"><div class="slot-circle"><span class="slot-num">2</span></div><span class="slot-name">-</span></div>
@@ -160,6 +183,7 @@
         <span class="key">L</span> 连接 <span class="key">Shift+L</span> 连接上一个 <span class="key">1-4</span> 交换 <span class="key">Shift+1-4</span> 存入<br>
         <span class="key">↑↓←→ /?</span> 移动 <span class="key">H</span> 回家 <span class="key">B</span> <span class="key">Esc</span> 历史后退<br>
         <span class="key">, .</span> 预览扫描(旋转) <span class="key">&lt; &gt;</span> 自由旋转<br>
+        <span class="key">`</span> 预设管理<br>
         <span class="key">I</span> 隐藏此提示
     </div>
 </div>
@@ -168,6 +192,21 @@
 <div id="relation-picker" class="overlay-menu"></div>
 <div id="link-manager" class="overlay-menu" style="bottom: 150px;"></div>
 <div id="slot-picker" class="overlay-menu" style="bottom: 250px;"></div>
+
+<!-- 新增的预设编辑器 -->
+<div id="preset-editor">
+    <div class="menu-title">预设关系编辑器 <span style="float:right; cursor:pointer" onclick="presetEditor.close()">✕</span></div>
+    <div class="controls" style="margin-bottom:10px; color:#666;">定义常用的连接类型。Value是存入数据的标识，Label是显示名称。</div>
+    <div class="preset-list" id="preset-list-container">
+        <!-- Rows injected by JS -->
+    </div>
+    <div class="preset-actions">
+        <button onclick="presetEditor.add()">+ 新增预设</button>
+        <button class="btn-primary" onclick="presetEditor.saveAndClose()">保存并应用</button>
+    </div>
+</div>
+<!-- 预设编辑器结束 -->
+
 <div id="content-modal" onclick="closeContentModal()"><div id="modal-body" onclick="event.stopPropagation()"></div></div>
 
 <div id="io-controls">
@@ -176,6 +215,8 @@
     <button onclick="resetSystem()">重置系统</button>
     <input type="file" id="importFile" style="display:none" onchange="importData(this)">
     <button onclick="document.getElementById('importFile').click()">导入</button>
+    <!-- 新增的预设管理按钮 -->
+    <button onclick="presetEditor.open()">预设管理</button>
 </div>
 
 <div id="sidebar">
@@ -195,14 +236,17 @@
 
 <script>
     // --- 1. Config ---
-    const RELATION_PRESETS = [
-        { key: '1', label: '包含...', desc: 'comp', val: 'comp', color: '#0062ff' },
-        { key: '2', label: '定义为...', desc: 'def', val: 'def', color: '#00ff00' },
-        { key: '3', label: '直观理解', desc: 'ins', val: 'ins', color: '#33ffff' },
-        { key: '4', label: '计算...', desc: 'calc', val: 'calc', color: '#ffaa00' },
-        { key: '5', label: '意味着...', desc: 'impl', val: 'impl', color: '#bd00ff' },
-        { key: '6', label: '与...正交', desc: 'orth', val: 'orth', color: '#ff0055' },
+    // 默认预设 (val即desc，统一处理)
+    const DEFAULT_PRESETS = [
+        { label: '包含...', val: 'comp', color: '#0062ff' },
+        { label: '定义为...', val: 'def', color: '#00ff00' },
+        { label: '直观理解', val: 'ins', color: '#33ffff' },
+        { label: '计算...', val: 'calc', color: '#ffaa00' },
+        { label: '意味着...', val: 'impl', color: '#bd00ff' },
+        { label: '与...正交', val: 'orth', color: '#ff0055' },
     ];
+    let RELATION_PRESETS = JSON.parse(JSON.stringify(DEFAULT_PRESETS)); // Mutable copy
+    
     const DEFAULT_NODE_COLOR = "#4facfe";
     const MAX_VIEW_LAYERS = 7;
     const MIN_VIEW_LAYERS = 1;
@@ -226,6 +270,13 @@
             try {
                 const raw = JSON.parse(saved);
                 data = raw.data;
+                
+                // --- 新增：加载自定义预设 ---
+                if (raw.presets && Array.isArray(raw.presets)) {
+                    RELATION_PRESETS = raw.presets;
+                }
+                // ------------------------
+
                 const nodeMap = new Map(data.nodes.map(n => [n.uuid, n]));
                 data.links.forEach(l => {
                     if(typeof l.source === 'string') l.source = nodeMap.get(l.source) || l.source;
@@ -236,7 +287,7 @@
                 slots = raw.slots.map(uuid => uuid ? nodeMap.get(uuid) : null);
                 viewLayers = raw.viewLayers || 1;
                 focusNode = data.nodes.find(n => n.isRoot) || data.nodes[0];
-            } catch(e) { createRoot(); }
+            } catch(e) { console.error("Failed to load saved data:", e); createRoot(); } // 添加错误日志
         } else { createRoot(); }
 
         if(!focusNode) createRoot();
@@ -570,6 +621,7 @@
                 const isFocusLink = (src === focusNode || tgt === focusNode);
                 ctx.globalAlpha = link.alpha * (isFocusLink ? 0.9 : 0.2);
                 ctx.lineWidth = isFocusLink ? 2.5 : 1;
+                // 使用 RELATION_PRESETS 中的 color
                 const typeColor = RELATION_PRESETS.find(p=>p.val===link.type)?.color || '#666';
 
                 const grad = ctx.createLinearGradient(src.x, src.y, tgt.x, tgt.y);
@@ -581,7 +633,9 @@
                      const mx = (src.x+tgt.x)/2, my = (src.y+tgt.y)/2;
                      ctx.save(); ctx.translate(mx, my); ctx.rotate(-viewRotation);
                      ctx.fillStyle = typeColor; ctx.font = "11px Arial"; ctx.textAlign="center";
-                     ctx.fillText(link.type, 0, -8); ctx.restore();
+                     // 显示 label
+                     const linkLabel = RELATION_PRESETS.find(p=>p.val===link.type)?.label || link.type;
+                     ctx.fillText(linkLabel, 0, -8); ctx.restore();
                 }
             }
         });
@@ -855,6 +909,13 @@
             // 对于其他键，我们直接返回，不执行任何全局逻辑。
             return;
         }
+
+        // 编辑器激活时，允许输入，但 ESC 关闭
+        if (presetEditor.active) {
+            if (e.key === 'Escape') presetEditor.close();
+            return; // 关键：在编辑器打开时，停止处理底层的快捷键
+        }
+
         const tag = e.target.tagName;
         const isInput = (tag === 'INPUT' || tag === 'TEXTAREA');
 
@@ -890,6 +951,14 @@
 
         // --- 全局快捷键 (非输入状态) ---
         keyState[e.key] = true; if (e.shiftKey) keyState['Shift'] = true;
+        
+        // ` 键：预设管理
+        if (e.key === '`') {
+            e.preventDefault();
+            presetEditor.open();
+            return;
+        }
+
 
         const isSlotKey = (e.key >= '1' && e.key <= '4');
         const isShiftSymbol = ['!', '@', '#', '$'].includes(e.key);
@@ -986,15 +1055,34 @@
         show: function() {
             return new Promise((res, rej) => {
                 let html = `<div class="menu-title">选择连接类型 <span style="font-weight:normal; color:#888;">(Space 自定义)</span></div>`;
-                html += RELATION_PRESETS.map(p => `<div class="menu-opt" onclick="relationPicker.pick('${p.val}')"><span class="menu-key" style="color:${p.color}">[${p.key}]</span>${p.label}</div>`).join('');
+                // 动态生成索引 [1]..[9] (最多9个)
+                html += RELATION_PRESETS.slice(0, 9).map((p, i) => { // 只处理前9个预设
+                    const idxKey = i + 1;
+                    // 兼容旧逻辑，val即type
+                    return `<div class="menu-opt" onclick="relationPicker.pick('${p.val}')"><span class="menu-key" style="color:${p.color}">[${idxKey}]</span>${p.label}</div>`;
+                }).join('');
+
+                // 如果有超过9个预设，显示额外的列表项，但不再提供数字快捷键
+                if (RELATION_PRESETS.length > 9) {
+                    html += `<div class="menu-title" style="margin-top:10px;">更多 (无快捷键)</div>`;
+                    html += RELATION_PRESETS.slice(9).map((p, i) => {
+                        return `<div class="menu-opt" onclick="relationPicker.pick('${p.val}')"><span class="menu-key" style="visibility:hidden;">[]</span>${p.label}</div>`;
+                    }).join('');
+                }
+
                 this.el.innerHTML = html; this.el.classList.add('active'); this.active = true; this.customMode = false;
                 this.resolve = res; this.reject = rej;
             });
         },
         handleInput: function(e) {
-            if (e.key >= '1' && e.key <= '6') { e.preventDefault(); this.pick(RELATION_PRESETS[parseInt(e.key)-1].val); }
+            const num = parseInt(e.key);
+            // 限制数字键只能选择前 9 个预设
+            if (!isNaN(num) && num >= 1 && num <= Math.min(9, RELATION_PRESETS.length)) { 
+                e.preventDefault(); 
+                this.pick(RELATION_PRESETS[num-1].val); 
+            }
             else if (e.key === ' ') { e.preventDefault(); this.customMode = true; this.close(); this.resolve('CUSTOM'); }
-            else if (e.key === 'Enter') { e.preventDefault(); this.pick(RELATION_PRESETS[0].val); }
+            else if (e.key === 'Enter') { e.preventDefault(); if(RELATION_PRESETS.length>0) this.pick(RELATION_PRESETS[0].val); }
             else if (e.key === 'Escape') { e.preventDefault(); this.reject(); this.close(); }
         },
         pick: function(val) { this.close(); this.resolve(val); },
@@ -1025,9 +1113,11 @@
             const displayLinks = links.slice(0, 9);
             displayLinks.forEach((l, i) => {
                 const other = l.source.uuid === focusNode.uuid ? l.target : l.source;
-                const linkColor = RELATION_PRESETS.find(p=>p.val===l.type)?.color || '#666';
+                const linkPreset = RELATION_PRESETS.find(p=>p.val===l.type);
+                const linkColor = linkPreset?.color || '#666';
+                const linkLabel = linkPreset?.label || l.type; // 显示 label
                 const dir = l.source.uuid === focusNode.uuid ? "→" : "←";
-                html += `<div class="menu-opt" onclick="linkManager.handle(${i})"><span class="menu-key">[${i+1}]</span><span style="color:#666; margin-right:5px;">${dir}</span><span style="flex-grow:1;">${other.label}</span><span style="color:${linkColor}; font-size:10px;">(${l.type})</span><span class="menu-del">✕</span></div>`;
+                html += `<div class="menu-opt" onclick="linkManager.handle(${i})"><span class="menu-key">[${i+1}]</span><span style="color:#666; margin-right:5px;">${dir}</span><span style="flex-grow:1;">${other.label}</span><span style="color:${linkColor}; font-size:10px;">(${linkLabel})</span><span class="menu-del">✕</span></div>`;
             });
             this.el.innerHTML = html; this.el.classList.add('active'); this.active = true; this.currentLinks = displayLinks;
         },
@@ -1038,13 +1128,98 @@
         handle: function(idx) {
             const link = this.currentLinks[idx];
             const other = link.source.uuid === focusNode.uuid ? link.target : link.source;
-            const action = prompt(`链接到 [${other.label}]\n输入新关系名称，或 'del' 删除:`, link.type);
+            const currentPreset = RELATION_PRESETS.find(p => p.val === link.type);
+            const action = prompt(`链接到 [${other.label}]\n输入新关系名称，或 'del' 删除:`, currentPreset?.label || link.type); // 提示显示 label
             if (action === 'del' || action === 'd') { safeDeleteLink(link); }
-            else if (action) { link.type = action; restartSim(); }
+            else if (action) { 
+                // 查找用户输入的新关系名对应的 val
+                const newPreset = RELATION_PRESETS.find(p => p.label === action);
+                link.type = newPreset ? newPreset.val : action; // 如果找到预设，用预设的val，否则直接用输入作为type
+                restartSim(); 
+            }
             this.close();
         },
         close: function() { this.el.classList.remove('active'); this.active = false; }
     };
+    
+    // --- 新增的预设编辑器 ---
+    const presetEditor = {
+        el: document.getElementById('preset-editor'),
+        listEl: document.getElementById('preset-list-container'),
+        active: false,
+        tempPresets: [], // 编辑时的临时数据
+
+        open: function() {
+            if (this.active) return;
+            // 深度拷贝当前配置用于编辑
+            this.tempPresets = JSON.parse(JSON.stringify(RELATION_PRESETS));
+            this.renderList();
+            this.el.classList.add('active');
+            this.active = true;
+        },
+
+        renderList: function() {
+            this.listEl.innerHTML = '';
+            this.tempPresets.forEach((p, i) => {
+                const row = document.createElement('div');
+                row.className = 'preset-row';
+                row.innerHTML = `
+                    <span class="preset-idx">${i+1}</span>
+                    <input type="color" class="preset-color" value="${p.color}" onchange="presetEditor.update(${i}, 'color', this.value)">
+                    <input type="text" class="preset-input" style="width:120px" placeholder="显示名称 (Label)" value="${p.label}" oninput="presetEditor.update(${i}, 'label', this.value)">
+                    <input type="text" class="preset-input" style="flex:1; color:#aaa;" placeholder="数据值 (Value)" value="${p.val}" oninput="presetEditor.update(${i}, 'val', this.value)">
+                    <span class="preset-del" onclick="presetEditor.remove(${i})">✕</span>
+                `;
+                this.listEl.appendChild(row);
+            });
+        },
+
+        update: function(idx, field, value) {
+            this.tempPresets[idx][field] = value;
+        },
+
+        add: function() {
+            const MAX_PRESET_COUNT = 9; // 设置预设的最大数量
+            if (this.tempPresets.length >= MAX_PRESET_COUNT) {
+                alert(`最多只能设置 ${MAX_PRESET_COUNT} 个预设关系。`);
+                return;
+            }
+            this.tempPresets.push({ label: '新关系', val: 'new_rel', color: getRandomColor() });
+            this.renderList();
+            // 滚动到底部
+            setTimeout(() => this.listEl.scrollTop = this.listEl.scrollHeight, 10);
+        },
+
+        remove: function(idx) {
+            this.tempPresets.splice(idx, 1);
+            this.renderList();
+        },
+
+        saveAndClose: function() {
+            // 验证：Value 不能为空
+            if (this.tempPresets.some(p => !p.val.trim())) {
+                alert("预设的 Value (数据值) 不能为空。"); return;
+            }
+            // 验证：Value 是否重复
+            const values = this.tempPresets.map(p => p.val.trim());
+            const hasDuplicate = new Set(values).size !== values.length;
+            if (hasDuplicate) {
+                alert("预设的 Value (数据值) 不能重复。"); return;
+            }
+
+            RELATION_PRESETS = JSON.parse(JSON.stringify(this.tempPresets));
+            saveToLocal();
+            restartSim(); // 重绘以应用新颜色和可能的新链接标签
+            this.close();
+            showFlashMessage("预设已更新");
+        },
+
+        close: function() {
+            this.el.classList.remove('active');
+            this.active = false;
+        }
+    };
+    // 预设编辑器结束 ---
 
     // --- Resize Sidebar ---
 
@@ -1100,7 +1275,13 @@
         }
         try {
             let type = await relationPicker.show();
-            if (type === 'CUSTOM') { type = prompt("请输入链接关系名称:"); if (!type) return; }
+            if (type === 'CUSTOM') { 
+                let customType = prompt("请输入链接关系名称:"); 
+                if (!customType) return; 
+                // 检查自定义类型是否与某个预设的 label 匹配
+                const matchedPreset = RELATION_PRESETS.find(p => p.label === customType);
+                type = matchedPreset ? matchedPreset.val : customType;
+            }
             
             const newNode = { 
                 uuid: uuid.v4(), label: "新概念", 
@@ -1160,10 +1341,18 @@
             // 请求: focusNode -> target
             const isReverse = existingLink.source.uuid === target.uuid;
             const directionStr = isReverse ? " (反向覆盖)" : "";
-            if (confirm(`已存在与 [${target.label}] 的链接 (${existingLink.type})。\n要覆盖它吗？${directionStr}`)) {
+            const currentPreset = RELATION_PRESETS.find(p => p.val === existingLink.type);
+            const currentLinkLabel = currentPreset ? currentPreset.label : existingLink.type;
+
+            if (confirm(`已存在与 [${target.label}] 的链接 (${currentLinkLabel}).\n要覆盖它吗？${directionStr}`)) {
                 try {
                     let type = await relationPicker.show();
-                    if (type === 'CUSTOM') { type = prompt("请输入链接关系名称:", existingLink.type); if (!type) return; }
+                    if (type === 'CUSTOM') { 
+                        let customType = prompt("请输入链接关系名称:", currentLinkLabel); 
+                        if (!customType) return; 
+                        const matchedPreset = RELATION_PRESETS.find(p => p.label === customType);
+                        type = matchedPreset ? matchedPreset.val : customType;
+                    }
                     
                     // 更新类型
                     existingLink.type = type;
@@ -1185,7 +1374,12 @@
         }
         try {
             let type = await relationPicker.show();
-            if (type === 'CUSTOM') { type = prompt("请输入链接关系名称:"); if (!type) return; }
+            if (type === 'CUSTOM') { 
+                let customType = prompt("请输入链接关系名称:"); 
+                if (!customType) return; 
+                const matchedPreset = RELATION_PRESETS.find(p => p.label === customType);
+                type = matchedPreset ? matchedPreset.val : customType;
+            }
             data.links.push({ source: focusNode, target: target, type: type, alpha: 0 });
             restartSim();
         } catch(e) {}
@@ -1284,7 +1478,15 @@
     function restartSim() { simulation.nodes(data.nodes); simulation.force("link").links(data.links); simulation.alpha(1).restart(); saveToLocal(); updateUI(); }
     
     function saveToLocal() {
-        const payload = { data: { nodes: data.nodes.map(n => ({ uuid: n.uuid, label: n.label, isRoot: n.isRoot, x: n.x, y: n.y, summary: n.summary, content: n.content, color: n.color })), links: data.links.map(l => ({ source: l.source.uuid, target: l.target.uuid, type: l.type })) }, slots: slots.map(s => s ? s.uuid : null), viewLayers: viewLayers };
+        const payload = { 
+            data: { 
+                nodes: data.nodes.map(n => ({ uuid: n.uuid, label: n.label, isRoot: n.isRoot, x: n.x, y: n.y, summary: n.summary, content: n.content, color: n.color })), 
+                links: data.links.map(l => ({ source: l.source.uuid, target: l.target.uuid, type: l.type })) 
+            }, 
+            slots: slots.map(s => s ? s.uuid : null), 
+            viewLayers: viewLayers,
+            presets: RELATION_PRESETS // --- 新增：保存预设 ---
+        };
         localStorage.setItem('stars_v4', JSON.stringify(payload));
     }
     
