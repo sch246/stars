@@ -829,7 +829,7 @@
         if (found) {
             hoverNode = found; previewNode = null;
             const summaryText = found.summary || '';
-            const summaryHtml = typeof marked !== 'undefined' ? marked.parseInline(summaryText) : summaryText;
+            const summaryHtml = typeof marked !== 'undefined' ? marked.parse(summaryText) : summaryText;
             showTooltip(`<strong>${found.label}</strong><br>${summaryHtml}<br><span style='color:#666'>点击跳转</span>`, e.clientX, e.clientY, 'mouse');
         } else {
             hoverNode = null;
@@ -1118,7 +1118,7 @@
     function closeContentModal() { modal.classList.remove('active'); }
 
     function getRandomColor() {
-        const h = Math.random(); const s = 1; const v = 1; let r, g, b;
+        const h = Math.random(); const s = Math.random(); const v = 1; let r, g, b;
         const i = Math.floor(h * 6); const f = h * 6 - i; const p = v * (1 - s); const q = v * (1 - f * s); const t = v * (1 - (1 - f) * s);
         switch (i % 6) {
             case 0: r = v; g = t; b = p; break; case 1: r = q; g = v; b = p; break; case 2: r = p; g = v; b = t; break;
@@ -1288,7 +1288,7 @@
         width = window.innerWidth - currentSidebarWidth; canvas.width = width;
     });
     document.addEventListener('mouseup', () => { if (!isResizing) return; isResizing = false; canvas.style.pointerEvents = 'auto'; document.body.style.cursor = 'default'; });
-    window.addEventListener('resize', () => { canvas.width = window.innerWidth - currentSidebarWidth; canvas.height = window.innerHeight; });
+    window.addEventListener('resize', () => { width=window.innerWidth-340; height=window.innerHeight; canvas.width=width; canvas.height=height; });
     
     initSystem();
 </script>
