@@ -12,16 +12,33 @@
     <style>
         /* --- 基础样式 --- */
         body { margin: 0; overflow: hidden; background-color: #050508; font-family: 'Segoe UI', sans-serif; color: #ddd; }
-        #canvas { display: block; width: calc(100vw - 340px); height: 100vh; cursor: crosshair; outline: none; }
+        #canvas { display: block; width: calc(100vw - var(--sidebar-width, 340px)); height: 100vh; cursor: crosshair; outline: none; }
 
         /* --- 侧边栏 --- */
         #sidebar {
-            position: fixed; right: 0; top: 0; width: 340px; height: 100vh;
+            position: fixed; right: 0; top: 0; 
+            width: var(--sidebar-width, 340px); /* 使用 CSS 变量控制宽度 */
+            height: 100vh;
             background: #111114; border-left: 1px solid #2a2a30;
             padding: 25px; box-sizing: border-box; display: flex; flex-direction: column; z-index: 10;
             box-shadow: -5px 0 20px rgba(0,0,0,0.8);
         }
-        input, textarea { background: transparent; border: none; color: #eee; outline: none; width: 100%; display: block; transition: 0.3s; font-family: 'Segoe UI', sans-serif; }
+        /* 拖动条样式 */
+        #sidebar-resizer {
+            position: fixed; 
+            right: var(--sidebar-width, 340px); /* 位于侧边栏左侧 */
+            top: 0; 
+            width: 8px; /* 拖动条宽度 */
+            height: 100vh;
+            background: #050508; /* 与边框颜色保持一致或稍深 */
+            cursor: ew-resize; /* 左右拖动光标 */
+            z-index: 11; /* 比侧边栏高一点，确保可点击 */
+            transition: background 0.2s; /* 悬停效果 */
+        }
+        #sidebar-resizer:hover {
+            background: #4facfe; /* 悬停时高亮 */
+        }
+        input, textarea { background: transparent; border: none; color: #eee; outline: none; width: 100%; display: block; font-family: 'Segoe UI', sans-serif; }
         input::placeholder, textarea::placeholder { color: #444; font-style: italic; }
         
         #node-label { font-size: 28px; font-weight: 700; margin-bottom: 8px; color: #4facfe; border-bottom: 2px solid #2a2a30; padding-bottom: 8px; }
@@ -90,11 +107,11 @@
         .menu-del { color: #e74c3c; font-size: 11px; margin-left: auto; }
 
         #tooltip { position: absolute; opacity: 0; background: rgba(0, 0, 0, 0.9); padding: 10px 14px; border-radius: 4px; border-left: 3px solid #4facfe; pointer-events: none; color: #ddd; font-size: 12px; transition: opacity 0.15s; z-index: 100; max-width: 280px; box-shadow: 0 4px 15px rgba(0,0,0,0.6);}
-        #tooltip.fixed-mode { top: 70%; left: 50%; transform: translate(-50%, 0) translateX(-170px); text-align: center; border-left: none; border-top: 3px solid #4facfe; }
+        #tooltip.fixed-mode { top: 70%; left: 50%; transform: translate(-50%, 0) translateX(calc(-1 * var(--sidebar-width, 340px) / 2)); text-align: center; border-left: none; border-top: 3px solid #4facfe; }
 
         /* --- 弹窗提示 --- */
         #flash-message {
-            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) translateX(-170px);
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) translateX(calc(-1 * var(--sidebar-width, 340px) / 2));
             background: rgba(255, 0, 0, 0.15); color: #ff4d4d; border: 1px solid #ff4d4d;
             padding: 15px 30px; border-radius: 8px; font-weight: bold; font-size: 14px;
             opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: 200; box-shadow: 0 0 30px rgba(255, 0, 0, 0.2);
@@ -137,12 +154,13 @@
         <div class="slot" id="slot-4" onclick="handleSlot(3)"><div class="slot-circle"><span class="slot-num">4</span></div><span class="slot-name">-</span></div>
     </div>
     <div id="view-controls">视野范围: <span id="layer-indicator">1</span> 层 (按 +/- 调整)<br>当前可见: <span id="visible-count">0</span> 节点</div>
-    <div class="controls">
+    <div id="key-controls" class="controls">
         <span class="key">Tab</span> <span class="key">N</span> 关联新建 <span class="key">Shift+Tab</span> <span class="key">Shift+N</span> 独立新建 <span class="key">D</span> <span class="key">Del</span> 删除<br>
         <span class="key">F2</span> 改名 <span class="key">Space</span> 编辑 <span class="key">Enter</span> 查看 <span class="key">E</span> 连线管理<br>
         <span class="key">L</span> 连接 <span class="key">Shift+L</span> 连接上一个 <span class="key">1-4</span> 交换 <span class="key">Shift+1-4</span> 存入<br>
         <span class="key">↑↓←→ /?</span> 移动 <span class="key">H</span> 回家 <span class="key">B</span> <span class="key">Esc</span> 历史后退<br>
-        <span class="key">, .</span> 预览扫描(旋转) <span class="key">&lt; &gt;</span> 自由旋转
+        <span class="key">, .</span> 预览扫描(旋转) <span class="key">&lt; &gt;</span> 自由旋转<br>
+        <span class="key">I</span> 隐藏此提示
     </div>
 </div>
 
@@ -171,7 +189,7 @@
     </div>
     <textarea id="node-content" placeholder="详细笔记 (Markdown支持)..."></textarea>
 </div>
-
+<div id="sidebar-resizer"></div> 
 <div id="tooltip"></div>
 <canvas id="canvas"></canvas>
 
@@ -199,6 +217,8 @@
     let lastRenderTime = 0;
     const FADE_DURATION = 400;
     const keyState = {};
+
+    let hudVisible = true; // 默认可见
 
     function initSystem() {
         const saved = localStorage.getItem('stars_v4');
@@ -771,7 +791,7 @@
         // 非拖拽时保持原 hover 逻辑
         const pos = screenToWorld(e.clientX, e.clientY);
         const found = data.nodes.find(n => n.alpha > 0.5 && ((n.x-pos.x)**2 + (n.y-pos.y)**2) < 600);
-        if (found && found !== focusNode) {
+        if (found) {
             hoverNode = found;
             previewNode = null;
             const summaryText = found.summary || '';
@@ -829,6 +849,12 @@
 
     // 键盘事件处理
     window.addEventListener('keydown', e => {
+        if (modal.classList.contains('active')) {
+            e.preventDefault(); // 阻止所有按键的默认行为（例如浏览器快捷键）
+            // 这里无需处理 Esc，因为它会被 closeModalHandler 处理并停止传播。
+            // 对于其他键，我们直接返回，不执行任何全局逻辑。
+            return;
+        }
         const tag = e.target.tagName;
         const isInput = (tag === 'INPUT' || tag === 'TEXTAREA');
 
@@ -928,6 +954,11 @@
                 }
                 break;
             case 'Delete': case 'd': case 'D': safeDeleteNode(); break;
+            case 'i': case 'I':
+                e.preventDefault();
+                hudVisible = !hudVisible;
+                document.getElementById('key-controls').style.display = hudVisible ? 'block' : 'none';
+                break;
         }
     });
     window.addEventListener('keyup', e => { keyState[e.key] = false; if(e.key==='Shift') keyState['Shift']=false; });
@@ -1014,6 +1045,53 @@
         },
         close: function() { this.el.classList.remove('active'); this.active = false; }
     };
+
+    // --- Resize Sidebar ---
+
+    let currentSidebarWidth = 340; // 默认侧边栏宽度
+
+    // 设置初始 CSS 变量
+    document.documentElement.style.setProperty('--sidebar-width', `${currentSidebarWidth}px`);
+    // 拖动逻辑
+    let isResizing = false;
+    document.getElementById('sidebar-resizer').addEventListener('mousedown', (e) => {
+        isResizing = true;
+        // 阻止选择文本等默认行为
+        e.preventDefault();
+        // 鼠标拖动时，禁用 canvas 上的事件，避免拖动冲突
+        canvas.style.pointerEvents = 'none';
+        document.body.style.cursor = 'ew-resize'; // 拖动时改变光标
+    });
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+        // 计算新的侧边栏宽度
+        // 鼠标位置 e.clientX 距离屏幕右侧的距离就是侧边栏的新宽度
+        const newWidth = window.innerWidth - e.clientX;
+        
+        // 限制最小和最大宽度
+        const minWidth = 250; 
+        const maxWidth = window.innerWidth * 0.6; // 最大不超过屏幕宽度的60%
+        currentSidebarWidth = Math.max(minWidth, Math.min(newWidth, maxWidth));
+        // 更新 CSS 变量
+        document.documentElement.style.setProperty('--sidebar-width', `${currentSidebarWidth}px`);
+        
+        // 同时更新 canvas 内部的宽度变量，用于D3渲染计算
+        width = window.innerWidth - currentSidebarWidth;
+        canvas.width = width; // 重新设置 canvas 元素的物理宽度
+        // 注意：这里的 width 和 height 变量在 D3 渲染函数中会被使用
+    });
+    document.addEventListener('mouseup', () => {
+        if (!isResizing) return;
+        isResizing = false;
+        canvas.style.pointerEvents = 'auto'; // 恢复 canvas 上的事件
+        document.body.style.cursor = 'default'; // 恢复默认光标
+    });
+    // 窗口大小调整时，也要更新 canvas 的宽度和 sidebar-resizer 的位置
+    window.addEventListener('resize', () => { 
+        canvas.width = window.innerWidth - currentSidebarWidth;
+        canvas.height = window.innerHeight; // 高度始终是视口高度
+    });
+
     // --- 5. New Logic Implementation ---
     // [Tab] 关联新建
     async function createConnectedNodeFlow() {
@@ -1141,6 +1219,8 @@
         const closeModalHandler = (e) => {
             if (e.key === 'Escape') {
                 closeContentModal();
+                e.stopPropagation(); // 阻止事件冒泡到 window 上的其他监听器
+                e.preventDefault(); // 阻止任何潜在的默认行为
                 window.removeEventListener('keydown', closeModalHandler);
             }
         };
