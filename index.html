@@ -2,10 +2,12 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>星罗 (Stars v4.3 Flow)</title>
+    <title>星罗 (Stars v4.4 Flow)</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuid.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
     <style>
         /* --- 基础样式 --- */
         body { margin: 0; overflow: hidden; background-color: #050508; font-family: 'Segoe UI', sans-serif; color: #ddd; }
@@ -112,7 +114,7 @@
         #flash-message.warn { background: rgba(255, 0, 0, 0.15); color: #ff4d4d; border: 1px solid #ff4d4d; }
 
         #content-modal {
-            display: none; position: fixed; top: 0; left: 0; width: calc(100vw - 340px); height: 100vh;
+            display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
             background: rgba(0,0,0,0.85); z-index: 300; justify-content: center; align-items: center;
         }
         #content-modal.active { display: flex; }
@@ -154,12 +156,36 @@
         .preset-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; border-top: 1px solid #333; padding-top: 10px; }
         .btn-primary { background: #2980b9; color: white; border-color: #3498db; }
         .btn-primary:hover { background: #3498db; }
+        /* Modal Body 特定代码块样式 */
+        #modal-body code {
+            background: #282c34; /* atom-one-dark 的背景色 */
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-family: 'Fira Code', 'JetBrains Mono', 'Consolas', monospace; /* 建议使用等宽字体 */
+            color: #abb2bf; /* atom-one-dark 的默认文本色 */
+            font-size: 0.95em; /* 稍微小一点 */
+        }
+        #modal-body pre {
+            background: #282c34;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin-top: 1em;
+            margin-bottom: 1em;
+        }
+        #modal-body pre code {
+            background: none; /* pre 内部的 code 元素不再需要背景 */
+            padding: 0;
+            font-size: 1em; /* pre 内部 code 恢复正常字体大小 */
+            color: #abb2bf;
+            line-height: 1.5;
+        }
     </style>
 </head>
 <body>
 
 <div id="hud">
-    <h1>星罗 <span style="font-size:10px; opacity:0.5">v4.3 Flow</span></h1>
+    <h1>星罗 <span style="font-size:10px; opacity:0.5">v4.4 Flow</span></h1>
     <div id="slot-bar">
         <div class="slot" id="slot-1" onclick="handleSlot(0)" oncontextmenu="clearSlot(0, event)"><div class="slot-circle"><span class="slot-num">1</span></div><span class="slot-name">-</span></div>
         <div class="slot" id="slot-2" onclick="handleSlot(1)" oncontextmenu="clearSlot(1, event)"><div class="slot-circle"><span class="slot-num">2</span></div><span class="slot-name">-</span></div>
@@ -172,7 +198,7 @@
         <span class="key">L</span> <span class="key">前侧键</span> 新建关系 <span class="key">Tab</span> <span class="key">N</span> <span class="key">后侧键</span> 新建节点<br>
         <span class="key">Del</span> <span class="key">D</span> <span class="key">右键</span> 删除关系/节点<br>
         <span class="key">↑↓←→ /?</span> <span class="key">左键</span> 移动 <br>
-        <span class="key">F2</span> 改名 <span class="key">Space</span> 编辑 <span class="key">Enter</span> 查看<br>
+        <span class="key">F2</span> 改名 <span class="key">Space</span> 编辑 <span class="key">Enter</span> <span class="key">左键焦点</span> 查看<br>
         <span class="key">(Shift)1-4</span> (存入)交换 <span class="key">H</span> 回家 <span class="key">B</span> 后退<br>
         <span class="key">, .</span> 预览邻居 <span class="key">< ></span> 自由旋转<br>
         <span class="key">`</span> 关系预设 <span class="key">I</span> 隐藏此提示
@@ -488,7 +514,7 @@
         .force("collide", d3.forceCollide(10))
         .force("center", d3.forceCenter(0, 0))
         .alphaDecay(0.05)
-        .alphaMin(0.05);;
+        .alphaMin(0.05);
 
     const POINTER_FORCE_STRENGTH = 0.25;
     const pointerForce = (() => {
@@ -863,6 +889,8 @@
             simulation.alphaTarget(0.3).restart();
             hoverNode = null; previewNode = null; hideTooltip();
             canvas.style.cursor = 'grabbing';
+        } else {
+            relationPicker.close();
         }
     });
     
@@ -878,7 +906,10 @@
         }
         if (elapsed < 200 && moved < 8) {
             const target = node || pickNodeAtScreen(e.clientX, e.clientY);
-            if (target && target !== focusNode) safeNavigate(target);
+            if (target) {
+                if (target !== focusNode) safeNavigate(target);
+                else showContentModal();
+            };
         }
         drag.active = false; drag.node = null;
     });
@@ -1094,27 +1125,167 @@
 
     const modal = document.getElementById('content-modal');
     const modalBody = document.getElementById('modal-body');
-    function showContentModal() {
-        if(!focusNode) return;
-        const htmlContent = marked.parse(focusNode.content || "*暂无正文内容*");
-        modalBody.innerHTML = `
-            <div style="font-size:2em; font-weight:bold; color:#4facfe; margin-bottom:10px;">${focusNode.label}</div>
-            <div style="color:#666; font-style:italic; margin-bottom:20px; border-left:3px solid #555; padding-left:10px;">
-                ${focusNode.summary ? marked.parse(focusNode.summary) : '无摘要'}
-            </div>
-            <hr style="border:0; border-bottom:1px solid #333; margin-bottom:20px;">
-            <div style="line-height:1.8; font-size:16px;">${htmlContent}</div>
-            <div style="margin-top:50px; text-align:center; font-size:12px; color:#444;">按 ESC 关闭</div>
-        `;
-        modal.classList.add('active');
-        const closeModalHandler = (e) => {
-            if (e.key === 'Escape') {
-                closeContentModal(); e.stopPropagation(); e.preventDefault();
-                window.removeEventListener('keydown', closeModalHandler);
-            }
-        };
-        window.addEventListener('keydown', closeModalHandler);
+    let activeNodeScriptCleanups = []; // 存储当前活动脚本的清理函数
+let activeNodeRunTimes = {};
+function showContentModal() {
+    if (!focusNode) return;
+    // 如果是同一个节点，先清理旧的运行时实例
+    if (activeNodeRunTimes[focusNode.uuid]) {
+        activeNodeRunTimes[focusNode.uuid].unmountFn(); // 调用旧实例的清理函数
+        delete activeNodeRunTimes[focusNode.uuid]; // 从列表中移除
     }
+    // 每次打开模态框时，完全清除旧内容 (包括 DOM 和脚本元素)
+    closeContentModal();
+    const rawMarkdown = focusNode.content || "*暂无正文内容*";
+    const parsedHtml = marked.parse(rawMarkdown);
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = parsedHtml;
+    const scriptsToExecute = [];
+    const scriptElements = tempDiv.querySelectorAll('script');
+    scriptElements.forEach(script => {
+        scriptsToExecute.push(script.textContent);
+        script.remove(); // 从 tempDiv 中移除 script 标签
+    });
+    modalBody.innerHTML = `
+        <div style="font-size:2em; font-weight:bold; color:#4facfe; margin-bottom:10px;">${focusNode.label}</div>
+        <div style="color:#666; font-style:italic; margin-bottom:20px; border-left:3px solid #555; padding-left:10px;">
+            ${focusNode.summary ? marked.parse(focusNode.summary) : '无摘要'}
+        </div>
+        <hr style="border:0; border-bottom:1px solid #333; margin-bottom:20px;">
+        <div id="node-content-host-${focusNode.uuid}" style="line-height:1.8; font-size:16px;">${tempDiv.innerHTML}</div> <!-- 为节点内容创建一个专属容器 -->
+        <div style="margin-top:50px; text-align:center; font-size:12px; color:#444;">按 ESC 关闭</div>
+    `;
+    if (typeof hljs !== 'undefined') {
+        const codeBlocks = modalBody.querySelectorAll('pre code');
+        codeBlocks.forEach((block) => {
+            hljs.highlightElement(block);
+        });
+    }
+    // 获取节点内容的专属容器
+    const nodeContentHost = document.getElementById(`node-content-host-${focusNode.uuid}`);
+    if (!nodeContentHost) {
+        console.error("无法找到节点内容容器，无法执行脚本。");
+        return;
+    }
+    // 存储所有 onUnmount 回调
+    let nodeUnmountCallbacks = [];
+    // 为每个节点脚本创建专属的 NodeRuntime 实例
+    const NodeRuntime = {
+        // --- 生命周期 ---
+        onMount: function(callback) {
+            // onMount 应该立即执行，因为脚本被插入 DOM 后就代表“mounted”
+            try { callback(); } catch(e) { console.error("onMount callback error:", e); }
+        },
+        onUnmount: function(callback) {
+            nodeUnmountCallbacks.push(callback);
+        },
+        // --- 本地存储 ---
+        storage: {
+            _prefix: `node_storage_${focusNode.uuid}_`,
+            set: function(key, value) {
+                try {
+                    localStorage.setItem(this._prefix + key, JSON.stringify(value));
+                    return true;
+                } catch(e) { console.error("NodeStorage set error:", e); return false; }
+            },
+            get: function(key, defaultValue = null) {
+                try {
+                    const item = localStorage.getItem(this._prefix + key);
+                    return item ? JSON.parse(item) : defaultValue;
+                } catch(e) { console.error("NodeStorage get error:", e); return defaultValue; }
+            },
+            remove: function(key) {
+                localStorage.removeItem(this._prefix + key);
+            },
+            clear: function() {
+                // 仅清除当前节点相关的所有存储
+                for (let i = localStorage.length - 1; i >= 0; i--) {
+                    const key = localStorage.key(i);
+                    if (key.startsWith(this._prefix)) {
+                        localStorage.removeItem(key);
+                    }
+                }
+            }
+        },
+        // --- DOM 访问 ---
+        hostElement: nodeContentHost, // 宿主 DOM 元素
+        $: function(selector) {
+            return nodeContentHost.querySelector(selector);
+        },
+        $$: function(selector) {
+            return nodeContentHost.querySelectorAll(selector);
+        },
+        // 允许访问全局 DOM，但推荐使用封装方法
+        document: document,
+        window: window,
+        // --- 节点元数据 ---
+        node: {
+            uuid: focusNode.uuid,
+            label: focusNode.label,
+            color: focusNode.color
+        }
+    };
+    // 记录当前的 NodeRuntime 实例及其清理函数
+    activeNodeRunTimes[focusNode.uuid] = {
+        instance: NodeRuntime,
+        unmountFn: () => {
+            nodeUnmountCallbacks.forEach(callback => {
+                try { callback(); } catch(e) { console.error("onUnmount callback error:", e); }
+            });
+            // 清理注册的清理函数列表，防止重复调用
+            nodeUnmountCallbacks = [];
+        }
+    };
+    scriptsToExecute.forEach((scriptText, index) => {
+        try {
+            // 创建一个包装后的脚本内容字符串
+            // 这个字符串定义了一个 IIFE，接收一个参数 `nodeRuntimeApi`
+            // 然后在 IIFE 内部，将 `nodeRuntimeApi` 赋值给一个名为 `Runtime` 的常量
+            // 这样，原始的 `scriptText` 就可以直接使用 `Runtime` 了
+            const wrappedScriptCode = `
+                (function(nodeRuntimeApi) {
+                    const Runtime = nodeRuntimeApi; // 将传入的参数赋值给内部的 Runtime
+                    ${scriptText} // 原始的脚本内容
+                })(arguments[0]); // 将 Function 构造函数接收的第一个参数传递给 IIFE
+            `;
+            // Function 构造函数可以接受多个字符串参数，最后一个是函数体。
+            // 其余的参数是该函数的参数名。
+            // 我们将它构造为一个函数，它接收一个参数（例如叫 `api`），这个 `api` 就是我们的 `NodeRuntime` 实例。
+            // 然后，我们调用这个构造出来的函数，把 `NodeRuntime` 实例传给它。
+            const dynamicScriptFunc = new Function('api', wrappedScriptCode);
+            dynamicScriptFunc(NodeRuntime); // 调用函数并传入 NodeRuntime 实例
+        } catch (e) {
+            console.error(`执行节点脚本 (Node UUID: ${focusNode.uuid}, Index: ${index}) 时出错:`, e, scriptText);
+            // 可以选择在这里显示一个用户友好的错误消息
+        }
+    });
+    modal.classList.add('active');
+    const closeModalHandler = (e) => {
+        if (e.key === 'Escape') {
+            closeContentModal();
+            e.stopPropagation();
+            e.preventDefault();
+            window.removeEventListener('keydown', closeModalHandler);
+        }
+    };
+    window.addEventListener('keydown', closeModalHandler);
+}
+function closeContentModal() {
+    modal.classList.remove('active');
+    // 检查当前是否有活跃的节点脚本，并调用其 onUnmount
+    if (focusNode && activeNodeRunTimes[focusNode.uuid]) {
+        activeNodeRunTimes[focusNode.uuid].unmountFn();
+        delete activeNodeRunTimes[focusNode.uuid];
+    }
+    // 还需要清除所有非当前节点的运行时，以防万一
+    // 或者我们假设每次 showContentModal 都会清理上一个
+    
+    // 移除所有动态添加的 script 标签
+    const scripts = modalBody.querySelectorAll('script[id^="dynamic-node-script-"]');
+    scripts.forEach(script => script.remove());
+    // 清空模态框的 HTML 内容
+    modalBody.innerHTML = '';
+}
     function closeContentModal() { modal.classList.remove('active'); }
 
     function getRandomColor() {
@@ -1153,16 +1324,16 @@
             if (targetId) { const el = document.getElementById(targetId); el.focus(); if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') el.select(); }
         }
     }
-    ui.label.addEventListener('input', () => { if(focusNode) { focusNode.label = ui.label.value; updateSlotUI(); saveToLocal(); } });
+    ui.label.addEventListener('input', () => { if(focusNode) { focusNode.label = ui.label.value; updateSlotUI(); saveToLocalDebounced(); } });
     ui.label.addEventListener('keydown', (e) => handleEditorTab(e, 'node-summary', 'node-content'));
-    ui.summary.addEventListener('input', () => { if(focusNode) { focusNode.summary = ui.summary.value; saveToLocal(); } });
+    ui.summary.addEventListener('input', () => { if(focusNode) { focusNode.summary = ui.summary.value; saveToLocalDebounced(); } });
     ui.summary.addEventListener('keydown', (e) => handleEditorTab(e, 'node-content', 'node-label'));
-    ui.content.addEventListener('input', () => { if(focusNode) { focusNode.content = ui.content.value; saveToLocal(); } });
+    ui.content.addEventListener('input', () => { if(focusNode) { focusNode.content = ui.content.value; saveToLocalDebounced(); } });
     ui.content.addEventListener('keydown', (e) => handleEditorTab(e, 'node-label', 'node-summary'));
-    ui.colorInput.addEventListener('input', () => { if(focusNode) { focusNode.color = ui.colorInput.value; ui.colorHex.value = ui.colorInput.value; saveToLocal(); updateSlotUI(); } });
+    ui.colorInput.addEventListener('input', () => { if(focusNode) { focusNode.color = ui.colorInput.value; ui.colorHex.value = ui.colorInput.value; saveToLocalDebounced(); updateSlotUI(); } });
     ui.colorHex.addEventListener('input', () => {
         if(focusNode && /^#[0-9A-F]{6}$/i.test(ui.colorHex.value)) {
-             focusNode.color = ui.colorHex.value; ui.colorInput.value = ui.colorHex.value; saveToLocal(); updateSlotUI();
+             focusNode.color = ui.colorHex.value; ui.colorInput.value = ui.colorHex.value; saveToLocalDebounced(); updateSlotUI();
         }
     });
     
@@ -1180,6 +1351,17 @@
         };
         localStorage.setItem('stars_v4', JSON.stringify(payload));
     }
+
+    // 1. 定义防抖工具函数
+    function debounce(func, wait) {
+        let timeout;
+        return function(...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), wait);
+        };
+    }
+    // 2. 创建一个防抖版本的保存函数
+    const saveToLocalDebounced = debounce(saveToLocal, 1000); // 1秒延迟
     
     function exportData() { saveToLocal(); const b = new Blob([localStorage.getItem('stars_v4')], {type:'application/json'}); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'stars_v4.json'; a.click(); }
     
