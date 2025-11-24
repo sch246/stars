@@ -412,6 +412,33 @@
         .force("center", d3.forceCenter(0, 0))
         .alphaDecay(0.01);
 
+    // 拖拽力
+    const POINTER_FORCE_STRENGTH = 0.25; // 可调：吸引强度（越大越“跟手”）
+    const pointerForce = (() => {
+        let node = null;       // 当前被“吸引”的节点
+        let target = null;     // 鼠标对应的世界坐标
+        let strength = POINTER_FORCE_STRENGTH;
+        function force(alpha) {
+            if (!node || !target) return;
+            // 向目标施加加速度（通过修改 vx/vy ），不是直接设置位置
+            const dx = target.x - node.x;
+            const dy = target.y - node.y;
+            // 距离衰减（近处更柔和，远处更明显），避免抖动
+            const dist = Math.hypot(dx, dy);
+            const falloff = 1 - Math.exp(-dist / 120); // 可调半径 120
+            const k = strength * falloff * alpha; // alpha 参与，越“热”越强烈
+            node.vx += dx * k;
+            node.vy += dy * k;
+        }
+        force.initialize = () => {}; // 这里无需初始化节点列表
+        force.node = function(n) { node = n || null; return force; };
+        force.target = function(x, y) { target = (x!=null && y!=null) ? {x, y} : null; return force; };
+        force.strength = function(s) { strength = s; return force; };
+        return force;
+    })();
+    // 注册到模拟器
+    simulation.force('pointerDrag', pointerForce);
+
     function adjustZoomByLayer() {
         const targetK = 1.0 / (Math.pow(viewLayers, 0.7));
         viewK = Math.max(0.15, Math.min(2.5, targetK));
@@ -702,32 +729,102 @@
         // 逆向位移和缩放
         return { x: (rx + width/2 - viewX) / viewK, y: (ry + height/2 - viewY) / viewK };
     }
+    
+    // --- Drag state & helpers ---
+    const DRAG_CLICK_MAX_TIME = 200;   // ms，点击判定最大按住时间
+    const DRAG_CLICK_MAX_DIST = 8;     // px，点击判定最大位移（屏幕空间）
+    const DRAG_HIT_RADIUS2 = 600;      // 与 hover 命中一致（约 24px 半径）
+    let drag = {
+        active: false,      // 是否处于按下期间（不一定是拖拽）
+        node: null,         // 被拖拽的节点（如果按下时在节点上）
+        startSX: 0,         // 按下时屏幕坐标 X
+        startSY: 0,         // 按下时屏幕坐标 Y
+        startTime: 0,       // 按下时刻（performance.now）
+        maxMove: 0          // 按下-抬起期间的最大位移（屏幕空间）
+    };
+    // 命中测试：给定鼠标屏幕坐标，返回命中的可见节点
+    function pickNodeAtScreen(sx, sy, alphaThresh = 0.5) {
+        const pos = screenToWorld(sx, sy);
+        return data.nodes.find(n => {
+            if (n.alpha <= alphaThresh) return false;
+            const dx = n.x - pos.x, dy = n.y - pos.y;
+            return (dx*dx + dy*dy) < DRAG_HIT_RADIUS2;
+        });
+    }
     // 鼠标事件
     canvas.addEventListener('mousemove', e => {
-        // 如果模态框打开，阻止画布交互
         if (document.getElementById('content-modal').classList.contains('active')) return;
+        if (drag.active) {
+            const dx = e.clientX - drag.startSX;
+            const dy = e.clientY - drag.startSY;
+            drag.maxMove = Math.max(drag.maxMove, Math.hypot(dx, dy));
+            if (drag.node) {
+                const w = screenToWorld(e.clientX, e.clientY);
+                pointerForce.target(w.x, w.y); // 仅更新目标，不固定位置
+                // alphaTarget 在按下时已设置，这里无需重复 set
+                hoverNode = null;
+                previewNode = null;
+                hideTooltip();
+            }
+            return;
+        }
+        // 非拖拽时保持原 hover 逻辑
         const pos = screenToWorld(e.clientX, e.clientY);
-        
-        // 查找鼠标下的节点 (检查半径约 24px)
-        const found = data.nodes.find(n => {
-            return n.alpha > 0.5 && (n.x-pos.x)**2 + (n.y-pos.y)**2 < 600;
-        });
-        if(found && found !== focusNode) {
+        const found = data.nodes.find(n => n.alpha > 0.5 && ((n.x-pos.x)**2 + (n.y-pos.y)**2) < 600);
+        if (found && found !== focusNode) {
             hoverNode = found;
-            previewNode = null; // 鼠标悬浮优先于键盘预览
-            
-            // 使用 marked 解析摘要，如果没引入 marked 则直接显示文本
+            previewNode = null;
             const summaryText = found.summary || '';
             const summaryHtml = typeof marked !== 'undefined' ? marked.parseInline(summaryText) : summaryText;
-            
             showTooltip(`<strong>${found.label}</strong><br>${summaryHtml}<br><span style='color:#666'>点击跳转</span>`, e.clientX, e.clientY, 'mouse');
         } else {
             hoverNode = null;
             if (!previewNode) hideTooltip();
         }
     });
+    canvas.addEventListener('mousedown', e => {
+        if (e.button !== 0) return;
+        if (document.getElementById('content-modal').classList.contains('active')) return;
+        const node = pickNodeAtScreen(e.clientX, e.clientY);
+        drag.active = true;
+        drag.node = node || null;
+        drag.startSX = e.clientX;
+        drag.startSY = e.clientY;
+        drag.startTime = performance.now();
+        drag.maxMove = 0;
+        if (drag.node) {
+            const w = screenToWorld(e.clientX, e.clientY);
+            pointerForce.node(drag.node).target(w.x, w.y); // 激活吸引力
+            simulation.alphaTarget(0.3).restart();         // 保持系统“热”
+            hoverNode = null;
+            previewNode = null;
+            hideTooltip();
+            canvas.style.cursor = 'grabbing';
+        }
+    });
+    canvas.addEventListener('mouseup', e => {
+        if (e.button !== 0) return;
+        if (!drag.active) return;
+        const elapsed = performance.now() - drag.startTime;
+        const moved = drag.maxMove;
+        const node = drag.node;
+        if (node) {
+            pointerForce.node(null).target(null); // 关闭吸引力
+            simulation.alphaTarget(0);            // 让系统冷却回稳
+            saveToLocal();
+            canvas.style.cursor = 'crosshair';
+        }
+        // 点击判定（不动也可能触发，但若时间超过阈值就不会触发）
+        if (elapsed < DRAG_CLICK_MAX_TIME && moved < DRAG_CLICK_MAX_DIST) {
+            const target = node || pickNodeAtScreen(e.clientX, e.clientY);
+            if (target && target !== focusNode) {
+                safeNavigate(target);
+            }
+        }
+        drag.active = false;
+        drag.node = null;
+    });
 
-    canvas.addEventListener('click', e => { if(hoverNode) safeNavigate(hoverNode); });
     canvas.addEventListener('wheel', e => { e.preventDefault(); viewK -= e.deltaY * 0.001; viewK = Math.max(0.1, Math.min(5, viewK)); }, { passive: false });
 
     // 键盘事件处理
