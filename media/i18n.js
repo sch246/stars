@@ -55,6 +55,8 @@ const translations = {
         "preset.btnSave": "Save & Apply",
         "preset.input.label": "Display Name (Label)",
         "preset.input.value": "Data Value (Value)",
+        "preset.delete": ", D Delete", // <-- 确保存在
+        "preset.more": "More", // <-- 确保存在
         "fallback.origin": "Origin",
         "fallback.summary": "Workspace Root",
         "fallback.content": "Welcome to Stars in VSCode.",
@@ -117,6 +119,8 @@ const translations = {
         "preset.btnSave": "保存并应用",
         "preset.input.label": "显示名称 (Label)",
         "preset.input.value": "数据值 (Value)",
+        "preset.delete": ", D 删除", // <-- 确保存在
+        "preset.more": "更多", // <-- 确保存在
         "fallback.origin": "起源",
         "fallback.summary": "工作区根节点",
         "fallback.content": "欢迎使用 VSCode 中的星罗系统。",

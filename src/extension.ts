@@ -27,18 +27,16 @@ class StarsPanel {
       
       this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
       
-      this._initData(); // 确保文件路径和监听器先初始化
+      this._initData();
       this._panel.webview.onDidReceiveMessage(
         async (message) => {
           switch (message.command) {
             case 'alert':
-              // 为了兼容性，Webview 不支持原生 alert。这里可以考虑替换为 showInformationMessage
               vscode.window.showInformationMessage(message.text);
               return;
-            case 'ready': // 🔹 前端加载完毕，现在发送数据
+            case 'ready':
               console.log("Stars Extension: Webview ready, sending initial data.");
               
-              // 🔴 新增：发送语言设置
               this._panel.webview.postMessage({ 
                   command: 'setLanguage', 
                   lang: vscode.env.language 
@@ -46,13 +44,12 @@ class StarsPanel {
 
               await this._loadAndSend();
               return;
-            case 'saveData': // 前端请求保存
+            case 'saveData':
               await this._saveToDisk(message.data);
               return;
-            case 'resetSystem': // 接收前端的重置请求
-              await this._saveToDisk(this._createDefaultData()); // 写入默认数据
-              await this._loadAndSend(); // 重新加载并发送
-              // vscode.window.showInformationMessage("Stars: 系统已重置为默认状态。"); // 统一由前端进行提示
+            case 'resetSystem':
+              await this._saveToDisk(this._createDefaultData());
+              await this._loadAndSend();
               return;
           }
         },
@@ -61,44 +58,35 @@ class StarsPanel {
       );
   }
 
-  // 1. 初始化路径
   private async _initData() {
     if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
         const rootUri = vscode.workspace.workspaceFolders[0].uri;
         this._storageUri = vscode.Uri.joinPath(rootUri, '.stars.json');
-        
-        // 启动监听器
         this._setupFileWatcher(rootUri);
     } else {
-        // 🔴 国际化：使用翻译键
         vscode.window.showWarningMessage("Stars: " + (globalThis.t ? globalThis.t('status.noWorkspace') : "Please open a folder to save data."));
     }
   }
 
   private _setupFileWatcher(rootUri: vscode.Uri) {
-      // 创建监听器，只监听 .stars.json
       const pattern = new vscode.RelativePattern(rootUri, '.stars.json');
       this._fileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
       
       this._fileWatcher.onDidChange(async (uri) => {
           if (this._isSaving) {
-              this._isSaving = false; // 重置标志
-              return; // 如果是我们自己保存，则忽略此次文件变化事件
+              this._isSaving = false;
+              return;
           }
           console.log("Stars: External file change detected. Reloading data.");
-          // 如果 Webview 已经存在，才发送消息
           if (StarsPanel.currentPanel?._panel.webview) {
             await this._loadAndSend(); 
           }
       });
-      
       this._disposables.push(this._fileWatcher);
   }
 
-  // 2. 读取磁盘并发送给前端
   private async _loadAndSend() {
       if (!this._storageUri) {
-          // 🔴 国际化：使用翻译键
           vscode.window.showWarningMessage("Stars: " + (globalThis.t ? globalThis.t('status.noWorkspace') : "No workspace folder found, cannot load or save data."));
           return;
       }
@@ -106,14 +94,10 @@ class StarsPanel {
           const fileData = await vscode.workspace.fs.readFile(this._storageUri);
           const jsonString = new TextDecoder().decode(fileData);
           const data = JSON.parse(jsonString);
-          
           this._panel.webview.postMessage({ command: 'loadData', data: data });
-      } catch (e: any) { // e 可以是 Node.js Error 类型
-          // 文件不存在或读取失败，发送默认数据
+      } catch (e: any) {
           console.log(`Stars Extension: Error reading .stars.json: ${e.message}. Sending default data.`);
           const defaultData = this._createDefaultData();
-          // 🔹 关键：如果文件不存在，我们先把它写入磁盘，然后再发送。
-          // 这样确保下次加载时文件已存在，且文件监听器能正常工作。
           await this._saveToDisk(defaultData); 
           this._panel.webview.postMessage({ command: 'loadData', data: defaultData });
       }
@@ -132,12 +116,12 @@ class StarsPanel {
           data: {
               nodes: [{
                   uuid: "origin-root",
-                  label: "Origin", // 🔴 这部分将在前端初始化时被 t() 替换
+                  label: "Origin",
                   isRoot: true,
                   x: 0,
                   y: 0,
-                  summary: "Workspace Root", // 🔴 这部分将在前端初始化时被 t() 替换
-                  content: "Welcome to Stars in VSCode. Start exploring!", // 🔴 这部分将在前端初始化时被 t() 替换
+                  summary: "Workspace Root",
+                  content: "Welcome to Stars in VSCode. Start exploring!",
                   color: "#ffffff"
               }],
               links: []
@@ -148,14 +132,12 @@ class StarsPanel {
       };
   }
 
-  // 3. 保存数据到磁盘
   private async _saveToDisk(data: any) {
       if (!this._storageUri) return;
       try {
-          this._isSaving = true; // 🔴 标记为正在保存
+          this._isSaving = true;
           const jsonString = JSON.stringify(data, null, 2);
           await vscode.workspace.fs.writeFile(this._storageUri, new TextEncoder().encode(jsonString));
-          // 🔴 国际化：使用翻译键
           vscode.window.setStatusBarMessage(globalThis.t ? globalThis.t('status.saved') : "Stars: Saved.", 2000);
       } catch (e) {
           vscode.window.showErrorMessage(`Stars Save Error: ${e}`);
@@ -180,7 +162,7 @@ class StarsPanel {
         enableScripts: true,
         retainContextWhenHidden: true,
         localResourceRoots: [
-          vscode.Uri.joinPath(extensionUri, 'media'), // 允许访问 media 文件夹下的所有资源
+          vscode.Uri.joinPath(extensionUri, 'media')
         ],
       }
     );
@@ -200,7 +182,6 @@ class StarsPanel {
   }
 
   private _getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri) {
-      // 1. 获取所有文件的磁盘路径 URI
       const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'main.js'));
       const stylesUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'styles.css'));
       const d3Uri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'd3.v7.min.js'));
@@ -208,12 +189,10 @@ class StarsPanel {
       const markedUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'marked.min.js'));
       const highlightJsUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'highlight.min.js'));
       const highlightCssUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'atom-one-dark.min.css'));
-      // 🔴 新增：i18n.js 的 URI
       const i18nUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'i18n.js'));
 
 
-      const nonce = getNonce(); // 保持使用 nonce 以确保安全
-      // 2. 返回 HTML，注意 CSP 设置
+      const nonce = getNonce();
       return `<!DOCTYPE html>
       <html lang="en">
       <head>
@@ -287,7 +266,6 @@ class StarsPanel {
           <div id="tooltip"></div>
           <canvas id="canvas"></canvas>
 
-          <!-- 🔴 新增：自定义弹窗容器 -->
           <div id="custom-dialog-overlay">
             <div id="custom-dialog">
                 <div id="custom-dialog-msg"></div>
@@ -304,10 +282,13 @@ class StarsPanel {
           <script nonce="${nonce}" src="${markedUri}"></script>
           <script nonce="${nonce}" src="${highlightJsUri}"></script>
           
-          <!-- 🔴 确保 i18n.js 在 main.js 之前加载，以便 main.js 可以使用 t() 函数 -->
           <script nonce="${nonce}" src="${i18nUri}"></script>
           <script nonce="${nonce}" src="${scriptUri}"></script>
       </body>
       </html>`;
   }
 }
+
+declare const globalThis: {
+  t?: (key: string, params?: Record<string, string | number>) => string;
+};

@@ -74,7 +74,7 @@ function applyTranslations() {
     setTxt('txt-preset-editor-title', 'preset.menuTitle');
     setTxt('txt-preset-editor-desc', 'preset.menuDesc');
     setTxt('add-preset-btn', 'preset.btnAdd');
-    setTxt('save-presets-btn', 'btn.save'); // 这里使用btn.save或preset.btnSave
+    setTxt('save-presets-btn', 'preset.btnSave'); // 这里使用preset.btnSave
 
     // 更新连线模式指示器
     updateLinkModeIndicator();
