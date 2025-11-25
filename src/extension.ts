@@ -133,7 +133,9 @@ class StarsPanel {
   }
 
   private async _saveToDisk(data: any) {
-      if (!this._storageUri) return;
+      if (!this._storageUri) {
+        return;
+      }
       try {
           this._isSaving = true;
           const jsonString = JSON.stringify(data, null, 2);

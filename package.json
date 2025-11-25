@@ -6,6 +6,12 @@
   "engines": {
     "vscode": "^1.106.1"
   },
+  "author": "sch246",
+  "publisher": "sch246",
+  "icon": "stars.png",
+  "repository": {
+    "url": "https://github.com/sch246/stars"
+  },
   "categories": [
     "Other"
   ],
