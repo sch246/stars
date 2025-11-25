@@ -2,7 +2,7 @@
   "name": "stars",
   "displayName": "stars",
   "description": "A keyboard-first, immersive, and visual knowledge exploration and building environment, rendering complex concepts as a navigable 2D map.",
-  "version": "1.1.0",
+  "version": "4.6.0",
   "engines": {
     "vscode": "^1.106.1"
   },
