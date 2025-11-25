@@ -213,7 +213,7 @@ function initSystem(payload) {
     if (!payload || !payload.data || !payload.data.nodes) {
         console.error("Stars: Invalid payload received. Fallback to local root.");
         createRootNodeLocally();
-        focusNode = data.nodes[0];
+        // focusNode = data.nodes[0]; // createRoot中已经设置了焦点
         updateUI(); updateSlotUI(); restartSim(); adjustZoomByLayer();
         return;
     }
@@ -225,8 +225,9 @@ function initSystem(payload) {
 
     // 从 payload 恢复 viewLayers 和 presets
     viewLayers = payload.viewLayers || 1;
-    RELATION_PRESETS = payload.presets && Array.isArray(payload.presets) ? payload.presets : JSON.parse(JSON.stringify(DEFAULT_PRESETS));
-
+    RELATION_PRESETS = payload.presets && Array.isArray(payload.presets)
+        ? payload.presets
+        : JSON.parse(JSON.stringify(DEFAULT_PRESETS));
     // 重新构建节点和链接数据，解决 JSON 序列化丢失的引用
     const nodeMap = new Map(payload.data.nodes.map(n => [n.uuid, { ...n }]));
     data.nodes = Array.from(nodeMap.values());
@@ -239,12 +240,14 @@ function initSystem(payload) {
     })).filter(l => l.source && l.target); // 过滤掉损坏的链接（源或目标节点不存在）
 
     // 1. 确保 Focus Node 存在
-    focusNode = data.nodes.find(n => n.isRoot);
-    if (!focusNode && data.nodes.length > 0) focusNode = data.nodes[0];
+    focusNode = payload.focusNodeUuid
+        ? nodeMap.get(payload.focusNodeUuid)
+        : (data.nodes.find(n => n.isRoot) || data.nodes[0]);
+    // 如果经过上述逻辑 focusNode 仍然是 null/undefined
     if (!focusNode) {
-        console.warn("Stars: No focus node found from Extension data, creating a local Origin node as fallback.");
+        console.warn("Stars: No valid focus node found from Extension data, creating a local Origin node as fallback.");
         createRootNodeLocally();
-        focusNode = data.nodes[0];
+        // focusNode = data.nodes[0]; // createRoot中已经设置了焦点
     }
 
     // ------------------------------------------------------------
@@ -1475,6 +1478,7 @@ function saveToLocal() {
                 type: l.type
             }))
         },
+        focusNodeUuid: focusNode ? focusNode.uuid : null,
         slots: slots.map(s => s ? s.uuid : null),
         viewLayers: viewLayers,
         presets: RELATION_PRESETS

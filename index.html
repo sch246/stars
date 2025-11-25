@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>星罗 (Stars v4.5 Flow)</title>
+    <title>星罗 (Stars v4.6 Flow)</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuid.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -186,7 +186,7 @@
 <body>
 
 <div id="hud">
-    <h1>星罗 <span style="font-size:10px; opacity:0.5">v4.5 Flow</span></h1>
+    <h1>星罗 <span style="font-size:10px; opacity:0.5">v4.6 Flow</span></h1>
     <div id="slot-bar">
         <div class="slot" id="slot-1" onclick="handleSlot(0)" oncontextmenu="clearSlot(0, event)"><div class="slot-circle"><span class="slot-num">1</span></div><span class="slot-name">-</span></div>
         <div class="slot" id="slot-2" onclick="handleSlot(1)" oncontextmenu="clearSlot(1, event)"><div class="slot-circle"><span class="slot-num">2</span></div><span class="slot-name">-</span></div>
@@ -324,11 +324,16 @@
                 data.nodes.forEach(n => { n.alpha = 0; });
                 slots = raw.slots ? raw.slots.map(uuid => uuid ? nodeMap.get(uuid) : null) : [null, null, null, null];
                 viewLayers = raw.viewLayers || 1;
-                focusNode = data.nodes.find(n => n.isRoot) || data.nodes[0];
+                focusNode = raw.focusNodeUuid
+                    ? nodeMap.get(raw.focusNodeUuid)
+                    : (data.nodes.find(n => n.isRoot) || data.nodes[0]);
             } catch(e) { console.error("Load error:", e); createRoot(); }
         } else { createRoot(); }
 
-        if(!focusNode) createRoot();
+        if(!focusNode){
+            createRoot();
+            focusNode = data.nodes[0]; // createRoot后唯一节点就是root
+        }
         focusNode.alpha = 1;
         updateUI(); updateSlotUI(); restartSim(); adjustZoomByLayer();
     }
@@ -1433,6 +1438,7 @@
                 nodes: data.nodes.map(n => ({ uuid: n.uuid, label: n.label, isRoot: n.isRoot, x: n.x, y: n.y, summary: n.summary, content: n.content, color: n.color })),
                 links: data.links.map(l => ({ source: l.source.uuid, target: l.target.uuid, type: l.type }))
             },
+            focusNodeUuid: focusNode ? focusNode.uuid : null,
             slots: slots.map(s => s ? s.uuid : null),
             viewLayers: viewLayers,
             presets: RELATION_PRESETS

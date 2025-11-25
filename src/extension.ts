@@ -212,7 +212,7 @@ class StarsPanel {
       </head>
       <body>
           <div id="hud">
-              <h1><span id="txt-hud-title">Stars</span> <span style="font-size:10px; opacity:0.5">v4.5 Flow</span></h1>
+              <h1><span id="txt-hud-title">Stars</span> <span style="font-size:10px; opacity:0.5">v4.6 Flow</span></h1>
               <div id="slot-bar">
                   <div class="slot" id="slot-1"><div class="slot-circle"><span class="slot-num">1</span></div><span class="slot-name">-</span></div>
                   <div class="slot" id="slot-2"><div class="slot-circle"><span class="slot-num">2</span></div><span class="slot-name">-</span></div>
