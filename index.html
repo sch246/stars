@@ -651,8 +651,21 @@
             if (link.alpha > 0.01) {
                 const src = link.source, tgt = link.target;
                 const isFocusLink = (src === focusNode || tgt === focusNode);
-                ctx.globalAlpha = link.alpha * (isFocusLink ? 0.9 : 0.2);
-                ctx.lineWidth = isFocusLink ? 2.5 : 1;
+                const isHoverLink = (hoverNode && (src === hoverNode || tgt === hoverNode));
+                const isPreviewLink = (previewNode && (src === previewNode || tgt === previewNode));
+
+                let linkAlphaMultiplier = 0.2; // 默认亮度
+                let linkWidth = 1;
+                if (isFocusLink) {
+                    linkAlphaMultiplier = 0.9; // 焦点链接最亮
+                    linkWidth = 2.5;
+                } else if (isHoverLink || isPreviewLink) { // [修改] 悬浮或预览链接次亮
+                    linkAlphaMultiplier = 0.6;
+                    linkWidth = 2.5;
+                }
+
+                ctx.globalAlpha = link.alpha * linkAlphaMultiplier;
+                ctx.lineWidth = linkWidth;
                 const typeColor = RELATION_PRESETS.find(p=>p.val===link.type)?.color || '#666';
 
                 const grad = ctx.createLinearGradient(src.x, src.y, tgt.x, tgt.y);
