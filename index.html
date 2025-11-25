@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>星罗 (Stars v4.4 Flow)</title>
+    <title>星罗 (Stars v4.5 Flow)</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuid.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -99,6 +99,7 @@
         .menu-opt:hover, .menu-opt.selected { background: #333; color: #fff; }
         .menu-key { color: #4facfe; font-weight: bold; font-family: monospace; margin-right: 12px; min-width: 20px;}
         .menu-del { color: #e74c3c; font-size: 11px; margin-left: auto; }
+        .menu-opt.delete-opt { color: #e74c3c; } /* 为删除选项添加特殊颜色 */
 
         #tooltip { position: absolute; opacity: 0; background: rgba(0, 0, 0, 0.9); padding: 10px 14px; border-radius: 4px; border-left: 3px solid #4facfe; pointer-events: none; color: #ddd; font-size: 12px; transition: opacity 0.15s; z-index: 100; max-width: 280px; box-shadow: 0 4px 15px rgba(0,0,0,0.6);}
         #tooltip.fixed-mode { top: 70%; left: 50%; transform: translate(-50%, 0) translateX(calc(-1 * var(--sidebar-width, 340px) / 2)); text-align: center; border-left: none; border-top: 3px solid #4facfe; }
@@ -107,7 +108,7 @@
         #flash-message {
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) translateX(calc(-1 * var(--sidebar-width, 340px) / 2));
             padding: 15px 30px; border-radius: 8px; font-weight: bold; font-size: 14px;
-            opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: 200; box-shadow: 0 0 30px rgba(0,0,0,0.5);
+            opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: 404; box-shadow: 0 0 30px rgba(0,0,0,0.5);
             text-transform: uppercase; letter-spacing: 1px;
         }
         #flash-message.info { background: rgba(0, 123, 255, 0.15); color: #4facfe; border: 1px solid #4facfe; }
@@ -185,7 +186,7 @@
 <body>
 
 <div id="hud">
-    <h1>星罗 <span style="font-size:10px; opacity:0.5">v4.4 Flow</span></h1>
+    <h1>星罗 <span style="font-size:10px; opacity:0.5">v4.5 Flow</span></h1>
     <div id="slot-bar">
         <div class="slot" id="slot-1" onclick="handleSlot(0)" oncontextmenu="clearSlot(0, event)"><div class="slot-circle"><span class="slot-num">1</span></div><span class="slot-name">-</span></div>
         <div class="slot" id="slot-2" onclick="handleSlot(1)" oncontextmenu="clearSlot(1, event)"><div class="slot-circle"><span class="slot-num">2</span></div><span class="slot-name">-</span></div>
@@ -195,11 +196,11 @@
     <div id="view-controls">视野范围: <span id="layer-indicator">1</span> 层 (按 +/- 调整)<br>当前可见: <span id="visible-count">0</span> 节点</div>
     <div id="link-mode-indicator">🔗 连线模式: 跳转以连接/Esc 取消</div>
     <div id="key-controls" class="controls">
-        <span class="key">L</span> <span class="key">前侧键</span> 新建关系 <span class="key">Tab</span> <span class="key">N</span> <span class="key">后侧键</span> 新建节点<br>
+        <span class="key">L</span> <span class="key">前侧键</span> 新建关系 <span class="key">Tab</span> <span class="key">N</span> 新建节点<br>
         <span class="key">Del</span> <span class="key">D</span> <span class="key">右键</span> 删除关系/节点<br>
         <span class="key">↑↓←→ /?</span> <span class="key">左键</span> 移动 <br>
         <span class="key">F2</span> 改名 <span class="key">Space</span> 编辑 <span class="key">Enter</span> <span class="key">左键焦点</span> 查看<br>
-        <span class="key">(Shift)1-4</span> (存入)交换 <span class="key">H</span> 回家 <span class="key">B</span> 后退<br>
+        <span class="key">(Shift)1-4</span> (存入)交换 <span class="key">H</span> 回家 <span class="key">B</span> <span class="key">后侧键</span> 后退<br>
         <span class="key">, .</span> 预览邻居 <span class="key">< ></span> 自由旋转<br>
         <span class="key">`</span> 关系预设 <span class="key">I</span> 隐藏此提示
     </div>
@@ -245,6 +246,31 @@
 <canvas id="canvas"></canvas>
 
 <script>
+    // --- Helper Functions ---
+    // 用于清除所有节点相关的 localStorage 数据
+    function clearAllNodeStorage() {
+        const prefix = "node_storage_";
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+            const key = localStorage.key(i);
+            if (key.startsWith(prefix)) {
+                localStorage.removeItem(key);
+            }
+        }
+        console.log("Stars: All node specific localStorage data cleared.");
+    }
+
+    // 用于清除特定节点相关的 localStorage 数据
+    function clearNodeStorage(nodeUuid) {
+        const prefix = `node_storage_${nodeUuid}_`;
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+            const key = localStorage.key(i);
+            if (key.startsWith(prefix)) {
+                localStorage.removeItem(key);
+            }
+        }
+        console.log(`Stars: Node specific localStorage data cleared for UUID: ${nodeUuid}`);
+    }
+
     // --- 1. Config ---
     const DEFAULT_PRESETS = [
         { label: '包含...', val: 'comp', color: '#0062ff' },
@@ -290,12 +316,13 @@
 
                 const nodeMap = new Map(data.nodes.map(n => [n.uuid, n]));
                 data.links.forEach(l => {
+                    // 确保 link source/target 引用的是实际的 node 对象
                     if(typeof l.source === 'string') l.source = nodeMap.get(l.source) || l.source;
                     if(typeof l.target === 'string') l.target = nodeMap.get(l.target) || l.target;
                     l.alpha = 0;
                 });
                 data.nodes.forEach(n => { n.alpha = 0; });
-                slots = raw.slots.map(uuid => uuid ? nodeMap.get(uuid) : null);
+                slots = raw.slots ? raw.slots.map(uuid => uuid ? nodeMap.get(uuid) : null) : [null, null, null, null];
                 viewLayers = raw.viewLayers || 1;
                 focusNode = data.nodes.find(n => n.isRoot) || data.nodes[0];
             } catch(e) { console.error("Load error:", e); createRoot(); }
@@ -308,15 +335,17 @@
 
     function createRoot() {
         const rootUUID = uuid.v4();
-        const root = { uuid: rootUUID, label: "Origin", isRoot: true, x: 0, y: 0, summary: "初始奇点", color: "#ffffff", alpha: 1 };
+        const root = { uuid: rootUUID, label: "Origin", isRoot: true, x: 0, y: 0, summary: "初始奇点", content: "欢迎来到星罗。开始探索吧！", color: "#ffffff", alpha: 1 };
         data = { nodes: [root], links: [] };
         slots = [null, null, null, null];
         focusNode = root; viewLayers = 1;
     }
 
     function resetSystem() {
-        if(confirm("重置系统将清空所有数据，确定吗？")) {
-            localStorage.removeItem('stars_v4'); location.reload();
+        if(confirm("重置系统将清空所有数据（包括节点脚本的本地存储），确定吗？")) {
+            clearAllNodeStorage(); // 🔴 清除所有节点相关的 localStorage
+            localStorage.removeItem('stars_v4');
+            location.reload();
         }
     }
 
@@ -385,6 +414,8 @@
                 data.links = data.links.filter(l => !deadUUIDs.has(l.source.uuid) && !deadUUIDs.has(l.target.uuid));
                 navHistory = navHistory.filter(n => !deadUUIDs.has(n.uuid));
                 slots = slots.map(s => (s && deadUUIDs.has(s.uuid)) ? null : s);
+                // 🔴 删除节点时清除其 localStorage
+                lostNodes.forEach(n => clearNodeStorage(n.uuid));
                 restartSim();
                 return true;
             }
@@ -459,6 +490,16 @@
         );
     }
 
+    function safeNavigateBack() {
+        if(navHistory.length) {
+            let target = null;
+            for(let i = navHistory.length - 1; i >= 0; i--) {
+                if(data.nodes.find(n => n.uuid === navHistory[i].uuid) && navHistory[i].uuid !== focusNode.uuid) { target = navHistory[i]; break; }
+            }
+            if(target) safeNavigate(target, true);
+        }
+    }
+
     function safeDeleteNode(target = null) {
         const nodeToDelete = target || focusNode;
         if (nodeToDelete.isRoot) { showFlashMessage("初始奇点不可删除", 'warn'); return; }
@@ -479,6 +520,7 @@
                 nextSlots: slots.map(s => (s && s.uuid === nodeToDelete.uuid) ? null : s)
             }),
             () => {
+                clearNodeStorage(nodeToDelete.uuid); // 🔴 删除节点时清除其 localStorage
                 slots = slots.map(s => (s && s.uuid === nodeToDelete.uuid) ? null : s);
                 data.links = data.links.filter(l => l.source.uuid !== nodeToDelete.uuid && l.target.uuid !== nodeToDelete.uuid);
                 data.nodes = data.nodes.filter(n => n.uuid !== nodeToDelete.uuid);
@@ -902,7 +944,7 @@
         // 鼠标侧键检测 (3: Back, 4: Forward)
         if (e.button === 3) { // Back button -> Create Node
              e.preventDefault();
-             createIndependentNodeFlow();
+             safeNavigateBack();
              return;
         }
         if (e.button === 4) { // Forward button -> Link Mode
@@ -1004,15 +1046,7 @@
             case 'Escape':
                 if (linkMode.active) { exitLinkMode(); }
                 break; // Esc 取消连线模式
-            case 'b': case 'B':
-                if(navHistory.length) {
-                    let target = null;
-                    for(let i = navHistory.length - 1; i >= 0; i--) {
-                        if(data.nodes.find(n => n.uuid === navHistory[i].uuid) && navHistory[i].uuid !== focusNode.uuid) { target = navHistory[i]; break; }
-                    }
-                    if(target) safeNavigate(target, true);
-                }
-                break;
+            case 'b': case 'B': safeNavigateBack(); break;
             case 'Delete': case 'd': case 'D': safeDeleteNode(); break;
             case 'i': case 'I': e.preventDefault(); hudVisible = !hudVisible; document.getElementById('key-controls').style.display = hudVisible ? 'block' : 'none'; break;
         }
@@ -1059,7 +1093,7 @@
 
             if (result.val === 'CUSTOM') {
                 let customType = prompt("请输入链接关系名称:");
-                if (!customType) return; // 取消
+                if (!customType) { exitLinkMode(); return; } // 用户取消
                 // 映射
                 const matchedPreset = RELATION_PRESETS.find(p => p.label === customType);
                 linkMode.type = matchedPreset ? matchedPreset.val : customType;
@@ -1079,10 +1113,10 @@
             indicator.innerHTML = `
                 🔗 <span style="color:${linkMode.color};">连线模式: ${linkMode.type} (跳转以连接/Esc 取消)</span>
             `;
-            document.getElementById('link-mode-indicator').classList.add('active');
 
         } catch (e) {
             // Cancelled
+            exitLinkMode(); // 确保如果用户在选择类型时取消，连线模式也退出
         }
     }
 
@@ -1169,168 +1203,178 @@
 
     const modal = document.getElementById('content-modal');
     const modalBody = document.getElementById('modal-body');
-    let activeNodeScriptCleanups = []; // 存储当前活动脚本的清理函数
-let activeNodeRunTimes = {};
-function showContentModal() {
-    if (!focusNode) return;
-    // 如果是同一个节点，先清理旧的运行时实例
-    if (activeNodeRunTimes[focusNode.uuid]) {
-        activeNodeRunTimes[focusNode.uuid].unmountFn(); // 调用旧实例的清理函数
-        delete activeNodeRunTimes[focusNode.uuid]; // 从列表中移除
-    }
-    // 每次打开模态框时，完全清除旧内容 (包括 DOM 和脚本元素)
-    closeContentModal();
-    const rawMarkdown = focusNode.content || "*暂无正文内容*";
-    const parsedHtml = marked.parse(rawMarkdown);
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = parsedHtml;
-    const scriptsToExecute = [];
-    const scriptElements = tempDiv.querySelectorAll('script');
-    scriptElements.forEach(script => {
-        scriptsToExecute.push(script.textContent);
-        script.remove(); // 从 tempDiv 中移除 script 标签
-    });
-    modalBody.innerHTML = `
-        <div style="font-size:2em; font-weight:bold; color:#4facfe; margin-bottom:10px;">${focusNode.label}</div>
-        <div style="color:#666; font-style:italic; margin-bottom:20px; border-left:3px solid #555; padding-left:10px;">
-            ${focusNode.summary ? marked.parse(focusNode.summary) : '无摘要'}
-        </div>
-        <hr style="border:0; border-bottom:1px solid #333; margin-bottom:20px;">
-        <div id="node-content-host-${focusNode.uuid}" style="line-height:1.8; font-size:16px;">${tempDiv.innerHTML}</div> <!-- 为节点内容创建一个专属容器 -->
-        <div style="margin-top:50px; text-align:center; font-size:12px; color:#444;">按 ESC 关闭</div>
-    `;
-    if (typeof hljs !== 'undefined') {
-        const codeBlocks = modalBody.querySelectorAll('pre code');
-        codeBlocks.forEach((block) => {
-            hljs.highlightElement(block);
+    let activeNodeRunTimes = {}; // 存储当前活动脚本的清理函数映射
+
+    function showContentModal() {
+        if (!focusNode) return;
+
+        // 如果是同一个节点，先清理旧的运行时实例
+        if (activeNodeRunTimes[focusNode.uuid]) {
+            try {
+                activeNodeRunTimes[focusNode.uuid].unmountFn(); // 调用旧实例的清理函数
+            } catch (e) {
+                console.error("Cleanup error during showContentModal:", e);
+            }
+            delete activeNodeRunTimes[focusNode.uuid]; // 从列表中移除
+        }
+
+        // 每次打开模态框时，完全清除旧内容 (包括 DOM 和脚本元素)
+        closeContentModal(); // 调用增强后的 closeContentModal 来清理
+
+        const rawMarkdown = focusNode.content || "*暂无正文内容*";
+        const parsedHtml = typeof marked !== 'undefined' ? marked.parse(rawMarkdown) : rawMarkdown;
+
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = parsedHtml;
+
+        const scriptsToExecute = [];
+        const scriptElements = tempDiv.querySelectorAll('script');
+        scriptElements.forEach(script => {
+            scriptsToExecute.push(script.textContent);
+            script.remove(); // 从 tempDiv 中移除 script 标签
         });
-    }
-    // 获取节点内容的专属容器
-    const nodeContentHost = document.getElementById(`node-content-host-${focusNode.uuid}`);
-    if (!nodeContentHost) {
-        console.error("无法找到节点内容容器，无法执行脚本。");
-        return;
-    }
-    // 存储所有 onUnmount 回调
-    let nodeUnmountCallbacks = [];
-    // 为每个节点脚本创建专属的 NodeRuntime 实例
-    const NodeRuntime = {
-        // --- 生命周期 ---
-        onMount: function(callback) {
-            // onMount 应该立即执行，因为脚本被插入 DOM 后就代表“mounted”
-            try { callback(); } catch(e) { console.error("onMount callback error:", e); }
-        },
-        onUnmount: function(callback) {
-            nodeUnmountCallbacks.push(callback);
-        },
-        // --- 本地存储 ---
-        storage: {
-            _prefix: `node_storage_${focusNode.uuid}_`,
-            set: function(key, value) {
-                try {
-                    localStorage.setItem(this._prefix + key, JSON.stringify(value));
-                    return true;
-                } catch(e) { console.error("NodeStorage set error:", e); return false; }
+
+        modalBody.innerHTML = `
+            <div style="font-size:2em; font-weight:bold; color:#4facfe; margin-bottom:10px;">${focusNode.label}</div>
+            <div style="color:#666; font-style:italic; margin-bottom:20px; border-left:3px solid #555; padding-left:10px;">
+                ${focusNode.summary ? (typeof marked !== 'undefined' ? marked.parse(focusNode.summary) : focusNode.summary) : '无摘要'}
+            </div>
+            <hr style="border:0; border-bottom:1px solid #333; margin-bottom:20px;">
+            <div id="node-content-host-${focusNode.uuid}" class="node-content-host" style="line-height:1.8; font-size:16px;">${tempDiv.innerHTML}</div> <!-- 为节点内容创建一个专属容器 -->
+            <div style="margin-top:50px; text-align:center; font-size:12px; color:#444; cursor:pointer;" onclick="closeContentModal()">按 ESC 关闭</div>
+        `;
+
+        if (typeof hljs !== 'undefined') {
+            const codeBlocks = modalBody.querySelectorAll('pre code');
+            codeBlocks.forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        }
+
+        const nodeContentHost = document.getElementById(`node-content-host-${focusNode.uuid}`);
+        if (!nodeContentHost) {
+            console.error("无法找到节点内容容器，无法执行脚本。");
+            return;
+        }
+
+        let nodeUnmountCallbacks = [];
+
+        const NodeRuntime = {
+            onMount: function(callback) {
+                try { callback(); } catch(e) { console.error("onMount callback error:", e); }
             },
-            get: function(key, defaultValue = null) {
-                try {
-                    const item = localStorage.getItem(this._prefix + key);
-                    return item ? JSON.parse(item) : defaultValue;
-                } catch(e) { console.error("NodeStorage get error:", e); return defaultValue; }
+            onUnmount: function(callback) {
+                nodeUnmountCallbacks.push(callback);
             },
-            remove: function(key) {
-                localStorage.removeItem(this._prefix + key);
-            },
-            clear: function() {
-                // 仅清除当前节点相关的所有存储
-                for (let i = localStorage.length - 1; i >= 0; i--) {
-                    const key = localStorage.key(i);
-                    if (key.startsWith(this._prefix)) {
-                        localStorage.removeItem(key);
+            storage: {
+                _prefix: `node_storage_${focusNode.uuid}_`,
+                set: function(key, value) {
+                    try {
+                        localStorage.setItem(this._prefix + key, JSON.stringify(value));
+                        return true;
+                    } catch(e) { console.error("NodeStorage set error:", e); return false; }
+                },
+                get: function(key, defaultValue = null) {
+                    try {
+                        const item = localStorage.getItem(this._prefix + key);
+                        return item ? JSON.parse(item) : defaultValue;
+                    } catch(e) { console.error("NodeStorage get error:", e); return defaultValue; }
+                },
+                remove: function(key) {
+                    localStorage.removeItem(this._prefix + key);
+                },
+                clear: function() {
+                    // 仅清除当前节点相关的所有存储
+                    for (let i = localStorage.length - 1; i >= 0; i--) {
+                        const key = localStorage.key(i);
+                        if (key.startsWith(this._prefix)) {
+                            localStorage.removeItem(key);
+                        }
                     }
                 }
+            },
+            hostElement: nodeContentHost,
+            $: function(selector) {
+                return nodeContentHost.querySelector(selector);
+            },
+            $$: function(selector) {
+                return nodeContentHost.querySelectorAll(selector);
+            },
+            document: document,
+            window: window,
+            node: {
+                uuid: focusNode.uuid,
+                label: focusNode.label,
+                color: focusNode.color
             }
-        },
-        // --- DOM 访问 ---
-        hostElement: nodeContentHost, // 宿主 DOM 元素
-        $: function(selector) {
-            return nodeContentHost.querySelector(selector);
-        },
-        $$: function(selector) {
-            return nodeContentHost.querySelectorAll(selector);
-        },
-        // 允许访问全局 DOM，但推荐使用封装方法
-        document: document,
-        window: window,
-        // --- 节点元数据 ---
-        node: {
-            uuid: focusNode.uuid,
-            label: focusNode.label,
-            color: focusNode.color
-        }
-    };
-    // 记录当前的 NodeRuntime 实例及其清理函数
-    activeNodeRunTimes[focusNode.uuid] = {
-        instance: NodeRuntime,
-        unmountFn: () => {
-            nodeUnmountCallbacks.forEach(callback => {
-                try { callback(); } catch(e) { console.error("onUnmount callback error:", e); }
-            });
-            // 清理注册的清理函数列表，防止重复调用
-            nodeUnmountCallbacks = [];
-        }
-    };
-    scriptsToExecute.forEach((scriptText, index) => {
-        try {
-            // 创建一个包装后的脚本内容字符串
-            // 这个字符串定义了一个 IIFE，接收一个参数 `nodeRuntimeApi`
-            // 然后在 IIFE 内部，将 `nodeRuntimeApi` 赋值给一个名为 `Runtime` 的常量
-            // 这样，原始的 `scriptText` 就可以直接使用 `Runtime` 了
-            const wrappedScriptCode = `
-                (function(nodeRuntimeApi) {
-                    const Runtime = nodeRuntimeApi; // 将传入的参数赋值给内部的 Runtime
-                    ${scriptText} // 原始的脚本内容
-                })(arguments[0]); // 将 Function 构造函数接收的第一个参数传递给 IIFE
-            `;
-            // Function 构造函数可以接受多个字符串参数，最后一个是函数体。
-            // 其余的参数是该函数的参数名。
-            // 我们将它构造为一个函数，它接收一个参数（例如叫 `api`），这个 `api` 就是我们的 `NodeRuntime` 实例。
-            // 然后，我们调用这个构造出来的函数，把 `NodeRuntime` 实例传给它。
-            const dynamicScriptFunc = new Function('api', wrappedScriptCode);
-            dynamicScriptFunc(NodeRuntime); // 调用函数并传入 NodeRuntime 实例
-        } catch (e) {
-            console.error(`执行节点脚本 (Node UUID: ${focusNode.uuid}, Index: ${index}) 时出错:`, e, scriptText);
-            // 可以选择在这里显示一个用户友好的错误消息
-        }
-    });
-    modal.classList.add('active');
-    const closeModalHandler = (e) => {
-        if (e.key === 'Escape') {
-            closeContentModal();
-            e.stopPropagation();
-            e.preventDefault();
-            window.removeEventListener('keydown', closeModalHandler);
-        }
-    };
-    window.addEventListener('keydown', closeModalHandler);
-}
-function closeContentModal() {
-    modal.classList.remove('active');
-    // 检查当前是否有活跃的节点脚本，并调用其 onUnmount
-    if (focusNode && activeNodeRunTimes[focusNode.uuid]) {
-        activeNodeRunTimes[focusNode.uuid].unmountFn();
-        delete activeNodeRunTimes[focusNode.uuid];
-    }
-    // 还需要清除所有非当前节点的运行时，以防万一
-    // 或者我们假设每次 showContentModal 都会清理上一个
+        };
 
-    // 移除所有动态添加的 script 标签
-    const scripts = modalBody.querySelectorAll('script[id^="dynamic-node-script-"]');
-    scripts.forEach(script => script.remove());
-    // 清空模态框的 HTML 内容
-    modalBody.innerHTML = '';
-}
-    function closeContentModal() { modal.classList.remove('active'); }
+        activeNodeRunTimes[focusNode.uuid] = {
+            instance: NodeRuntime,
+            unmountFn: () => {
+                nodeUnmountCallbacks.forEach(callback => {
+                    try { callback(); } catch(e) { console.error("onUnmount callback error:", e); }
+                });
+                nodeUnmountCallbacks = [];
+            }
+        };
+        scriptsToExecute.forEach((scriptText, index) => {
+            try {
+                const wrappedScriptCode = `
+                    (function(nodeRuntimeApi) {
+                        const Runtime = nodeRuntimeApi;
+                        try {
+                            ${scriptText}
+                        } catch(err) {
+                            console.error("Error inside node script block (Node UUID: ${focusNode.uuid}, Block: ${index}):", err);
+                        }
+                    })(arguments[0]);
+                `;
+                const dynamicScriptFunc = new Function('api', wrappedScriptCode);
+                dynamicScriptFunc(NodeRuntime);
+            } catch (e) {
+                console.error(`执行节点脚本 (Node UUID: ${focusNode.uuid}, Index: ${index}) 时出错:`, e, scriptText);
+                // 可以选择在这里显示一个用户友好的错误消息
+                const errDiv = document.createElement('div');
+                errDiv.style.color = 'red';
+                errDiv.style.fontSize = '12px';
+                errDiv.innerText = `Script Error in Block ${index+1}: ${e.message}`;
+                nodeContentHost.appendChild(errDiv);
+            }
+        });
+        modal.classList.add('active');
+        const closeModalHandler = (e) => {
+            if (e.key === 'Escape') {
+                closeContentModal();
+                e.stopPropagation();
+                e.preventDefault();
+                window.removeEventListener('keydown', closeModalHandler);
+            }
+        };
+        window.addEventListener('keydown', closeModalHandler);
+        modal.removeEventListener('click', closeContentModal); // 移除旧的，防止重复绑定
+        modalBody.removeEventListener('click', event.stopPropagation); // 移除旧的，防止重复绑定
+        modal.addEventListener('click', closeContentModal);
+        modalBody.addEventListener('click', event.stopPropagation);
+    }
+
+    function closeContentModal() {
+        modal.classList.remove('active');
+        // 检查当前是否有活跃的节点脚本，并调用其 onUnmount
+        if (focusNode && activeNodeRunTimes[focusNode.uuid]) {
+            activeNodeRunTimes[focusNode.uuid].unmountFn();
+            delete activeNodeRunTimes[focusNode.uuid];
+        }
+        modalBody.innerHTML = ''; // 清空模态框的 HTML 内容
+        // 确保移除事件监听器，避免内存泄漏
+        window.removeEventListener('keydown', (e) => { // 这里的匿名函数需要被捕获才能正确移除
+            if (e.key === 'Escape' && modal.classList.contains('active')) {
+                closeContentModal();
+                e.stopPropagation();
+                e.preventDefault();
+            }
+        });
+    }
 
     function getRandomColor() {
         const h = Math.random(); const s = Math.random(); const v = 1; let r, g, b;
@@ -1409,7 +1453,29 @@ function closeContentModal() {
 
     function exportData() { saveToLocal(); const b = new Blob([localStorage.getItem('stars_v4')], {type:'application/json'}); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'stars_v4.json'; a.click(); }
 
-    function importData(inp) { const f = inp.files[0]; if(f) { const r = new FileReader(); r.onload = e => { localStorage.setItem('stars_v4', e.target.result); location.reload(); }; r.readAsText(f); } }
+    function importData(inp) {
+        const f = inp.files[0];
+        if(f) {
+            const r = new FileReader();
+            r.onload = e => {
+                try {
+                    const importedData = JSON.parse(e.target.result);
+                    if (importedData && importedData.data && Array.isArray(importedData.data.nodes)) {
+                        clearAllNodeStorage(); // 🔴 在导入新数据前，清除所有节点的本地存储数据
+                        localStorage.setItem('stars_v4', e.target.result);
+                        location.reload();
+                    } else {
+                        showFlashMessage("导入文件格式不正确", 'warn');
+                    }
+                } catch (error) {
+                    console.error("导入数据解析错误:", error);
+                    showFlashMessage("导入数据解析错误", 'warn');
+                }
+            };
+            r.readAsText(f);
+            inp.value = ''; // 清空 input，确保同一个文件能再次触发 change 事件
+        }
+    }
 
     // --- Overlay Menus (Updated for Link Mode) ---
     const relationPicker = {
@@ -1431,7 +1497,7 @@ function closeContentModal() {
                 }
                 // 显式删除选项
                 if (allowDelete) {
-                     html += `<div class="menu-opt" style="margin-top:5px; border-top:1px solid #333" onclick="relationPicker.pick('DELETE')"><span class="menu-key" style="color:#e74c3c">[D]</span><span style="color:#e74c3c">删除/断开连接</span></div>`;
+                     html += `<div class="menu-opt delete-opt" style="margin-top:5px; border-top:1px solid #333" onclick="relationPicker.pick('DELETE')"><span class="menu-key" style="color:#e74c3c">[D]</span><span style="color:#e74c3c">删除/断开连接</span></div>`;
                 }
 
                 this.el.innerHTML = html; this.el.classList.add('active'); this.active = true;
@@ -1486,16 +1552,16 @@ function closeContentModal() {
         handleListKey: function(e, idx, field) { if (e.key === 'Enter') { e.preventDefault(); this.saveAndClose(); } },
         update: function(idx, field, value) { this.tempPresets[idx][field] = value; },
         add: function() {
-            if (this.tempPresets.length >= 20) { alert(`预设数量已达上限。`); return; }
+            if (this.tempPresets.length >= 20) { showFlashMessage("预设数量已达上限。", 'warn'); return; }
             this.tempPresets.push({ label: '新关系', val: 'new_rel', color: getRandomColor() });
             this.renderList();
             setTimeout(() => this.listEl.scrollTop = this.listEl.scrollHeight, 10);
         },
         remove: function(idx) { this.tempPresets.splice(idx, 1); this.renderList(); },
         saveAndClose: function() {
-            if (this.tempPresets.some(p => !p.val.trim())) { alert("预设的 Value (数据值) 不能为空。"); return; }
+            if (this.tempPresets.some(p => !p.val.trim())) { showFlashMessage("预设的 Value (数据值) 不能为空。", 'warn'); return; }
             const values = this.tempPresets.map(p => p.val.trim());
-            if (new Set(values).size !== values.length) { alert("预设的 Value (数据值) 不能重复。"); return; }
+            if (new Set(values).size !== values.length) { showFlashMessage("预设的 Value (数据值) 不能重复。", 'warn'); return; }
             RELATION_PRESETS = JSON.parse(JSON.stringify(this.tempPresets));
             saveToLocal(); restartSim(); this.close(); showFlashMessage("预设已更新");
         },
@@ -1514,7 +1580,7 @@ function closeContentModal() {
         width = window.innerWidth - currentSidebarWidth; canvas.width = width;
     });
     document.addEventListener('mouseup', () => { if (!isResizing) return; isResizing = false; canvas.style.pointerEvents = 'auto'; document.body.style.cursor = 'default'; });
-    window.addEventListener('resize', () => { width=window.innerWidth-340; height=window.innerHeight; canvas.width=width; canvas.height=height; });
+    window.addEventListener('resize', () => { width=window.innerWidth-currentSidebarWidth; height=window.innerHeight; canvas.width=width; canvas.height=height; });
 
     initSystem();
 </script>
