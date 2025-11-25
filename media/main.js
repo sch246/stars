@@ -132,7 +132,7 @@ const CustomDialog = {
                     this.btnCancel.click();
                 }
             };
-            
+
             // 确保焦点在按钮上时，Enter/Esc 也能触发
             // 使用addEventListener而不是直接赋值onclick，方便移除
             this.btnConfirm.addEventListener('keydown', handleButtonKeydown);
@@ -1196,121 +1196,160 @@ function focusTitle() { setTimeout(() => { const el = document.getElementById('n
 
 const modal = document.getElementById('content-modal');
 const modalBody = document.getElementById('modal-body');
-let activeNodeScriptCleanups = [];
 let activeNodeRunTimes = {};
 let stopPropagationHandler = e => { e.stopPropagation(); }
 
 function showContentModal() {
     if (!focusNode) return;
+
+    // 清理旧的运行时
     if (activeNodeRunTimes[focusNode.uuid]) {
-        activeNodeRunTimes[focusNode.uuid].unmountFn();
+        try {
+            activeNodeRunTimes[focusNode.uuid].unmountFn();
+        } catch (e) {
+            console.error("Cleanup error:", e);
+        }
         delete activeNodeRunTimes[focusNode.uuid];
     }
+
     closeContentModal();
+
     // 🔴 国际化：使用 t()
     const rawMarkdown = focusNode.content || t('modal.noContent');
-    const parsedHtml = marked.parse(rawMarkdown);
+
+    // 使用 marked 解析
+    const parsedHtml = typeof marked !== 'undefined' ? marked.parse(rawMarkdown) : rawMarkdown;
+
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = parsedHtml;
+
+    // 提取并移除 script 标签，防止插入 HTML 时自动执行（虽然 innerHTML 通常不会执行 script，但我们要手动控制）
     const scriptsToExecute = [];
     const scriptElements = tempDiv.querySelectorAll('script');
     scriptElements.forEach(script => {
         scriptsToExecute.push(script.textContent);
-        script.remove();
+        script.remove(); // 从 DOM 中移除，避免显示代码文本
     });
+
+    // 构建 Modal 内容
     modalBody.innerHTML = `
         <div style="font-size:2em; font-weight:bold; color:#4facfe; margin-bottom:10px;">${focusNode.label}</div>
         <div style="color:#666; font-style:italic; margin-bottom:20px; border-left:3px solid #555; padding-left:10px;">
-            ${focusNode.summary ? marked.parse(focusNode.summary) : t('modal.noContent')}
+            ${focusNode.summary ? (typeof marked !== 'undefined' ? marked.parse(focusNode.summary) : focusNode.summary) : ''}
         </div>
         <hr style="border:0; border-bottom:1px solid #333; margin-bottom:20px;">
-        <div id="node-content-host-${focusNode.uuid}" style="line-height:1.8; font-size:16px;">${tempDiv.innerHTML}</div>
-        <div style="margin-top:50px; text-align:center; font-size:12px; color:#444;">${t('modal.close')}</div>
+        <div id="node-content-host-${focusNode.uuid}" class="node-content-host" style="line-height:1.8; font-size:16px;">
+            ${tempDiv.innerHTML}
+        </div>
+        <div style="margin-top:50px; text-align:center; font-size:12px; color:#444; cursor:pointer;" onclick="document.getElementById('content-modal').classList.remove('active')">${t('modal.close')} (Esc)</div>
     `;
+
+    // 代码高亮
     if (typeof hljs !== 'undefined') {
-        const codeBlocks = modalBody.querySelectorAll('pre code');
-        codeBlocks.forEach((block) => {
+        modalBody.querySelectorAll('pre code').forEach((block) => {
             hljs.highlightElement(block);
         });
     }
+
     const nodeContentHost = document.getElementById(`node-content-host-${focusNode.uuid}`);
     if (!nodeContentHost) {
-        console.error("无法找到节点内容容器，无法执行脚本。");
+        console.error("Stars: Node content host not found!");
         return;
     }
+
+    // 准备运行时环境
     let nodeUnmountCallbacks = [];
+
     const NodeRuntime = {
         onMount: function(callback) {
-            try { callback(); } catch(e) { console.error("onMount callback error:", e); }
+            // 立即执行挂载逻辑
+            try { callback(); } catch(e) { console.error("Node Script onMount Error:", e); }
         },
         onUnmount: function(callback) {
             nodeUnmountCallbacks.push(callback);
         },
+        // 简单的存储封装
         storage: {
             _prefix: `node_storage_${focusNode.uuid}_`,
             set: function(key, value) {
-                try {
-                    localStorage.setItem(this._prefix + key, JSON.stringify(value));
-                    return true;
-                } catch(e) { console.error("NodeStorage set error:", e); return false; }
+                try { localStorage.setItem(this._prefix + key, JSON.stringify(value)); return true; }
+                catch(e) { console.error("Node Storage set error:", e); return false; }
             },
             get: function(key, defaultValue = null) {
-                try {
-                    const item = localStorage.getItem(this._prefix + key);
-                    return item ? JSON.parse(item) : defaultValue;
-                } catch(e) { console.error("NodeStorage get error:", e); return defaultValue; }
+                try { const item = localStorage.getItem(this._prefix + key); return item ? JSON.parse(item) : defaultValue; }
+                catch(e) { console.error("Node Storage get error:", e); return defaultValue; }
             },
-            remove: function(key) {
-                localStorage.removeItem(this._prefix + key);
-            },
+            remove: function(key) { localStorage.removeItem(this._prefix + key); },
             clear: function() {
-                for (let i = localStorage.length - 1; i >= 0; i--) {
-                    const key = localStorage.key(i);
-                    if (key.startsWith(this._prefix)) {
-                        localStorage.removeItem(key);
-                    }
-                }
+                 // 简化的 clear，只清理当前前缀
+                 Object.keys(localStorage).forEach(k => {
+                     if(k.startsWith(this._prefix)) localStorage.removeItem(k);
+                 });
             }
         },
         hostElement: nodeContentHost,
-        $: function(selector) {
-            return nodeContentHost.querySelector(selector);
-        },
-        $$: function(selector) {
-            return nodeContentHost.querySelectorAll(selector);
-        },
-        document: document,
+        // 便捷选择器，限制在当前节点内容范围内
+        $: function(selector) { return nodeContentHost.querySelector(selector); },
+        $$: function(selector) { return nodeContentHost.querySelectorAll(selector); },
+        // 暴露全局对象
         window: window,
+        document: document,
+        // 当前节点信息（只读）
         node: {
             uuid: focusNode.uuid,
             label: focusNode.label,
             color: focusNode.color
         }
     };
+
+    // 注册清理函数
     activeNodeRunTimes[focusNode.uuid] = {
-        instance: NodeRuntime,
         unmountFn: () => {
-            nodeUnmountCallbacks.forEach(callback => {
-                try { callback(); } catch(e) { console.error("onUnmount callback error:", e); }
+            nodeUnmountCallbacks.forEach(cb => {
+                try { cb(); } catch(e) { console.error("Node Script onUnmount Error:", e); }
             });
             nodeUnmountCallbacks = [];
         }
     };
+
+    // 执行脚本
     scriptsToExecute.forEach((scriptText, index) => {
+        if (!scriptText.trim()) return;
         try {
+            // 核心：使用 new Function 创建沙箱式作用域
+            // 这里的 'api' 参数对应下面调用时传入的 NodeRuntime
             const wrappedScriptCode = `
-                (function(nodeRuntimeApi) {
+                "use strict";
+                return (function(nodeRuntimeApi) {
                     const Runtime = nodeRuntimeApi;
-                    ${scriptText}
+                    const console = window.console; // 确保能打印日志
+                    try {
+                        ${scriptText}
+                    } catch(err) {
+                        console.error("Error inside node script block (Runtime ID: ${focusNode.uuid}, Block: ${index}):", err);
+                    }
                 })(arguments[0]);
             `;
-            const dynamicScriptFunc = new Function('api', wrappedScriptCode);
+
+            // 这行代码需要 'unsafe-eval' CSP 才能运行
+            const dynamicScriptFunc = new Function(wrappedScriptCode);
             dynamicScriptFunc(NodeRuntime);
+
+            console.log(`Stars: Executed script block ${index + 1} for node ${focusNode.label}`);
         } catch (e) {
-            console.error(`执行节点脚本 (Node UUID: ${focusNode.uuid}, Index: ${index}) 时出错:`, e, scriptText);
+            console.error(`Stars: Failed to execute script (Node: ${focusNode.label}, Block: ${index}):`, e);
+            // 可以在界面上显示一个小的错误提示，如果需要的话
+            const errDiv = document.createElement('div');
+            errDiv.style.color = 'red';
+            errDiv.style.fontSize = '12px';
+            errDiv.innerText = `Script Error in Block ${index+1}: ${e.message}`;
+            nodeContentHost.appendChild(errDiv);
         }
     });
+
     modal.classList.add('active');
+
+    // 事件监听器
     const closeModalHandler = (e) => {
         if (e.key === 'Escape') {
             closeContentModal();
@@ -1321,7 +1360,11 @@ function showContentModal() {
     };
     window.addEventListener('keydown', closeModalHandler);
 
-    modal.addEventListener('click', closeContentModal)
+    // 移除旧的监听器防止堆叠 (这里需要注意 main.js 全局作用域是否有 closeContentModal 的引用，通常这样写没问题)
+    modal.removeEventListener('click', closeContentModal);
+    modalBody.removeEventListener('click', stopPropagationHandler);
+
+    modal.addEventListener('click', closeContentModal);
     modalBody.addEventListener('click', stopPropagationHandler);
 }
 
@@ -1485,7 +1528,7 @@ const relationPicker = {
             }
             if (allowDelete) {
                 // 🔴 国际化：使用 t()
-                html += t('preset.deleteOption', {text: t('linkMode.deleteLabel')});
+                html += `<div class="menu-opt delete-opt" data-value="DELETE"><span class="menu-key" style="color:#e74c3c">[D]</span>${t('linkMode.deleteLabel')}</div>`; // 修改这里以正确显示
             }
 
             this.el.innerHTML = html;

@@ -24,9 +24,9 @@ class StarsPanel {
       this._panel = panel;
       this._extensionUri = extensionUri;
       this._panel.webview.html = this._getWebviewContent(this._panel.webview, extensionUri);
-      
+
       this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
-      
+
       this._initData();
       this._panel.webview.onDidReceiveMessage(
         async (message) => {
@@ -36,10 +36,10 @@ class StarsPanel {
               return;
             case 'ready':
               console.log("Stars Extension: Webview ready, sending initial data.");
-              
-              this._panel.webview.postMessage({ 
-                  command: 'setLanguage', 
-                  lang: vscode.env.language 
+
+              this._panel.webview.postMessage({
+                  command: 'setLanguage',
+                  lang: vscode.env.language
               });
 
               await this._loadAndSend();
@@ -71,7 +71,7 @@ class StarsPanel {
   private _setupFileWatcher(rootUri: vscode.Uri) {
       const pattern = new vscode.RelativePattern(rootUri, '.stars.json');
       this._fileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
-      
+
       this._fileWatcher.onDidChange(async (uri) => {
           if (this._isSaving) {
               this._isSaving = false;
@@ -79,7 +79,7 @@ class StarsPanel {
           }
           console.log("Stars: External file change detected. Reloading data.");
           if (StarsPanel.currentPanel?._panel.webview) {
-            await this._loadAndSend(); 
+            await this._loadAndSend();
           }
       });
       this._disposables.push(this._fileWatcher);
@@ -98,7 +98,7 @@ class StarsPanel {
       } catch (e: any) {
           console.log(`Stars Extension: Error reading .stars.json: ${e.message}. Sending default data.`);
           const defaultData = this._createDefaultData();
-          await this._saveToDisk(defaultData); 
+          await this._saveToDisk(defaultData);
           this._panel.webview.postMessage({ command: 'loadData', data: defaultData });
       }
   }
@@ -201,8 +201,8 @@ class StarsPanel {
           <meta charset="UTF-8">
           <meta http-equiv="Content-Security-Policy" content="
               default-src 'none';
-              style-src ${webview.cspSource} 'unsafe-inline'; 
-              script-src 'nonce-${nonce}';
+              style-src ${webview.cspSource} 'unsafe-inline';
+              script-src 'nonce-${nonce}' 'unsafe-eval';
               img-src ${webview.cspSource} https: data:;
               connect-src 'self';
           ">
@@ -283,7 +283,7 @@ class StarsPanel {
           <script nonce="${nonce}" src="${uuidUri}"></script>
           <script nonce="${nonce}" src="${markedUri}"></script>
           <script nonce="${nonce}" src="${highlightJsUri}"></script>
-          
+
           <script nonce="${nonce}" src="${i18nUri}"></script>
           <script nonce="${nonce}" src="${scriptUri}"></script>
       </body>

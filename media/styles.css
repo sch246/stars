@@ -88,6 +88,8 @@ h1 { margin: 0; font-size: 18px; color: #555; letter-spacing: 2px; text-transfor
 .menu-opt:hover, .menu-opt.selected { background: #333; color: #fff; }
 .menu-key { color: #4facfe; font-weight: bold; font-family: monospace; margin-right: 12px; min-width: 20px;}
 .menu-del { color: #e74c3c; font-size: 11px; margin-left: auto; }
+.menu-opt.delete-opt { color: #e74c3c; } /* 为删除选项添加特殊颜色 */
+
 
 #tooltip { position: absolute; opacity: 0; background: rgba(0, 0, 0, 0.9); padding: 10px 14px; border-radius: 4px; border-left: 3px solid #4facfe; pointer-events: none; color: #ddd; font-size: 12px; transition: opacity 0.15s; z-index: 100; max-width: 280px; box-shadow: 0 4px 15px rgba(0,0,0,0.6);}
 #tooltip.fixed-mode { top: 70%; left: 50%; transform: translate(-50%, 0) translateX(calc(-1 * var(--sidebar-width, 340px) / 2)); text-align: center; border-left: none; border-top: 3px solid #4facfe; }
@@ -119,6 +121,13 @@ h1 { margin: 0; font-size: 18px; color: #555; letter-spacing: 2px; text-transfor
 #modal-body pre code { background: transparent; color: #ddd; padding: 0; }
 #modal-body blockquote { border-left: 4px solid #444; margin: 0; padding-left: 15px; color: #888; }
 #modal-body img { max-width: 100%; border-radius: 4px; }
+
+/* 兼容性 class，如果需要，可以在 JS 中给节点内容 host 添加 */
+.node-content-host {
+    line-height:1.8;
+    font-size:16px;
+    /* 其他节点内容区域的通用样式 */
+}
 
 #io-controls { position: fixed; bottom: 20px; left: 25px; z-index: 5; display: flex; gap: 10px; }
 button { background: #1a1a1d; color: #777; border: 1px solid #333; padding: 6px 12px; cursor: pointer; font-size: 11px; border-radius: 3px; transition: 0.2s; }
