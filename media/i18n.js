@@ -13,11 +13,11 @@ const translations = {
         "hud.nodes": "nodes",
         "hud.linkMode": "🔗 Link Mode: Jump to connect / Esc to cancel",
         "hud.controls": `
-            <span class="key">L</span> <span class="key">Front Key</span> New Link <span class="key">Tab</span> <span class="key">N</span> <span class="key">Back Key</span> New Node<br>
+            <span class="key">L</span> <span class="key">Front Key</span> New Link <span class="key">Tab</span> <span class="key">N</span> New Node<br>
             <span class="key">Del</span> <span class="key">D</span> <span class="key">Right Click</span> Delete Link/Node<br>
             <span class="key">↑↓←→ /?</span> <span class="key">L-Click</span> Move <br>
             <span class="key">F2</span> Rename <span class="key">Space</span> Edit <span class="key">Enter</span> <span class="key">Focus</span> View<br>
-            <span class="key">(Shift)1-4</span> Swap(Store) <span class="key">H</span> Home <span class="key">B</span> Back<br>
+            <span class="key">(Shift)1-4</span> Swap(Store) <span class="key">H</span> Home <span class="key">B</span> <span class="key">Back Key</span> Back<br>
             <span class="key">, .</span> Preview Neighbors <span class="key">< ></span> Rotate<br>
             <span class="key">\`</span> Presets <span class="key">I</span> Hide Help
         `,
@@ -77,11 +77,11 @@ const translations = {
         "hud.nodes": "节点",
         "hud.linkMode": "🔗 连线模式: 跳转以连接/Esc 取消",
         "hud.controls": `
-            <span class="key">L</span> <span class="key">前侧键</span> 新建关系 <span class="key">Tab</span> <span class="key">N</span> <span class="key">后侧键</span> 新建节点<br>
+            <span class="key">L</span> <span class="key">前侧键</span> 新建关系 <span class="key">Tab</span> <span class="key">N</span> 新建节点<br>
             <span class="key">Del</span> <span class="key">D</span> <span class="key">右键</span> 删除关系/节点<br>
             <span class="key">↑↓←→ /?</span> <span class="key">左键</span> 移动 <br>
             <span class="key">F2</span> 改名 <span class="key">Space</span> 编辑 <span class="key">Enter</span> <span class="key">左键焦点</span> 查看<br>
-            <span class="key">(Shift)1-4</span> (存入)交换 <span class="key">H</span> 回家 <span class="key">B</span> 后退<br>
+            <span class="key">(Shift)1-4</span> (存入)交换 <span class="key">H</span> 回家 <span class="key">B</span> <span class="key">后侧键</span> 后退<br>
             <span class="key">, .</span> 预览邻居 <span class="key">< ></span> 自由旋转<br>
             <span class="key">\`</span> 关系预设 <span class="key">I</span> 隐藏此提示
         `,

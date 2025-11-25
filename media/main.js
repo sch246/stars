@@ -149,6 +149,30 @@ const CustomDialog = {
 };
 
 
+// --- Helper Functions ---
+
+function clearNodeStorage(nodeUuid) {
+    const prefix = `node_storage_${nodeUuid}_`;
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key.startsWith(prefix)) {
+            localStorage.removeItem(key);
+        }
+    }
+    console.log(`Stars: Node specific localStorage data cleared for UUID: ${nodeUuid}`);
+}
+
+function clearAllNodeStorage() {
+    const prefix = "node_storage_"; // 所有节点存储的前缀
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key.startsWith(prefix)) {
+            localStorage.removeItem(key);
+        }
+    }
+    console.log("Stars: All node specific localStorage data cleared.");
+}
+
 // --- 1. Config ---
 const DEFAULT_PRESETS = [
     { label: '包含...', val: 'comp', color: '#0062ff' },
@@ -314,28 +338,6 @@ function createRootNodeLocally() {
     console.warn("Stars: Created a local Origin node as fallback.");
 }
 
-function clearNodeStorage(nodeUuid) {
-    const prefix = `node_storage_${nodeUuid}_`;
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-        const key = localStorage.key(i);
-        if (key.startsWith(prefix)) {
-            localStorage.removeItem(key);
-        }
-    }
-    console.log(`Stars: Node specific localStorage data cleared for UUID: ${nodeUuid}`);
-}
-
-function clearAllNodeStorage() {
-    const prefix = "node_storage_"; // 所有节点存储的前缀
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-        const key = localStorage.key(i);
-        if (key.startsWith(prefix)) {
-            localStorage.removeItem(key);
-        }
-    }
-    console.log("Stars: All node specific localStorage data cleared.");
-}
-
 async function resetSystem() {
     // 🔴 国际化：使用 t()
     if (await CustomDialog.confirm(t('alert.resetConfirm'))) {
@@ -481,6 +483,16 @@ function safeNavigate(targetNode, isHistoryBack = false) {
         () => ({ nodes: data.nodes, links: data.links, nextFocus: targetNode, nextSlots: slots }),
         () => { navigateTo(targetNode, !isHistoryBack, false); }
     );
+}
+
+function safeNavigateBack() {
+    if(navHistory.length) {
+        let target = null;
+        for(let i = navHistory.length - 1; i >= 0; i--) {
+            if(data.nodes.find(n => n.uuid === navHistory[i].uuid) && navHistory[i].uuid !== focusNode.uuid) { target = navHistory[i]; break; }
+        }
+        if(target) safeNavigate(target, true);
+    }
 }
 
 function safeDeleteNode(target = null) {
@@ -952,7 +964,7 @@ canvas.addEventListener('mousedown', e => {
 
     if (e.button === 3) {
             e.preventDefault();
-            createIndependentNodeFlow();
+            safeNavigateBack();
             return;
     }
     if (e.button === 4) {
@@ -1058,15 +1070,7 @@ window.addEventListener('keydown', e => {
         case 'Escape':
             if (linkMode.active) { exitLinkMode(); }
             break;
-        case 'b': case 'B':
-            if(navHistory.length) {
-                let target = null;
-                for(let i = navHistory.length - 1; i >= 0; i--) {
-                    if(data.nodes.find(n => n.uuid === navHistory[i].uuid) && navHistory[i].uuid !== focusNode.uuid) { target = navHistory[i]; break; }
-                }
-                if(target) safeNavigate(target, true);
-            }
-            break;
+        case 'b': case 'B': safeNavigateBack(); break;
         case 'Delete': case 'd': case 'D': safeDeleteNode(); break;
         case 'i': case 'I': e.preventDefault(); hudVisible = !hudVisible; document.getElementById('key-controls').style.display = hudVisible ? 'block' : 'none'; break;
     }

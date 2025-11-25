@@ -98,7 +98,7 @@ h1 { margin: 0; font-size: 18px; color: #555; letter-spacing: 2px; text-transfor
 #flash-message {
     position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) translateX(calc(-1 * var(--sidebar-width, 340px) / 2));
     padding: 15px 30px; border-radius: 8px; font-weight: bold; font-size: 14px;
-    opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: 200; box-shadow: 0 0 30px rgba(0,0,0,0.5);
+    opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: 404; box-shadow: 0 0 30px rgba(0,0,0,0.5);
     text-transform: uppercase; letter-spacing: 1px;
 }
 #flash-message.info { background: rgba(0, 123, 255, 0.15); color: #4facfe; border: 1px solid #4facfe; }
