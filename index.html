@@ -404,10 +404,25 @@
         if (slotNode === currentFocus) return;
         if (slotNode) {
             // 跳转逻辑
-            executeSafeAction(
-                () => ({ nodes: data.nodes, links: data.links, nextFocus: slotNode, nextSlots: slots.map((s,i)=>i===index?currentFocus:s) }),
-                () => { slots[index] = currentFocus; navigateTo(slotNode, true, false); updateSlotUI(); }
-            );
+            const performJump = () => {
+                slots[index] = currentFocus; 
+                navigateTo(slotNode, true, false); 
+                updateSlotUI();
+            };
+            // [修复]：连线模式下直接执行，不检查安全
+            if (linkMode.active) {
+                performJump();
+            } else {
+                executeSafeAction(
+                    () => ({ 
+                        nodes: data.nodes, 
+                        links: data.links, 
+                        nextFocus: slotNode, 
+                        nextSlots: slots.map((s,i) => i===index ? currentFocus : s) 
+                    }),
+                    performJump
+                );
+            }
         } else {
             // 存入逻辑
             slots[index] = currentFocus; updateSlotUI(); saveToLocal();
@@ -434,6 +449,10 @@
 
     function safeNavigate(targetNode, isHistoryBack = false) {
         if(!targetNode) return;
+        if (linkMode.active) {
+            navigateTo(targetNode, !isHistoryBack, false); // 直接跳转，不经过 executeSafeAction
+            return;
+        }
         executeSafeAction(
             () => ({ nodes: data.nodes, links: data.links, nextFocus: targetNode, nextSlots: slots }),
             () => { navigateTo(targetNode, !isHistoryBack, false); }
@@ -1109,16 +1128,27 @@
             summary: "", content: "", color: getRandomColor(), alpha: 0 
         };
         
-        // 安全导航检查 (因为焦点即将离开)
-        executeSafeAction(
-            () => ({ nodes: [...data.nodes, newNode], links: data.links, nextFocus: newNode, nextSlots: slots }),
-            () => {
-                data.nodes.push(newNode);
-                restartSim();
-                navigateTo(newNode, true, false);
-                focusTitle(); 
-            }
-        );
+        const performCreate = () => {
+            data.nodes.push(newNode);
+            restartSim();
+            navigateTo(newNode, true, false);
+            focusTitle();
+        };
+        // [修复]：连线模式下直接创建并跳转
+        if (linkMode.active) {
+            performCreate();
+        } else {
+            // 安全导航检查 (因为焦点即将离开当前节点)
+            executeSafeAction(
+                () => ({
+                    nodes: [...data.nodes, newNode],
+                    links: data.links,
+                    nextFocus: newNode,
+                    nextSlots: slots
+                }),
+                performCreate
+            );
+        }
     }
 
     function focusTitle() { setTimeout(() => { const el = document.getElementById('node-label'); el.focus(); el.select(); }, 50); }
