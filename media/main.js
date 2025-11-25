@@ -1,7 +1,30 @@
 const vscode = acquireVsCodeApi();
+
+// 🔴 确保全局可以使用 t() 和 setLanguage()
+// 它们在 media/i18n.js 中定义
+// eslint-disable-next-line no-undef
+if (typeof t === 'undefined' || typeof setLanguage === 'undefined') {
+    console.error("Stars: i18n.js was not loaded correctly.");
+    // Fallback or error handling if i18n functions are not available
+    window.t = (key, params) => {
+        console.warn(`i18n function 't' not found. Key: ${key}`);
+        let str = key;
+        Object.keys(params).forEach(k => {
+            str = str.replace(new RegExp(`{${k}}`, 'g'), params[k]);
+        });
+        return str;
+    };
+    window.setLanguage = (lang) => console.warn(`i18n function 'setLanguage' not found. Lang: ${lang}`);
+}
+
+
 window.addEventListener('message', event => {
     const message = event.data;
     switch (message.command) {
+        case 'setLanguage':
+            setLanguage(message.lang); // 设置语言
+            applyTranslations(); // 应用翻译
+            break;
         case 'loadData':
             console.log("Stars: Received data from Extension");
             initSystem(message.data);
@@ -10,6 +33,53 @@ window.addEventListener('message', event => {
 });
 
 let animationFrameId = null;
+
+// --- 新增：应用翻译到静态 HTML 元素 ---
+function applyTranslations() {
+    const setTxt = (id, key) => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = t(key);
+    };
+    const setPh = (id, key) => {
+        const el = document.getElementById(id);
+        if (el) el.placeholder = t(key);
+    };
+
+    // HUD
+    setTxt('txt-hud-title', 'hud.title');
+    setTxt('txt-view-range', 'hud.viewLayers');
+    setTxt('txt-layers', 'hud.layers');
+    setTxt('txt-adjust', 'hud.adjust');
+    setTxt('txt-visible', 'hud.visible');
+    setTxt('txt-nodes', 'hud.nodes');
+    document.getElementById('key-controls').innerHTML = t('hud.controls');
+
+    // Buttons
+    setTxt('save-btn', 'btn.save');
+    setTxt('export-btn', 'btn.export');
+    setTxt('reset-system-btn', 'btn.reset');
+    setTxt('import-btn', 'btn.import');
+    setTxt('manage-presets-btn', 'btn.presets');
+
+    // Sidebar placeholders
+    setPh('node-label', 'sidebar.placeholder.label');
+    setPh('node-summary', 'sidebar.placeholder.summary');
+    setPh('node-content', 'sidebar.placeholder.content');
+
+    // Dialog buttons
+    setTxt('btn-cancel', 'dialog.cancel');
+    setTxt('btn-confirm', 'dialog.confirm');
+
+    // Preset Editor
+    setTxt('txt-preset-editor-title', 'preset.menuTitle');
+    setTxt('txt-preset-editor-desc', 'preset.menuDesc');
+    setTxt('add-preset-btn', 'preset.btnAdd');
+    setTxt('save-presets-btn', 'btn.save'); // 这里使用btn.save或preset.btnSave
+
+    // 更新连线模式指示器
+    updateLinkModeIndicator();
+}
+
 
 // --- 0. Custom Dialogs (Replaces native confirm/prompt) ---
 const CustomDialog = {
@@ -234,8 +304,8 @@ function initSystem(payload) {
 
 function createRootNodeLocally() {
     const rootUUID = uuid.v4();
-    // 确保x, y有初始值
-    const root = { uuid: rootUUID, label: "Origin", isRoot: true, x: 0, y: 0, summary: "Workspace Root", content: "Welcome to Stars in VSCode.", color: "#ffffff", alpha: 1 };
+    // 确保x, y有初始值 // 🔴 国际化：使用 t()
+    const root = { uuid: rootUUID, label: t('fallback.origin'), isRoot: true, x: 0, y: 0, summary: t('fallback.summary'), content: t('fallback.content'), color: "#ffffff", alpha: 1 };
     data = { nodes: [root], links: [] };
     slots = [null, null, null, null];
     focusNode = root;
@@ -245,7 +315,8 @@ function createRootNodeLocally() {
 }
 
 async function resetSystem() {
-    if (await CustomDialog.confirm("重置系统将清空所有数据，确定吗？")) {
+    // 🔴 国际化：使用 t()
+    if (await CustomDialog.confirm(t('alert.resetConfirm'))) {
         // 通知 Extension 清空数据并重新加载默认
         vscode.postMessage({ command: 'resetSystem' });
     }
@@ -309,7 +380,9 @@ async function executeSafeAction(simulator, executor) {
     const lostNodes = nodes.filter(n => !reachableUUIDs.has(n.uuid));
 
     if (lostNodes.length > 0) {
-        if (await CustomDialog.confirm(`警告：此操作将导致 ${lostNodes.length} 个节点丢失（如 ${lostNodes[0].label}...）。是否继续？`)) {
+        // 🔴 国际化：使用 t()
+        const confirmMsg = t('alert.deleteConfirm', { n: lostNodes.length, label: lostNodes[0].label });
+        if (await CustomDialog.confirm(confirmMsg)) {
             executor();
             const deadUUIDs = new Set(lostNodes.map(n => n.uuid));
             data.nodes = data.nodes.filter(n => !deadUUIDs.has(n.uuid));
@@ -389,7 +462,8 @@ function safeNavigate(targetNode, isHistoryBack = false) {
 
 function safeDeleteNode(target = null) {
     const nodeToDelete = target || focusNode;
-    if (nodeToDelete.isRoot) { showFlashMessage("初始奇点不可删除", 'warn'); return; }
+    // 🔴 国际化：使用 t()
+    if (nodeToDelete.isRoot) { showFlashMessage(t('alert.rootCannotDelete'), 'warn'); return; }
 
     let nextFocus = focusNode;
     if (nodeToDelete.uuid === focusNode.uuid) {
@@ -423,7 +497,8 @@ function safeDeleteNode(target = null) {
 function safeDeleteLink(link) {
     executeSafeAction(
         () => ({ nodes: data.nodes, links: data.links.filter(l => l !== link), nextFocus: focusNode, nextSlots: slots }),
-        () => { data.links = data.links.filter(l => l !== link); restartSim(); showFlashMessage("链接已切断", 'warn'); }
+        // 🔴 国际化：使用 t()
+        () => { data.links = data.links.filter(l => l !== link); restartSim(); showFlashMessage(t('flash.linkCut'), 'warn'); }
     );
 }
 
@@ -436,14 +511,12 @@ function updateSlotUI() {
         if (node) {
             el.classList.add('active');
             nameEl.innerText = node.label;
-            // 🔴 修复：动态样式已通过 CSP 允许
             circle.style.background = node.color || DEFAULT_NODE_COLOR;
             circle.style.boxShadow = `0 0 8px ${node.color || DEFAULT_NODE_COLOR}`;
             circle.style.border = "1px solid rgba(255,255,255,0.3)";
         } else {
             el.classList.remove('active');
             nameEl.innerText = "-";
-            // 🔴 修复：动态样式已通过 CSP 允许
             circle.style.background = "#222";
             circle.style.boxShadow = "none";
             circle.style.border = "1px solid #333";
@@ -722,8 +795,8 @@ function cyclePreview(dir) {
     if (exactMatch && !shouldSkipExact) {
         previewNode = exactMatch.node;
         setTargetRotation(-Math.PI/2 - exactMatch.rawAngle);
-        // 🔴 修复：动态样式已通过 CSP 允许
-        showTooltip(`<strong>预览: ${previewNode.label}</strong><br>${previewNode.summary||''}<br><span style='color:#af4cae'>按 <span class="key">↑</span> <span class="key">/</span> 跳转</span>`, 0, 0, 'fixed');
+        // 🔴 国际化：使用 t()
+        showTooltip(t('tooltip.preview', {label: previewNode.label, summary: previewNode.summary||''}), 0, 0, 'fixed');
         return;
     }
 
@@ -748,8 +821,8 @@ function cyclePreview(dir) {
     if (targetNode) {
         previewNode = targetNode.node;
         setTargetRotation(-Math.PI/2 - targetNode.rawAngle);
-        // 🔴 修复：动态样式已通过 CSP 允许
-        showTooltip(`<strong>预览: ${previewNode.label}</strong><br>${previewNode.summary||''}<br><span style='color:#af4cae'>按 <span class="key">↑</span> <span class="key">/</span> 跳转</span>`, 0, 0, 'fixed');
+        // 🔴 国际化：使用 t()
+        showTooltip(t('tooltip.preview', {label: previewNode.label, summary: previewNode.summary||''}), 0, 0, 'fixed');
     }
 }
 
@@ -763,12 +836,10 @@ const tooltipEl = document.getElementById('tooltip');
 function showTooltip(html, x, y, mode) {
     tooltipEl.innerHTML = html; tooltipEl.style.opacity = 1;
     if (mode === 'mouse') {
-        // 🔴 修复：动态样式已通过 CSP 允许
         tooltipEl.className = ''; tooltipEl.style.left = (x + 15) + 'px'; tooltipEl.style.top = (y + 15) + 'px'; tooltipEl.style.transform = 'none';
     } else { tooltipEl.className = 'fixed-mode'; }
 }
 function hideTooltip() {
-    // 🔴 修复：动态样式已通过 CSP 允许
     tooltipEl.style.opacity = 0; tooltipEl.className = ''; tooltipEl.style.left = ''; tooltipEl.style.top = ''; tooltipEl.style.transform = '';
 }
 
@@ -846,7 +917,8 @@ canvas.addEventListener('mousemove', e => {
         hoverNode = found; previewNode = null;
         const summaryText = found.summary || '';
         const summaryHtml = typeof marked !== 'undefined' ? marked.parse(summaryText) : summaryText;
-        showTooltip(`<strong>${found.label}</strong><br>${summaryHtml}<br><span style='color:#666'>点击跳转</span>`, e.clientX, e.clientY, 'mouse');
+        // 🔴 国际化：使用 t()
+        showTooltip(`<strong>${found.label}</strong><br>${summaryHtml}<br>${t('tooltip.click')}`, e.clientX, e.clientY, 'mouse');
     } else {
         hoverNode = null;
         if (!previewNode) hideTooltip();
@@ -939,8 +1011,6 @@ window.addEventListener('keydown', e => {
 
     if (isShiftSymbol) { handleSlotStore({'!':0, '@':1, '#':2, '$':3}[e.key]); return; }
     if (!e.shiftKey && isSlotKey) { handleSlot(parseInt(e.key) - 1); return; }
-    // Shift + 1-4 表示存储，已在上面处理
-    // if (e.shiftKey && isSlotKey) { handleSlotStore(parseInt(e.key) - 1); return; } // 已合并到 isShiftSymbol
 
     const neighbors = getNeighborsWithAngle();
     switch(e.key) {
@@ -961,7 +1031,7 @@ window.addEventListener('keydown', e => {
         case 'Enter': if(!isInput && focusNode) showContentModal(); break;
 
         case 'l': case 'L': enterLinkMode(); break;
-        case 'e': case 'E': showFlashMessage("按 L 进入连线模式", 'info'); break;
+        case 'e': case 'E': showFlashMessage(t('hud.linkMode'), 'info'); break; // 🔴 国际化：使用 t()
         case 'h': case 'H': const root = data.nodes.find(n=>n.isRoot); if(root) safeNavigate(root); break;
         case 'Escape':
             if (linkMode.active) { exitLinkMode(); }
@@ -995,7 +1065,7 @@ function navigateTo(node, record, resetRot) {
 
     if (linkMode.active && linkMode.sourceNode && linkMode.sourceNode.uuid !== node.uuid) {
         executeLinkAction(linkMode.sourceNode, node);
-        exitLinkMode();
+        exitLinkMode(); // 每次链接后退出连线模式
     }
 
     if(focusNode && record && focusNode !== node) { navHistory.push(focusNode); if(navHistory.length>50) navHistory.shift(); }
@@ -1016,7 +1086,8 @@ async function enterLinkMode() {
         linkMode.type = result.val;
 
         if (result.val === 'CUSTOM') {
-            let customType = await CustomDialog.prompt("请输入链接关系名称:", "例如: 包含, 定义为...");
+            // 🔴 国际化：使用 t()
+            let customType = await CustomDialog.prompt(t('linkMode.prompt'), t('linkMode.promptPlaceholder'));
             if (!customType) {
                 exitLinkMode();
                 return;
@@ -1032,13 +1103,7 @@ async function enterLinkMode() {
             linkMode.color = p ? p.color : '#fff';
         }
 
-        const indicator = document.getElementById('link-mode-indicator');
-        indicator.classList.add('active');
-        // 🔴 修复：动态样式已通过 CSP 允许
-        indicator.innerHTML = `
-            🔗 <span style="color:${linkMode.color};">连线模式: ${linkMode.type} (跳转以连接/Esc 取消)</span>
-        `;
-        document.getElementById('link-mode-indicator').classList.add('active');
+        updateLinkModeIndicator(); // 更新指示器
 
     } catch (e) {
        // Cancelled
@@ -1050,8 +1115,20 @@ function exitLinkMode() {
     linkMode.sourceNode = null;
     linkMode.type = null;
     linkMode.color = null;
+    updateLinkModeIndicator(); // 更新指示器
+}
+
+function updateLinkModeIndicator() {
     const indicator = document.getElementById('link-mode-indicator');
-    indicator.classList.remove('active');
+    if (linkMode.active) {
+        // 🔴 国际化：使用 t()
+        indicator.innerHTML = t('linkMode.typeIndicator', {color: linkMode.color, type: linkMode.type});
+        indicator.classList.add('active');
+    } else {
+        // 🔴 国际化：使用 t()
+        indicator.innerHTML = t('hud.linkMode');
+        indicator.classList.remove('active');
+    }
 }
 
 function executeLinkAction(source, target) {
@@ -1064,13 +1141,16 @@ function executeLinkAction(source, target) {
         if (existingLink) {
             executeSafeAction(
                 () => ({ nodes: data.nodes, links: data.links.filter(l => l !== existingLink), nextFocus: target, nextSlots: slots }),
+                // 🔴 国际化：使用 t()
                 () => {
                     data.links = data.links.filter(l => l !== existingLink);
                     restartSim();
+                    showFlashMessage(t('flash.linkCut'), 'info');
                 }
             );
         } else {
-            showFlashMessage("无连接可断开", 'info');
+            // 🔴 国际化：使用 t()
+            showFlashMessage(t('alert.noLinkToBreak'), 'info');
         }
         return;
     }
@@ -1088,7 +1168,8 @@ function executeLinkAction(source, target) {
 
 function createIndependentNodeFlow() {
     const newNode = {
-        uuid: uuid.v4(), label: "新概念",
+        uuid: uuid.v4(),
+        label: t('fallback.newNode'), // 🔴 国际化：使用 t()
         x: focusNode.x + 150, y: focusNode.y + 50, // 初始位置在焦点节点旁边
         summary: "", content: "", color: getRandomColor(), alpha: 0
     };
@@ -1129,7 +1210,8 @@ function showContentModal() {
         delete activeNodeRunTimes[focusNode.uuid];
     }
     closeContentModal();
-    const rawMarkdown = focusNode.content || "*暂无正文内容*";
+    // 🔴 国际化：使用 t()
+    const rawMarkdown = focusNode.content || t('modal.noContent');
     const parsedHtml = marked.parse(rawMarkdown);
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = parsedHtml;
@@ -1139,15 +1221,14 @@ function showContentModal() {
         scriptsToExecute.push(script.textContent);
         script.remove();
     });
-    // 🔴 修复：动态样式已通过 CSP 允许
     modalBody.innerHTML = `
         <div style="font-size:2em; font-weight:bold; color:#4facfe; margin-bottom:10px;">${focusNode.label}</div>
         <div style="color:#666; font-style:italic; margin-bottom:20px; border-left:3px solid #555; padding-left:10px;">
-            ${focusNode.summary ? marked.parse(focusNode.summary) : '无摘要'}
+            ${focusNode.summary ? marked.parse(focusNode.summary) : t('modal.noContent')}
         </div>
         <hr style="border:0; border-bottom:1px solid #333; margin-bottom:20px;">
         <div id="node-content-host-${focusNode.uuid}" style="line-height:1.8; font-size:16px;">${tempDiv.innerHTML}</div>
-        <div style="margin-top:50px; text-align:center; font-size:12px; color:#444;">按 ESC 关闭</div>
+        <div style="margin-top:50px; text-align:center; font-size:12px; color:#444;">${t('modal.close')}</div>
     `;
     if (typeof hljs !== 'undefined') {
         const codeBlocks = modalBody.querySelectorAll('pre code');
@@ -1366,13 +1447,16 @@ function importData(inp) {
                     // reload 会导致短暂的白屏和状态丢失
                     initSystem(importedData);
 
-                    showFlashMessage("数据导入成功");
+                    // 🔴 国际化：使用 t()
+                    showFlashMessage(t('alert.importSuccess'));
                 } else {
-                    showFlashMessage("导入文件格式不正确", 'warn');
+                    // 🔴 国际化：使用 t()
+                    showFlashMessage(t('alert.importFail'), 'warn');
                 }
             } catch (error) {
                 console.error(error);
-                showFlashMessage("解析导入文件失败", 'warn');
+                // 🔴 国际化：使用 t()
+                showFlashMessage(t('alert.parseFail'), 'warn');
             }
         };
         r.readAsText(f);
@@ -1386,23 +1470,25 @@ const relationPicker = {
     show: function(allowDelete = false) {
         this.allowDelete = allowDelete;
         return new Promise((res, rej) => {
-            let html = `<div class="menu-title">1. 选择类型 <span style="font-weight:normal; color:#888;">(Space 自定义${allowDelete ? ', D 删除' : ''})</span></div>`;
+            // 🔴 国际化：使用 t()
+            const delStr = allowDelete ? t('preset.delete') : '';
+            let html = `<div class="menu-title">${t('preset.title', {delStr: delStr})}</div>`;
             const optionsHtml = RELATION_PRESETS.slice(0, 9).map((p, i) => {
                 const idxKey = i + 1;
-                // 🔴 修复：动态样式已通过 CSP 允许
                 return `<div class="menu-opt" data-value="${p.val}"><span class="menu-key" style="color:${p.color}">[${idxKey}]</span>${p.label}</div>`;
             }).join('');
 
             html += optionsHtml;
 
             if (RELATION_PRESETS.length > 9) {
-                html += `<div class="menu-title" style="margin-top:10px;">更多</div>`;
+                html += `<div class="menu-title" style="margin-top:10px;">${t('preset.more')}</div>`; // 🔴 国际化：新增 key "preset.more"
                 html += RELATION_PRESETS.slice(9).map((p, i) => {
                     return `<div class="menu-opt" data-value="${p.val}"><span class="menu-key" style="visibility:hidden;">[]</span>${p.label}</div>`;
                 }).join('');
             }
             if (allowDelete) {
-                    html += `<div class="menu-opt" style="margin-top:5px; border-top:1px solid #333" data-value="DELETE"><span class="menu-key" style="color:#e74c3c">[D]</span><span style="color:#e74c3c">删除/断开连接</span></div>`;
+                // 🔴 国际化：使用 t()
+                html += t('preset.deleteOption', {text: t('linkMode.deleteLabel')});
             }
 
             this.el.innerHTML = html;
@@ -1455,13 +1541,12 @@ const presetEditor = {
         this.tempPresets.forEach((p, i) => {
             const row = document.createElement('div');
             row.className = 'preset-row';
-            // 🔴 修复：动态样式已通过 CSP 允许
             row.innerHTML = `
                 <span class="preset-idx">${i+1}</span>
                 <input type="color" class="preset-color" value="${p.color}" data-idx="${i}" data-field="color">
-                <input type="text" class="preset-input" style="width:120px" placeholder="显示名称 (Label)" value="${p.label}"
+                <input type="text" class="preset-input" style="width:120px" placeholder="${t('preset.input.label')}" value="${p.label}"
                     data-idx="${i}" data-field="label">
-                <input type="text" class="preset-input" style="flex:1; color:#aaa;" placeholder="数据值 (Value)" value="${p.val}"
+                <input type="text" class="preset-input" style="flex:1; color:#aaa;" placeholder="${t('preset.input.value')}" value="${p.val}"
                     data-idx="${i}" data-field="val">
                 <span class="preset-del" data-idx="${i}">✕</span>
             `;
@@ -1483,18 +1568,20 @@ const presetEditor = {
     handleListKey: function(e, idx, field) { if (e.key === 'Enter') { e.preventDefault(); this.saveAndClose(); } },
     update: function(idx, field, value) { this.tempPresets[idx][field] = value; },
     add: function() {
-        if (this.tempPresets.length >= 20) { alert(`预设数量已达上限。`); return; }
-        this.tempPresets.push({ label: '新关系', val: 'new_rel', color: getRandomColor() });
+        // 🔴 国际化：使用 t()
+        if (this.tempPresets.length >= 20) { showFlashMessage(t('alert.presetExceedMax'), 'warn'); return; }
+        this.tempPresets.push({ label: t('fallback.newNode'), val: 'new_rel', color: getRandomColor() }); // 🔴 国际化：使用 t()
         this.renderList();
         setTimeout(() => this.listEl.scrollTop = this.listEl.scrollHeight, 10);
     },
     remove: function(idx) { this.tempPresets.splice(idx, 1); this.renderList(); },
     saveAndClose: function() {
-        if (this.tempPresets.some(p => !p.val.trim())) { alert("预设的 Value (数据值) 不能为空。"); return; }
+        // 🔴 国际化：使用 t()
+        if (this.tempPresets.some(p => !p.val.trim())) { showFlashMessage(t('alert.presetValueEmpty'), 'warn'); return; }
         const values = this.tempPresets.map(p => p.val.trim());
-        if (new Set(values).size !== values.length) { alert("预设的 Value (数据值) 不能重复。"); return; }
+        if (new Set(values).size !== values.length) { showFlashMessage(t('alert.presetValueDuplicate'), 'warn'); return; }
         RELATION_PRESETS = JSON.parse(JSON.stringify(this.tempPresets));
-        saveToLocal(); restartSim(); this.close(); showFlashMessage("预设已更新");
+        saveToLocal(); restartSim(); this.close(); showFlashMessage(t('flash.presetUpdated')); // 🔴 国际化：使用 t()
     },
     close: function() {
         this.el.classList.remove('active');
