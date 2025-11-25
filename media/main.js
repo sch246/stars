@@ -314,9 +314,32 @@ function createRootNodeLocally() {
     console.warn("Stars: Created a local Origin node as fallback.");
 }
 
+function clearNodeStorage(nodeUuid) {
+    const prefix = `node_storage_${nodeUuid}_`;
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key.startsWith(prefix)) {
+            localStorage.removeItem(key);
+        }
+    }
+    console.log(`Stars: Node specific localStorage data cleared for UUID: ${nodeUuid}`);
+}
+
+function clearAllNodeStorage() {
+    const prefix = "node_storage_"; // 所有节点存储的前缀
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key.startsWith(prefix)) {
+            localStorage.removeItem(key);
+        }
+    }
+    console.log("Stars: All node specific localStorage data cleared.");
+}
+
 async function resetSystem() {
     // 🔴 国际化：使用 t()
     if (await CustomDialog.confirm(t('alert.resetConfirm'))) {
+        clearAllNodeStorage();
         // 通知 Extension 清空数据并重新加载默认
         vscode.postMessage({ command: 'resetSystem' });
     }
@@ -481,6 +504,8 @@ function safeDeleteNode(target = null) {
             nextSlots: slots.map(s => (s && s.uuid === nodeToDelete.uuid) ? null : s)
         }),
         () => {
+            // 在删除节点时，清除该节点自身的本地存储数据
+            clearNodeStorage(nodeToDelete.uuid);
             slots = slots.map(s => (s && s.uuid === nodeToDelete.uuid) ? null : s);
             data.links = data.links.filter(l => l.source.uuid !== nodeToDelete.uuid && l.target.uuid !== nodeToDelete.uuid);
             data.nodes = data.nodes.filter(n => n.uuid !== nodeToDelete.uuid);
@@ -1479,6 +1504,9 @@ function importData(inp) {
                 // 严格校验格式
                 if (importedData && importedData.data && Array.isArray(importedData.data.nodes)) {
                     console.log("Stars: Importing data...", importedData);
+
+                    // 在导入新数据前，清除所有节点的本地存储数据
+                    clearAllNodeStorage();
 
                     // 1. 先通知后端保存（为了下次打开能记住）
                     vscode.postMessage({ command: 'saveData', data: importedData });
