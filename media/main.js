@@ -584,10 +584,7 @@ function render(currentTime) {
     viewRotation += diff * 0.1;
 
     ctx.save();
-    ctx.clearRect(0, 0, width * window.devicePixelRatio, height * window.devicePixelRatio);
-
-    // 应用设备像素比，确保在高 DPI 屏幕上绘制清晰
-    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    ctx.clearRect(0, 0, width, height);
 
     // 应用视图变换
     ctx.translate(width/2, height/2);
