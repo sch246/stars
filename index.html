@@ -1,0 +1,1594 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>星罗 (Stars v4.6 Flow)</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <style>
+        /* --- 基础样式 --- */
+        body { margin: 0; overflow: hidden; background-color: #050508; font-family: 'Segoe UI', sans-serif; color: #ddd; }
+        #canvas { display: block; width: calc(100vw - var(--sidebar-width, 340px)); height: 100vh; cursor: crosshair; outline: none; }
+
+        /* --- 侧边栏 --- */
+        #sidebar {
+            position: fixed; right: 0; top: 0;
+            width: var(--sidebar-width, 340px);
+            height: 100vh;
+            background: #111114; border-left: 1px solid #2a2a30;
+            padding: 25px; box-sizing: border-box; display: flex; flex-direction: column; z-index: 10;
+            box-shadow: -5px 0 20px rgba(0,0,0,0.8);
+        }
+        #sidebar-resizer {
+            position: fixed; right: var(--sidebar-width, 340px); top: 0; width: 8px; height: 100vh;
+            background: #050508; cursor: ew-resize; z-index: 11; transition: background 0.2s;
+        }
+        #sidebar-resizer:hover { background: #4facfe; }
+        input, textarea { background: transparent; border: none; color: #eee; outline: none; width: 100%; display: block; font-family: 'Segoe UI', sans-serif; }
+        input::placeholder, textarea::placeholder { color: #444; font-style: italic; }
+
+        #node-label { font-size: 28px; font-weight: 700; margin-bottom: 8px; color: #4facfe; border-bottom: 2px solid #2a2a30; padding-bottom: 8px; }
+        #node-label:focus { border-bottom-color: #4facfe; }
+
+        #node-uuid { font-size: 10px; color: #444; font-family: monospace; margin-bottom: 5px; user-select: all;}
+        #link-status { font-size: 12px; font-family: monospace; margin-bottom: 15px; color: #666; font-weight: bold; display: flex; justify-content: space-between;}
+
+        #node-summary {
+            font-size: 14px; color: #aaa; margin-bottom: 20px; line-height: 1.5;
+            background: #0d0d0f; border: 1px solid transparent; border-radius: 4px; padding: 5px;
+            height: 60px; resize: vertical;
+        }
+        #node-summary:focus { border-color: #333; background: #151518; }
+
+        #node-content {
+            flex-grow: 1; background: #0a0a0c; border: 1px solid #222; padding: 15px;
+            resize: none; font-family: 'Consolas', 'Courier New', monospace; line-height: 1.7;
+            border-radius: 6px; font-size: 13px; color: #ccc;
+        }
+        #node-content:focus { border-color: #4facfe; }
+
+        #node-color-container { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+        #node-color-input { width: 30px; height: 30px; background: transparent; border: none; cursor: pointer; padding: 0; }
+        #node-color-hex { flex-grow: 1; background: #0a0a0c; border: 1px solid #222; padding: 8px 10px; border-radius: 6px; font-size: 13px; color: #ccc; text-transform: uppercase; }
+
+        /* --- HUD & Slots --- */
+        #hud { position: fixed; top: 20px; left: 25px; pointer-events: none; z-index: 5; opacity: 0.9; display: flex; flex-direction: column; gap: 20px;}
+        h1 { margin: 0; font-size: 18px; color: #555; letter-spacing: 2px; text-transform: uppercase; }
+        .controls { font-size: 12px; color: #444; line-height: 1.6; font-family: monospace; }
+        .key { color: #4facfe; font-weight: bold; background: rgba(79, 172, 254, 0.1); padding: 2px 4px; border-radius: 3px;}
+
+        #slot-bar { display: flex; gap: 15px; pointer-events: auto; margin-top: 5px;}
+        .slot { display: flex; flex-direction: column; align-items: center; gap: 5px; cursor: pointer; opacity: 0.6; transition: 0.3s; width: 60px; }
+        .slot:hover { opacity: 1; transform: scale(1.1); }
+        .slot.active { opacity: 1; }
+        .slot-circle {
+            width: 24px; height: 24px; border-radius: 50%; background: #333; border: 2px solid transparent;
+            box-shadow: 0 0 5px rgba(0,0,0,0.5); transition: 0.3s; position: relative;
+        }
+        .slot-num {
+            position: absolute; top: -5px; left: -5px; font-size: 10px; font-weight: bold; color: #666; background: #050508; padding: 1px 3px; border-radius: 4px;
+        }
+        .slot.active .slot-num { color: #4facfe; }
+        .slot-name { font-size: 11px; color: #888; text-align: center; max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .slot.active .slot-name { color: #ddd; font-weight: bold; }
+
+        #view-controls { font-family: monospace; color: #666; font-size: 12px; }
+        #layer-indicator { color: #4facfe; font-weight: bold; }
+
+        /* --- 连线模式指示器 --- */
+        #link-mode-indicator {
+            display: none; font-size: 14px; font-weight: bold; color: #fff;
+            background: rgba(0,0,0,0.6); padding: 5px 10px; border-radius: 4px;
+            border: 1px solid rgba(255,255,255,0.2); margin-top: 5px;
+        }
+        #link-mode-indicator.active { display: inline-block; animation: pulse-text 2s infinite; }
+        @keyframes pulse-text { 0% { opacity: 0.7; } 50% { opacity: 1; } 100% { opacity: 0.7; } }
+
+        /* --- 菜单通用样式 --- */
+        .overlay-menu {
+            position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%) translateX(-170px);
+            background: #1a1a1d; border: 1px solid #444; padding: 15px; border-radius: 8px;
+            display: none; flex-direction: column; gap: 6px; z-index: 50; box-shadow: 0 10px 30px rgba(0,0,0,1); min-width: 260px;
+        }
+        .overlay-menu.active { display: flex; }
+        .menu-title { font-size: 12px; color: #888; margin-bottom: 5px; border-bottom: 1px solid #333; padding-bottom: 5px;}
+        .menu-opt { font-size: 13px; color: #ccc; padding: 8px 10px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; transition: background 0.2s;}
+        .menu-opt:hover, .menu-opt.selected { background: #333; color: #fff; }
+        .menu-key { color: #4facfe; font-weight: bold; font-family: monospace; margin-right: 12px; min-width: 20px;}
+        .menu-del { color: #e74c3c; font-size: 11px; margin-left: auto; }
+        .menu-opt.delete-opt { color: #e74c3c; } /* 为删除选项添加特殊颜色 */
+
+        #tooltip { position: absolute; opacity: 0; background: rgba(0, 0, 0, 0.9); padding: 10px 14px; border-radius: 4px; border-left: 3px solid #4facfe; pointer-events: none; color: #ddd; font-size: 12px; transition: opacity 0.15s; z-index: 100; max-width: 280px; box-shadow: 0 4px 15px rgba(0,0,0,0.6);}
+        #tooltip.fixed-mode { top: 70%; left: 50%; transform: translate(-50%, 0) translateX(calc(-1 * var(--sidebar-width, 340px) / 2)); text-align: center; border-left: none; border-top: 3px solid #4facfe; }
+
+        /* --- 弹窗提示 --- */
+        #flash-message {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) translateX(calc(-1 * var(--sidebar-width, 340px) / 2));
+            padding: 15px 30px; border-radius: 8px; font-weight: bold; font-size: 14px;
+            opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: 404; box-shadow: 0 0 30px rgba(0,0,0,0.5);
+            text-transform: uppercase; letter-spacing: 1px;
+        }
+        #flash-message.info { background: rgba(0, 123, 255, 0.15); color: #4facfe; border: 1px solid #4facfe; }
+        #flash-message.warn { background: rgba(255, 0, 0, 0.15); color: #ff4d4d; border: 1px solid #ff4d4d; }
+
+        #content-modal {
+            display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0,0,0,0.85); z-index: 300; justify-content: center; align-items: center;
+        }
+        #content-modal.active { display: flex; }
+        #modal-body {
+            background: #161619; width: 800px; max-width: 90%; height: 85%; border: 1px solid #333; border-radius: 8px;
+            padding: 40px; box-sizing: border-box; overflow-y: auto; color: #ccc;
+            box-shadow: 0 0 50px rgba(0,0,0,1);
+        }
+        #modal-body h1, #modal-body h2, #modal-body h3 { color: #fff; border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 20px;}
+        #modal-body a { color: #4facfe; text-decoration: none; }
+        #modal-body code { background: #222; padding: 2px 5px; border-radius: 3px; font-family: monospace; color: #ff7675; }
+        #modal-body pre { background: #111; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        #modal-body pre code { background: transparent; color: #ddd; padding: 0; }
+        #modal-body blockquote { border-left: 4px solid #444; margin: 0; padding-left: 15px; color: #888; }
+        #modal-body img { max-width: 100%; border-radius: 4px; }
+
+        #io-controls { position: fixed; bottom: 20px; left: 25px; z-index: 5; display: flex; gap: 10px; }
+        button { background: #1a1a1d; color: #777; border: 1px solid #333; padding: 6px 12px; cursor: pointer; font-size: 11px; border-radius: 3px; transition: 0.2s; }
+        button:hover { background: #333; color: #fff; border-color: #555; }
+
+        /* --- 预设编辑器样式 --- */
+        #preset-editor {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: #161619; border: 1px solid #333; border-radius: 8px;
+            padding: 20px; width: 500px; max-width: 90%; z-index: 400;
+            display: none; flex-direction: column; gap: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+        }
+        #preset-editor.active { display: flex; }
+        .preset-list { max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+        .preset-row { display: flex; gap: 10px; align-items: center; background: #0a0a0c; padding: 5px; border-radius: 4px; border: 1px solid #222; }
+        .preset-row:hover { border-color: #444; }
+        .preset-input { background: transparent; border: none; color: #ddd; font-family: monospace; font-size: 12px; padding: 4px; border-bottom: 1px solid transparent; }
+        .preset-input:focus { border-bottom-color: #4facfe; }
+        .preset-color { width: 25px; height: 25px; border: none; background: none; cursor: pointer; padding: 0; }
+        .preset-idx { color: #4facfe; font-weight: bold; font-family: monospace; width: 20px; text-align: center; user-select: none; }
+        .preset-del { color: #e74c3c; cursor: pointer; font-weight: bold; padding: 0 5px; user-select: none; }
+        .preset-del:hover { color: #ff6b6b; }
+        .preset-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; border-top: 1px solid #333; padding-top: 10px; }
+        .btn-primary { background: #2980b9; color: white; border-color: #3498db; }
+        .btn-primary:hover { background: #3498db; }
+        /* Modal Body 特定代码块样式 */
+        #modal-body code {
+            background: #282c34; /* atom-one-dark 的背景色 */
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-family: 'Fira Code', 'JetBrains Mono', 'Consolas', monospace; /* 建议使用等宽字体 */
+            color: #abb2bf; /* atom-one-dark 的默认文本色 */
+            font-size: 0.95em; /* 稍微小一点 */
+        }
+        #modal-body pre {
+            background: #282c34;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin-top: 1em;
+            margin-bottom: 1em;
+        }
+        #modal-body pre code {
+            background: none; /* pre 内部的 code 元素不再需要背景 */
+            padding: 0;
+            font-size: 1em; /* pre 内部 code 恢复正常字体大小 */
+            color: #abb2bf;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+
+<div id="hud">
+    <h1>星罗 <span style="font-size:10px; opacity:0.5">v4.6 Flow</span></h1>
+    <div id="slot-bar">
+        <div class="slot" id="slot-1" onclick="handleSlot(0)" oncontextmenu="clearSlot(0, event)"><div class="slot-circle"><span class="slot-num">1</span></div><span class="slot-name">-</span></div>
+        <div class="slot" id="slot-2" onclick="handleSlot(1)" oncontextmenu="clearSlot(1, event)"><div class="slot-circle"><span class="slot-num">2</span></div><span class="slot-name">-</span></div>
+        <div class="slot" id="slot-3" onclick="handleSlot(2)" oncontextmenu="clearSlot(2, event)"><div class="slot-circle"><span class="slot-num">3</span></div><span class="slot-name">-</span></div>
+        <div class="slot" id="slot-4" onclick="handleSlot(3)" oncontextmenu="clearSlot(3, event)"><div class="slot-circle"><span class="slot-num">4</span></div><span class="slot-name">-</span></div>
+    </div>
+    <div id="view-controls">视野范围: <span id="layer-indicator">1</span> 层 (按 +/- 调整)<br>当前可见: <span id="visible-count">0</span> 节点</div>
+    <div id="link-mode-indicator">🔗 连线模式: 跳转以连接/Esc 取消</div>
+    <div id="key-controls" class="controls">
+        <span class="key">L</span> <span class="key">前侧键</span> 新建关系 <span class="key">Tab</span> <span class="key">N</span> 新建节点<br>
+        <span class="key">Del</span> <span class="key">D</span> <span class="key">右键</span> 删除关系/节点<br>
+        <span class="key">↑↓←→ /?</span> <span class="key">左键</span> 移动 <br>
+        <span class="key">F2</span> 改名 <span class="key">Space</span> 编辑 <span class="key">Enter</span> <span class="key">左键焦点</span> 查看<br>
+        <span class="key">(Shift)1-4</span> (存入)交换 <span class="key">H</span> 回家 <span class="key">B</span> <span class="key">后侧键</span> 后退<br>
+        <span class="key">, .</span> 预览邻居 <span class="key">< ></span> 自由旋转<br>
+        <span class="key">`</span> 关系预设 <span class="key">I</span> 隐藏此提示
+    </div>
+</div>
+
+<div id="flash-message"></div>
+<div id="relation-picker" class="overlay-menu"></div>
+
+<div id="preset-editor">
+    <div class="menu-title">预设关系编辑器 <span style="float:right; cursor:pointer" onclick="presetEditor.close()">✕</span></div>
+    <div class="controls" style="margin-bottom:10px; color:#666;">定义常用的连接类型。按 Enter 保存。</div>
+    <div class="preset-list" id="preset-list-container"></div>
+    <div class="preset-actions">
+        <button onclick="presetEditor.add()">+ 新增预设</button>
+        <button class="btn-primary" onclick="presetEditor.saveAndClose()">保存并应用</button>
+    </div>
+</div>
+
+<div id="content-modal" onclick="closeContentModal()"><div id="modal-body" onclick="event.stopPropagation()"></div></div>
+
+<div id="io-controls">
+    <button onclick="saveToLocal()">保存</button>
+    <button onclick="exportData()">导出</button>
+    <button onclick="resetSystem()">重置系统</button>
+    <input type="file" id="importFile" style="display:none" onchange="importData(this)">
+    <button onclick="document.getElementById('importFile').click()">导入</button>
+    <button onclick="presetEditor.open()">预设管理</button>
+</div>
+
+<div id="sidebar">
+    <input type="text" id="node-label" placeholder="概念名称">
+    <div id="node-uuid">UUID: -</div>
+    <div id="link-status">连接数: -</div>
+    <textarea id="node-summary" placeholder="简短摘要 (Markdown/HTML)..."></textarea>
+    <div id="node-color-container">
+        <input type="color" id="node-color-input">
+        <input type="text" id="node-color-hex" placeholder="#FFFFFF">
+    </div>
+    <textarea id="node-content" placeholder="详细笔记 (Markdown支持)..."></textarea>
+</div>
+<div id="sidebar-resizer"></div>
+<div id="tooltip"></div>
+<canvas id="canvas"></canvas>
+
+<script>
+    // --- Helper Functions ---
+    // 用于清除所有节点相关的 localStorage 数据
+    function clearAllNodeStorage() {
+        const prefix = "node_storage_";
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+            const key = localStorage.key(i);
+            if (key.startsWith(prefix)) {
+                localStorage.removeItem(key);
+            }
+        }
+        console.log("Stars: All node specific localStorage data cleared.");
+    }
+
+    // 用于清除特定节点相关的 localStorage 数据
+    function clearNodeStorage(nodeUuid) {
+        const prefix = `node_storage_${nodeUuid}_`;
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+            const key = localStorage.key(i);
+            if (key.startsWith(prefix)) {
+                localStorage.removeItem(key);
+            }
+        }
+        console.log(`Stars: Node specific localStorage data cleared for UUID: ${nodeUuid}`);
+    }
+
+    // --- 1. Config ---
+    const DEFAULT_PRESETS = [
+        { label: '包含...', val: 'comp', color: '#0062ff' },
+        { label: '定义为...', val: 'def', color: '#00ff00' },
+        { label: '直观理解', val: 'ins', color: '#33ffff' },
+        { label: '计算...', val: 'calc', color: '#ffaa00' },
+        { label: '意味着...', val: 'impl', color: '#bd00ff' },
+        { label: '与...正交', val: 'orth', color: '#ff0055' },
+    ];
+    let RELATION_PRESETS = JSON.parse(JSON.stringify(DEFAULT_PRESETS));
+
+    const DEFAULT_NODE_COLOR = "#4facfe";
+    const MAX_VIEW_LAYERS = 7;
+    const MIN_VIEW_LAYERS = 1;
+
+    let data = { nodes: [], links: [] };
+    let slots = [null, null, null, null];
+    let viewLayers = 1;
+    let focusNode = null, hoverNode = null, previewNode = null;
+    let navHistory = [];
+    let viewX = 0, viewY = 0, viewK = 1, viewRotation = 0, targetRotation = 0;
+    let lastRenderTime = 0;
+    const FADE_DURATION = 400;
+    const keyState = {};
+    let hudVisible = true;
+
+    // --- 连线模式状态 ---
+    let linkMode = {
+        active: false,
+        sourceNode: null,
+        type: null, // 预设的 val，或者 'DELETE'
+        customLabel: null, // 如果是自定义类型
+        color: null // 用于光晕显示
+    };
+
+    function initSystem() {
+        const saved = localStorage.getItem('stars_v4');
+        if (saved) {
+            try {
+                const raw = JSON.parse(saved);
+                data = raw.data;
+                if (raw.presets && Array.isArray(raw.presets)) RELATION_PRESETS = raw.presets;
+
+                const nodeMap = new Map(data.nodes.map(n => [n.uuid, n]));
+                data.links.forEach(l => {
+                    // 确保 link source/target 引用的是实际的 node 对象
+                    if(typeof l.source === 'string') l.source = nodeMap.get(l.source) || l.source;
+                    if(typeof l.target === 'string') l.target = nodeMap.get(l.target) || l.target;
+                    l.alpha = 0;
+                });
+                data.nodes.forEach(n => { n.alpha = 0; });
+                slots = raw.slots ? raw.slots.map(uuid => uuid ? nodeMap.get(uuid) : null) : [null, null, null, null];
+                viewLayers = raw.viewLayers || 1;
+                focusNode = raw.focusNodeUuid
+                    ? nodeMap.get(raw.focusNodeUuid)
+                    : (data.nodes.find(n => n.isRoot) || data.nodes[0]);
+            } catch(e) { console.error("Load error:", e); createRoot(); }
+        } else { createRoot(); }
+
+        if(!focusNode){
+            createRoot();
+            focusNode = data.nodes[0]; // createRoot后唯一节点就是root
+        }
+        focusNode.alpha = 1;
+        updateUI(); updateSlotUI(); restartSim(); adjustZoomByLayer();
+    }
+
+    function createRoot() {
+        const rootUUID = uuid.v4();
+        const root = { uuid: rootUUID, label: "Origin", isRoot: true, x: 0, y: 0, summary: "初始奇点", content: "欢迎来到星罗。开始探索吧！", color: "#ffffff", alpha: 1 };
+        data = { nodes: [root], links: [] };
+        slots = [null, null, null, null];
+        focusNode = root; viewLayers = 1;
+    }
+
+    function resetSystem() {
+        if(confirm("重置系统将清空所有数据（包括节点脚本的本地存储），确定吗？")) {
+            clearAllNodeStorage(); // 🔴 清除所有节点相关的 localStorage
+            localStorage.removeItem('stars_v4');
+            location.reload();
+        }
+    }
+
+    // --- 2. Core Logic ---
+
+    function getNodeLinkCount(nodeUuid) {
+        return data.links.filter(l => l.source.uuid === nodeUuid || l.target.uuid === nodeUuid).length;
+    }
+
+    function showFlashMessage(msg, type = 'info') {
+        const el = document.getElementById('flash-message');
+        el.innerText = msg;
+        el.className = type; // info or warn
+        el.style.opacity = 1;
+        setTimeout(() => { el.style.opacity = 0; }, 2000);
+    }
+
+    function findReachable(allNodes, allLinks, startNodes) {
+        const reachable = new Set();
+        const queue = [];
+        startNodes.forEach(s => {
+            if (s && !reachable.has(s.uuid)) {
+                const exists = allNodes.find(n => n.uuid === s.uuid);
+                if(exists) { reachable.add(s.uuid); queue.push(exists); }
+            }
+        });
+        const adj = {};
+        allLinks.forEach(l => {
+            const s = l.source.uuid || l.source;
+            const t = l.target.uuid || l.target;
+            if(!adj[s]) adj[s] = []; adj[s].push(t);
+            if(!adj[t]) adj[t] = []; adj[t].push(s);
+        });
+        let head = 0;
+        while(head < queue.length) {
+            const curr = queue[head++];
+            const neighbors = adj[curr.uuid] || [];
+            neighbors.forEach(nid => {
+                if (!reachable.has(nid)) {
+                    reachable.add(nid);
+                    const nodeObj = allNodes.find(n => n.uuid === nid);
+                    if(nodeObj) queue.push(nodeObj);
+                }
+            });
+        }
+        return reachable;
+    }
+
+    function executeSafeAction(simulator, executor) {
+        const proposed = simulator();
+        const { nodes, links, nextFocus, nextSlots } = proposed;
+        const anchors = [];
+        const root = nodes.find(n => n.isRoot);
+        if (root) anchors.push(root);
+        if (nextFocus) anchors.push(nextFocus);
+        nextSlots.forEach(s => { if(s) anchors.push(s); });
+
+        const reachableUUIDs = findReachable(nodes, links, anchors);
+        const lostNodes = nodes.filter(n => !reachableUUIDs.has(n.uuid));
+
+        if (lostNodes.length > 0) {
+            if (confirm(`警告：此操作将导致 ${lostNodes.length} 个节点丢失（如 ${lostNodes[0].label}...）。是否继续？`)) {
+                executor();
+                const deadUUIDs = new Set(lostNodes.map(n => n.uuid));
+                data.nodes = data.nodes.filter(n => !deadUUIDs.has(n.uuid));
+                data.links = data.links.filter(l => !deadUUIDs.has(l.source.uuid) && !deadUUIDs.has(l.target.uuid));
+                navHistory = navHistory.filter(n => !deadUUIDs.has(n.uuid));
+                slots = slots.map(s => (s && deadUUIDs.has(s.uuid)) ? null : s);
+                // 🔴 删除节点时清除其 localStorage
+                lostNodes.forEach(n => clearNodeStorage(n.uuid));
+                restartSim();
+                return true;
+            }
+            return false;
+        } else {
+            executor();
+            restartSim();
+            return true;
+        }
+    }
+
+    // --- Action Handlers ---
+
+    function handleSlot(index) {
+        const slotNode = slots[index];
+        const currentFocus = focusNode;
+        if (slotNode === currentFocus) return;
+        if (slotNode) {
+            // 跳转逻辑
+            const performJump = () => {
+                slots[index] = currentFocus;
+                navigateTo(slotNode, true, false);
+                updateSlotUI();
+            };
+            // [修复]：连线模式下直接执行，不检查安全
+            if (linkMode.active) {
+                performJump();
+            } else {
+                executeSafeAction(
+                    () => ({
+                        nodes: data.nodes,
+                        links: data.links,
+                        nextFocus: slotNode,
+                        nextSlots: slots.map((s,i) => i===index ? currentFocus : s)
+                    }),
+                    performJump
+                );
+            }
+        } else {
+            // 存入逻辑
+            slots[index] = currentFocus; updateSlotUI(); saveToLocal();
+        }
+    }
+
+    function clearSlot(index, e) {
+        e.preventDefault();
+        if(!slots[index]) return;
+        executeSafeAction(
+             () => ({ nodes: data.nodes, links: data.links, nextFocus: focusNode, nextSlots: slots.map((s,i)=>i===index?null:s) }),
+             () => { slots[index] = null; updateSlotUI(); }
+        );
+    }
+
+    function handleSlotStore(index) {
+        const currentFocus = focusNode;
+        if (slots[index] === currentFocus) return;
+        executeSafeAction(
+            () => ({ nodes: data.nodes, links: data.links, nextFocus: currentFocus, nextSlots: slots.map((s,i)=>i===index?currentFocus:s) }),
+            () => { slots[index] = currentFocus; updateSlotUI(); saveToLocal(); }
+        );
+    }
+
+    function safeNavigate(targetNode, isHistoryBack = false) {
+        if(!targetNode) return;
+        if (linkMode.active) {
+            navigateTo(targetNode, !isHistoryBack, false); // 直接跳转，不经过 executeSafeAction
+            return;
+        }
+        executeSafeAction(
+            () => ({ nodes: data.nodes, links: data.links, nextFocus: targetNode, nextSlots: slots }),
+            () => { navigateTo(targetNode, !isHistoryBack, false); }
+        );
+    }
+
+    function safeNavigateBack() {
+        if(navHistory.length) {
+            let target = null;
+            for(let i = navHistory.length - 1; i >= 0; i--) {
+                if(data.nodes.find(n => n.uuid === navHistory[i].uuid) && navHistory[i].uuid !== focusNode.uuid) { target = navHistory[i]; break; }
+            }
+            if(target) safeNavigate(target, true);
+        }
+    }
+
+    function safeDeleteNode(target = null) {
+        const nodeToDelete = target || focusNode;
+        if (nodeToDelete.isRoot) { showFlashMessage("初始奇点不可删除", 'warn'); return; }
+
+        let nextFocus = focusNode;
+        if (nodeToDelete.uuid === focusNode.uuid) {
+            let fallback = navHistory.length > 0 ? navHistory[navHistory.length - 1] : null;
+            if (fallback && fallback.uuid === nodeToDelete.uuid) fallback = null;
+            if (!fallback) fallback = data.nodes.find(n => n.isRoot);
+            nextFocus = fallback;
+        }
+
+        executeSafeAction(
+            () => ({
+                nodes: data.nodes.filter(n => n.uuid !== nodeToDelete.uuid),
+                links: data.links.filter(l => l.source.uuid !== nodeToDelete.uuid && l.target.uuid !== nodeToDelete.uuid),
+                nextFocus: nextFocus,
+                nextSlots: slots.map(s => (s && s.uuid === nodeToDelete.uuid) ? null : s)
+            }),
+            () => {
+                clearNodeStorage(nodeToDelete.uuid); // 🔴 删除节点时清除其 localStorage
+                slots = slots.map(s => (s && s.uuid === nodeToDelete.uuid) ? null : s);
+                data.links = data.links.filter(l => l.source.uuid !== nodeToDelete.uuid && l.target.uuid !== nodeToDelete.uuid);
+                data.nodes = data.nodes.filter(n => n.uuid !== nodeToDelete.uuid);
+                if (nodeToDelete.uuid === focusNode.uuid) {
+                    navigateTo(nextFocus, false, false);
+                } else {
+                    restartSim(); // 仅删除非焦点节点
+                    updateSlotUI();
+                }
+            }
+        );
+    }
+
+    function safeDeleteLink(link) {
+        executeSafeAction(
+            () => ({ nodes: data.nodes, links: data.links.filter(l => l !== link), nextFocus: focusNode, nextSlots: slots }),
+            () => { data.links = data.links.filter(l => l !== link); restartSim(); showFlashMessage("链接已切断", 'warn'); }
+        );
+    }
+
+    function updateSlotUI() {
+        for(let i=0; i<4; i++) {
+            const el = document.getElementById(`slot-${i+1}`);
+            const node = slots[i];
+            const circle = el.querySelector('.slot-circle');
+            const nameEl = el.querySelector('.slot-name');
+            if (node) {
+                el.classList.add('active');
+                nameEl.innerText = node.label;
+                circle.style.background = node.color || DEFAULT_NODE_COLOR;
+                circle.style.boxShadow = `0 0 8px ${node.color || DEFAULT_NODE_COLOR}`;
+                circle.style.border = "1px solid rgba(255,255,255,0.3)";
+            } else {
+                el.classList.remove('active');
+                nameEl.innerText = "-";
+                circle.style.background = "#222";
+                circle.style.boxShadow = "none";
+                circle.style.border = "1px solid #333";
+            }
+        }
+    }
+
+    // --- 3. D3 & Render ---
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    let width = window.innerWidth - 340, height = window.innerHeight;
+    canvas.width = width; canvas.height = height;
+
+    const simulation = d3.forceSimulation()
+        .force("link", d3.forceLink().id(d => d.uuid).distance(220).strength(0.1))
+        .force("charge", d3.forceManyBody().strength(-200))
+        .force("collide", d3.forceCollide(10))
+        .force("center", d3.forceCenter(0, 0))
+        .alphaDecay(0.05)
+        .alphaMin(0.05);
+
+    const POINTER_FORCE_STRENGTH = 0.25;
+    const pointerForce = (() => {
+        let node = null; let target = null; let strength = POINTER_FORCE_STRENGTH;
+        function force(alpha) {
+            if (!node || !target) return;
+            const dx = target.x - node.x; const dy = target.y - node.y;
+            const dist = Math.hypot(dx, dy);
+            const falloff = 1 - Math.exp(-dist / 120);
+            const k = strength * falloff * alpha;
+            node.vx += dx * k; node.vy += dy * k;
+        }
+        force.initialize = () => {};
+        force.node = function(n) { node = n || null; return force; };
+        force.target = function(x, y) { target = (x!=null && y!=null) ? {x, y} : null; return force; };
+        force.strength = function(s) { strength = s; return force; };
+        return force;
+    })();
+    simulation.force('pointerDrag', pointerForce);
+
+    function adjustZoomByLayer() {
+        const targetK = 1.0 / (Math.pow(viewLayers, 0.7));
+        viewK = Math.max(0.15, Math.min(2.5, targetK));
+    }
+
+    function render(currentTime) {
+        if (!lastRenderTime) lastRenderTime = currentTime;
+        const deltaTime = currentTime - lastRenderTime;
+        lastRenderTime = currentTime;
+
+        const targetX = width/2; const targetY = height/2;
+        viewX += ((-focusNode.x * viewK + targetX) - viewX) * 0.1;
+        viewY += ((-focusNode.y * viewK + targetY) - viewY) * 0.1;
+        if (keyState['<']) targetRotation += 0.05;
+        if (keyState['>']) targetRotation -= 0.05;
+        if ((keyState['<'] || keyState['>']) && previewNode) {
+            previewNode = null;
+            hideTooltip();
+        }
+        let diff = targetRotation - viewRotation;
+        while (diff > Math.PI) diff -= 2 * Math.PI; while (diff < -Math.PI) diff += 2 * Math.PI;
+        viewRotation += diff * 0.1;
+
+        ctx.save();
+        ctx.clearRect(0, 0, width, height);
+        ctx.translate(width/2, height/2); ctx.rotate(viewRotation); ctx.translate(-width/2, -height/2);
+        ctx.translate(viewX, viewY); ctx.scale(viewK, viewK);
+
+        const visibleTargets = new Set();
+        const visibleLinksTarget = new Set();
+
+        const addNeighbors = (startNode, depth) => {
+            if(!startNode) return;
+            let queue = [{n: startNode, d: 0}];
+            visibleTargets.add(startNode.uuid);
+            let head = 0;
+            while(head < queue.length) {
+                const {n, d} = queue[head++];
+                if (d >= depth) continue;
+                data.links.forEach(l => {
+                    const s = l.source, t = l.target;
+                    if (s.uuid === n.uuid) {
+                        if(!visibleTargets.has(t.uuid)) { visibleTargets.add(t.uuid); queue.push({n: t, d: d+1}); }
+                        visibleLinksTarget.add(`${s.uuid}-${t.uuid}`);
+                    } else if (t.uuid === n.uuid) {
+                        if(!visibleTargets.has(s.uuid)) { visibleTargets.add(s.uuid); queue.push({n: s, d: d+1}); }
+                        visibleLinksTarget.add(`${s.uuid}-${t.uuid}`);
+                    }
+                });
+            }
+        };
+
+        if (focusNode) addNeighbors(focusNode, viewLayers);
+        if (hoverNode && hoverNode !== focusNode) addNeighbors(hoverNode, 1);
+        if (previewNode && previewNode !== focusNode) addNeighbors(previewNode, 1);
+
+        const SIMULATION_LAYERS = 7;
+        const simulationTargets = new Set();
+        const addSimulationNeighbors = (startNode, depth) => {
+            if(!startNode) return;
+            let queue = [{n: startNode, d: 0}];
+            simulationTargets.add(startNode.uuid);
+            let head = 0;
+            while(head < queue.length) {
+                const {n, d} = queue[head++];
+                if (d >= depth) continue;
+                data.links.forEach(l => {
+                    const s = l.source, t = l.target;
+                    if (s.uuid === n.uuid) {
+                        if(!simulationTargets.has(t.uuid)) { simulationTargets.add(t.uuid); queue.push({n: t, d: d+1}); }
+                    } else if (t.uuid === n.uuid) {
+                        if(!simulationTargets.has(s.uuid)) { simulationTargets.add(s.uuid); queue.push({n: s, d: d+1}); }
+                    }
+                });
+            }
+        };
+        if (focusNode) addSimulationNeighbors(focusNode, SIMULATION_LAYERS);
+        const activeNodes = data.nodes.filter(n => simulationTargets.has(n.uuid));
+        const activeLinks = data.links.filter(l => simulationTargets.has(l.source.uuid) && simulationTargets.has(l.target.uuid));
+        simulation.nodes(activeNodes);
+        simulation.force("link").links(activeLinks);
+        if (simulation.alpha() < 0.1) simulation.alpha(0.3).restart();
+
+        let visibleCount = 0;
+
+        data.links.forEach(link => {
+            const key = `${link.source.uuid}-${link.target.uuid}`;
+            const keyRev = `${link.target.uuid}-${link.source.uuid}`;
+            const isTargetVisible = visibleLinksTarget.has(key) || visibleLinksTarget.has(keyRev);
+
+            if (isTargetVisible && link.alpha < 1) link.alpha += deltaTime / FADE_DURATION;
+            else if (!isTargetVisible && link.alpha > 0) link.alpha -= deltaTime / FADE_DURATION;
+            link.alpha = Math.max(0, Math.min(1, link.alpha));
+
+            if (link.alpha > 0.01) {
+                const src = link.source, tgt = link.target;
+                const isFocusLink = (src === focusNode || tgt === focusNode);
+                const isHoverLink = (hoverNode && (src === hoverNode || tgt === hoverNode));
+                const isPreviewLink = (previewNode && (src === previewNode || tgt === previewNode));
+
+                // 细节 259
+                let linkAlphaMultiplier = 0.2; // 默认亮度
+                let linkWidth = 1.5;
+                if (isHoverLink || isPreviewLink) { // 悬浮或预览链接次亮
+                    linkAlphaMultiplier = 0.5;
+                    linkWidth = 2.5;
+                } else if (isFocusLink) {
+                    linkAlphaMultiplier = 0.9; // 焦点链接最亮
+                    linkWidth = 2.5;
+                }
+
+                ctx.globalAlpha = link.alpha * linkAlphaMultiplier;
+                ctx.lineWidth = 2.5;
+                const typeColor = RELATION_PRESETS.find(p=>p.val===link.type)?.color || '#666';
+
+                const grad = ctx.createLinearGradient(src.x, src.y, tgt.x, tgt.y);
+                grad.addColorStop(0, typeColor); grad.addColorStop(0.7, "#444"); grad.addColorStop(1, "#222");
+                ctx.strokeStyle = grad;
+                ctx.beginPath(); ctx.moveTo(src.x, src.y); ctx.lineTo(tgt.x, tgt.y); ctx.stroke();
+
+                if (link.type && isFocusLink) {
+                     const mx = (src.x+tgt.x)/2, my = (src.y+tgt.y)/2;
+                     ctx.save(); ctx.translate(mx, my); ctx.rotate(-viewRotation);
+                     ctx.fillStyle = typeColor; ctx.font = "11px Arial"; ctx.textAlign="center";
+                     const linkLabel = RELATION_PRESETS.find(p=>p.val===link.type)?.label || link.type;
+                     ctx.fillText(linkLabel, 0, -8); ctx.restore();
+                }
+            }
+        });
+
+        // 光晕动画因子
+        const pulse = (Math.sin(currentTime * 0.002) + 1) * 0.5 * 20 + 10;
+
+        data.nodes.forEach(node => {
+            const isTargetVisible = visibleTargets.has(node.uuid);
+            if (node === focusNode) node.alpha = 1;
+            else {
+                if (isTargetVisible && node.alpha < 1) node.alpha += deltaTime / FADE_DURATION;
+                else if (!isTargetVisible && node.alpha > 0) node.alpha -= deltaTime / FADE_DURATION;
+                node.alpha = Math.max(0, Math.min(1, node.alpha));
+            }
+
+            if (node.alpha > 0.01) {
+                visibleCount++;
+                const isSlot = slots.includes(node);
+                const isFocus = (node === focusNode);
+                const isPreview = (node === previewNode || node === hoverNode);
+
+                ctx.globalAlpha = isFocus ? 1 : node.alpha;
+                ctx.beginPath();
+                let r = isFocus ? 20 : (isSlot ? 14 : 10);
+                if (viewK < 0.5) r = r / viewK * 0.5;
+
+                ctx.arc(node.x, node.y, r, 0, 2*Math.PI);
+                ctx.fillStyle = node.color || DEFAULT_NODE_COLOR;
+
+                // 阴影/光晕逻辑
+                if(isFocus) {
+                    if (linkMode.active) {
+                        // 连线模式下的特殊光晕
+                        ctx.shadowBlur = pulse;
+                        ctx.shadowColor = linkMode.color || '#fff';
+                    } else {
+                        ctx.shadowBlur = 35; ctx.shadowColor = ctx.fillStyle;
+                    }
+                } else if(isPreview) {
+                    ctx.shadowBlur = 20; ctx.shadowColor = ctx.fillStyle;
+                }
+
+                if (isFocus && linkMode.active) { ctx.strokeStyle = linkMode.color || '#fff'; ctx.lineWidth = 3; ctx.stroke(); }
+                if(isSlot && !isFocus) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke(); }
+                ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle = "transparent";
+
+                if (isFocus || isPreview || node.alpha > 0.5) {
+                    ctx.save(); ctx.translate(node.x, node.y); ctx.rotate(-viewRotation);
+                    ctx.fillStyle = (isFocus || isPreview) ? "#fff" : "rgba(200,200,200,0.7)";
+                    ctx.font = (isFocus || isPreview) ? "bold 14px Arial" : "11px Arial";
+                    ctx.textAlign = "center";
+                    ctx.fillText(node.label, 0, r + 16);
+                    const sIdx = slots.indexOf(node);
+                    if (sIdx >= 0) { ctx.fillStyle = "#4facfe"; ctx.font = "bold 11px monospace"; ctx.fillText(`[${sIdx+1}]`, 0, -r - 6); }
+                    ctx.restore();
+                }
+            }
+        });
+        ctx.restore();
+        document.getElementById('visible-count').innerText = visibleCount;
+        requestAnimationFrame(render);
+    }
+    requestAnimationFrame(render);
+
+    // --- 4. Interaction ---
+
+    function getNeighborsWithAngle() {
+        const neighbors = [];
+        data.links.forEach(l => {
+            let other = null; const sId = l.source.uuid, tId = l.target.uuid, fId = focusNode.uuid;
+            if(sId === fId) other = l.target; if(tId === fId) other = l.source;
+            if(other) {
+                const rawAngle = Math.atan2(other.y - focusNode.y, other.x - focusNode.x);
+                let visualAngle = rawAngle + viewRotation;
+                while(visualAngle > Math.PI) visualAngle -= 2*Math.PI; while(visualAngle <= -Math.PI) visualAngle += 2*Math.PI;
+                neighbors.push({ node: other, vAngle: visualAngle, rawAngle: rawAngle });
+            }
+        });
+        neighbors.sort((a,b) => a.vAngle - b.vAngle);
+        return neighbors;
+    }
+
+    function cyclePreview(dir) {
+        const neighbors = getNeighborsWithAngle();
+        if (neighbors.length === 0) return;
+        hideTooltip()
+        const UP_ANGLE = -Math.PI / 2;
+        const EXACT_THRESHOLD = 5 * Math.PI / 180;
+        const exactMatch = neighbors.find(n => Math.abs(n.vAngle - UP_ANGLE) < EXACT_THRESHOLD);
+        const shouldSkipExact = exactMatch && previewNode && previewNode.uuid === exactMatch.node.uuid;
+
+        if (exactMatch && !shouldSkipExact) {
+            previewNode = exactMatch.node;
+            setTargetRotation(-Math.PI/2 - exactMatch.rawAngle);
+            showTooltip(`<strong>预览: ${previewNode.label}</strong><br>${previewNode.summary||''}<br><span style='color:#af4cae'>按 <span class="key">↑</span> <span class="key">/</span> 跳转</span>`, 0, 0, 'fixed');
+            return;
+        }
+
+        let targetNode = null;
+        if (dir > 0) {
+            targetNode = neighbors.find(n => n.vAngle > UP_ANGLE && (!shouldSkipExact || n.node.uuid !== exactMatch.node.uuid));
+            if (!targetNode) targetNode = neighbors.find(n => (!shouldSkipExact || !exactMatch || n.node.uuid !== exactMatch.node.uuid));
+        } else {
+            for (let i = neighbors.length - 1; i >= 0; i--) {
+                if (neighbors[i].vAngle < UP_ANGLE && (!shouldSkipExact || neighbors[i].node.uuid !== exactMatch.node.uuid)) {
+                    targetNode = neighbors[i]; break;
+                }
+            }
+            if (!targetNode) {
+                for (let i = neighbors.length - 1; i >= 0; i--) {
+                    if (!shouldSkipExact || !exactMatch || neighbors[i].node.uuid !== exactMatch.node.uuid) {
+                        targetNode = neighbors[i]; break;
+                    }
+                }
+            }
+        }
+        if (targetNode) {
+            previewNode = targetNode.node;
+            setTargetRotation(-Math.PI/2 - targetNode.rawAngle);
+            showTooltip(`<strong>预览: ${previewNode.label}</strong><br>${previewNode.summary||''}<br><span style='color:#af4cae'>按 <span class="key">↑</span> <span class="key">/</span> 跳转</span>`, 0, 0, 'fixed');
+        }
+    }
+
+    function setTargetRotation(target) {
+        let current = targetRotation; let diff = target - current;
+        while (diff > Math.PI) diff -= 2 * Math.PI; while (diff < -Math.PI) diff += 2 * Math.PI;
+        targetRotation = current + diff;
+    }
+
+    const tooltipEl = document.getElementById('tooltip');
+    function showTooltip(html, x, y, mode) {
+        tooltipEl.innerHTML = html; tooltipEl.style.opacity = 1;
+        if (mode === 'mouse') {
+            tooltipEl.className = ''; tooltipEl.style.left = (x + 15) + 'px'; tooltipEl.style.top = (y + 15) + 'px'; tooltipEl.style.transform = 'none';
+        } else { tooltipEl.className = 'fixed-mode'; }
+    }
+    function hideTooltip() {
+        tooltipEl.style.opacity = 0; tooltipEl.className = ''; tooltipEl.style.left = ''; tooltipEl.style.top = ''; tooltipEl.style.transform = '';
+    }
+
+    function screenToWorld(sx, sy) {
+        let x = sx - width/2, y = sy - height/2;
+        const cos = Math.cos(-viewRotation), sin = Math.sin(-viewRotation);
+        let rx = x * cos - y * sin; let ry = x * sin + y * cos;
+        return { x: (rx + width/2 - viewX) / viewK, y: (ry + height/2 - viewY) / viewK };
+    }
+
+    // --- Drag & Mouse State ---
+    const DRAG_HIT_RADIUS2 = 600;
+    let drag = { active: false, node: null, startSX: 0, startSY: 0, startTime: 0, maxMove: 0 };
+
+    function pickNodeAtScreen(sx, sy, alphaThresh = 0.5) {
+        const pos = screenToWorld(sx, sy);
+        for (let i = data.nodes.length - 1; i >= 0; i--) {
+            const n = data.nodes[i];
+            if (n.alpha <= alphaThresh) continue;
+            const dx = n.x - pos.x, dy = n.y - pos.y;
+            if ((dx*dx + dy*dy) < DRAG_HIT_RADIUS2) return n;
+        }
+        return null;
+    }
+
+    function pickLinkAtScreen(sx, sy) {
+        const pos = screenToWorld(sx, sy);
+        for (let i = 0; i < data.links.length; i++) {
+            const l = data.links[i];
+            if (l.alpha < 0.3) continue;
+            const x1 = l.source.x, y1 = l.source.y;
+            const x2 = l.target.x, y2 = l.target.y;
+            const A = x2 - x1, B = y2 - y1;
+            const lenSq = A*A + B*B;
+            let dist = 0;
+            if (lenSq === 0) dist = Math.hypot(pos.x - x1, pos.y - y1);
+            else {
+                let t = ((pos.x - x1) * A + (pos.y - y1) * B) / lenSq;
+                t = Math.max(0, Math.min(1, t));
+                dist = Math.hypot(pos.x - (x1 + t * A), pos.y - (y1 + t * B));
+            }
+            if (dist < 10 / viewK) return l;
+        }
+        return null;
+    }
+
+    canvas.addEventListener('contextmenu', e => {
+        e.preventDefault();
+        const node = pickNodeAtScreen(e.clientX, e.clientY);
+        if (node) { safeDeleteNode(node); return; }
+        const link = pickLinkAtScreen(e.clientX, e.clientY);
+        if (link) { safeDeleteLink(link); return; }
+    });
+
+    canvas.addEventListener('mousemove', e => {
+        if (document.getElementById('content-modal').classList.contains('active')) return;
+        if (drag.active) {
+            const dx = e.clientX - drag.startSX; const dy = e.clientY - drag.startSY;
+            drag.maxMove = Math.max(drag.maxMove, Math.hypot(dx, dy));
+            if (drag.node) {
+                const w = screenToWorld(e.clientX, e.clientY);
+                pointerForce.target(w.x, w.y);
+                hoverNode = null; previewNode = null; hideTooltip();
+            }
+            return;
+        }
+        const found = pickNodeAtScreen(e.clientX, e.clientY);
+        if (found) {
+            hoverNode = found; previewNode = null;
+            const summaryText = found.summary || '';
+            const summaryHtml = typeof marked !== 'undefined' ? marked.parse(summaryText) : summaryText;
+            showTooltip(`<strong>${found.label}</strong><br>${summaryHtml}<br><span style='color:#666'>点击跳转</span>`, e.clientX, e.clientY, 'mouse');
+        } else {
+            hoverNode = null;
+            if (!previewNode) hideTooltip();
+        }
+    });
+
+    canvas.addEventListener('mousedown', e => {
+        if (document.getElementById('content-modal').classList.contains('active')) return;
+
+        // 鼠标侧键检测 (3: Back, 4: Forward)
+        if (e.button === 3) { // Back button -> Create Node
+             e.preventDefault();
+             safeNavigateBack();
+             return;
+        }
+        if (e.button === 4) { // Forward button -> Link Mode
+             e.preventDefault();
+             enterLinkMode();
+             return;
+        }
+        if (e.button !== 0) return;
+
+        const node = pickNodeAtScreen(e.clientX, e.clientY);
+        drag.active = true; drag.node = node || null;
+        drag.startSX = e.clientX; drag.startSY = e.clientY;
+        drag.startTime = performance.now(); drag.maxMove = 0;
+        if (drag.node) {
+            const w = screenToWorld(e.clientX, e.clientY);
+            pointerForce.node(drag.node).target(w.x, w.y);
+            simulation.alphaTarget(0.3).restart();
+            hoverNode = null; previewNode = null; hideTooltip();
+            canvas.style.cursor = 'grabbing';
+        } else {
+            relationPicker.close();
+        }
+    });
+
+    canvas.addEventListener('mouseup', e => {
+        if (e.button !== 0) return;
+        if (!drag.active) return;
+        const elapsed = performance.now() - drag.startTime;
+        const moved = drag.maxMove;
+        const node = drag.node;
+        if (node) {
+            pointerForce.node(null).target(null); simulation.alphaTarget(0);
+            saveToLocal(); canvas.style.cursor = 'crosshair';
+        }
+        if (elapsed < 200 && moved < 8) {
+            const target = node || pickNodeAtScreen(e.clientX, e.clientY);
+            if (target) {
+                if (target !== focusNode) safeNavigate(target);
+                else showContentModal();
+            };
+        }
+        drag.active = false; drag.node = null;
+    });
+
+    canvas.addEventListener('wheel', e => { e.preventDefault(); viewK -= e.deltaY * 0.001; viewK = Math.max(0.1, Math.min(5, viewK)); }, { passive: false });
+
+    window.addEventListener('keydown', e => {
+        if (modal.classList.contains('active')) return;
+        if (presetEditor.active) {
+            if (e.key === 'Escape') presetEditor.close();
+            return;
+        }
+        const tag = e.target.tagName;
+        const isInput = (tag === 'INPUT' || tag === 'TEXTAREA');
+
+        if (relationPicker.active) {
+             relationPicker.handleInput(e);
+             return;
+        }
+
+        if (isInput) {
+            if (e.key === 'Escape') { e.target.blur(); canvas.focus(); return; }
+            if (e.key === 'Enter' && e.target.id === 'node-label') { e.preventDefault(); e.target.blur(); canvas.focus(); return; }
+            return;
+        }
+
+        keyState[e.key] = true; if (e.shiftKey) keyState['Shift'] = true;
+
+        if (e.key === '`') { e.preventDefault(); presetEditor.open(); return; }
+
+        const isSlotKey = (e.key >= '1' && e.key <= '4');
+        const isShiftSymbol = ['!', '@', '#', '$'].includes(e.key);
+
+        if (isShiftSymbol) { handleSlotStore({'!':0, '@':1, '#':2, '$':3}[e.key]); return; }
+        if (e.shiftKey && isSlotKey) { handleSlotStore(parseInt(e.key) - 1); return; }
+        if (!e.shiftKey && isSlotKey) { handleSlot(parseInt(e.key) - 1); return; }
+
+        const neighbors = getNeighborsWithAngle();
+        switch(e.key) {
+            case 'ArrowUp': case '/': if (previewNode) safeNavigate(previewNode); else jumpDirection(-Math.PI/2, neighbors); break;
+            case 'ArrowDown': case '?': jumpDirection(Math.PI/2, neighbors); break;
+            case 'ArrowLeft': jumpDirection(-Math.PI, neighbors); break;
+            case 'ArrowRight': jumpDirection(0, neighbors); break;
+            case '.': cyclePreview(1); break; case ',': cyclePreview(-1); break;
+            case '=': case '+': viewLayers = Math.max(MIN_VIEW_LAYERS, viewLayers - 1); adjustZoomByLayer(); document.getElementById('layer-indicator').innerText = viewLayers; break;
+            case '-': case '_': viewLayers = Math.min(MAX_VIEW_LAYERS, viewLayers + 1); adjustZoomByLayer(); document.getElementById('layer-indicator').innerText = viewLayers; break;
+
+            case 'Tab': case 'n': case 'N':
+                e.preventDefault();
+                createIndependentNodeFlow(); // 只创建独立节点
+                break;
+            case 'F2': e.preventDefault(); const labelInp = document.getElementById('node-label'); labelInp.focus(); labelInp.select(); break;
+            case ' ': e.preventDefault(); const sumInp = document.getElementById('node-summary'); sumInp.focus(); sumInp.select(); break;
+            case 'Enter': if(!isInput && focusNode) showContentModal(); break;
+
+            case 'l': case 'L': enterLinkMode(); break; // L -> Link Mode
+            case 'e': case 'E': showFlashMessage("按 L 进入连线模式", 'info'); break; // 已废弃
+            case 'h': case 'H': const root = data.nodes.find(n=>n.isRoot); if(root) safeNavigate(root); break;
+            case 'Escape':
+                if (linkMode.active) { exitLinkMode(); }
+                break; // Esc 取消连线模式
+            case 'b': case 'B': safeNavigateBack(); break;
+            case 'Delete': case 'd': case 'D': safeDeleteNode(); break;
+            case 'i': case 'I': e.preventDefault(); hudVisible = !hudVisible; document.getElementById('key-controls').style.display = hudVisible ? 'block' : 'none'; break;
+        }
+    });
+    window.addEventListener('keyup', e => { keyState[e.key] = false; if(e.key==='Shift') keyState['Shift']=false; });
+
+    function jumpDirection(targetAng, neighbors) {
+        let best = null, minDiff = Infinity;
+        neighbors.forEach(n => {
+            let diff = Math.abs(n.vAngle - targetAng); if (diff > Math.PI) diff = 2*Math.PI - diff;
+            if (diff < minDiff) { minDiff = diff; best = n.node; }
+        });
+        if (best && minDiff < 1.2) safeNavigate(best);
+    }
+
+    function navigateTo(node, record, resetRot) {
+        if(!node) return;
+
+        // --- 核心：连线模式逻辑 ---
+        if (linkMode.active && linkMode.sourceNode && linkMode.sourceNode.uuid !== node.uuid) {
+            executeLinkAction(linkMode.sourceNode, node);
+            exitLinkMode();
+            // 注意：这里不应该 return，后续还需要更新 UI 和 History
+        }
+
+        if(focusNode && record && focusNode !== node) { navHistory.push(focusNode); if(navHistory.length>50) navHistory.shift(); }
+        focusNode = node; focusNode.alpha = 1; previewNode = null; hideTooltip();
+        if(resetRot) targetRotation = 0;
+        updateUI(); saveToLocal();
+    }
+
+    // --- 5. New Link Mode Implementation ---
+
+    async function enterLinkMode() {
+        if (linkMode.active) return; // Already active
+        try {
+            // 1. 选择类型
+            const result = await relationPicker.show(true); // allowDelete = true
+
+            // 2. 设置状态
+            linkMode.active = true;
+            linkMode.sourceNode = focusNode;
+            linkMode.type = result.val; // 可能是预设val，'DELETE'，或 'CUSTOM'
+
+            if (result.val === 'CUSTOM') {
+                let customType = prompt("请输入链接关系名称:");
+                if (!customType) { exitLinkMode(); return; } // 用户取消
+                // 映射
+                const matchedPreset = RELATION_PRESETS.find(p => p.label === customType);
+                linkMode.type = matchedPreset ? matchedPreset.val : customType;
+                linkMode.customLabel = linkMode.type;
+                linkMode.color = '#fff';
+            } else if (result.val === 'DELETE') {
+                linkMode.color = '#ff4d4d'; // 红色光晕
+            } else {
+                // 预设类型
+                const p = RELATION_PRESETS.find(pre => pre.val === result.val);
+                linkMode.color = p ? p.color : '#fff';
+            }
+
+            // 3. UI 反馈
+            const indicator = document.getElementById('link-mode-indicator');
+            indicator.classList.add('active');
+            indicator.innerHTML = `
+                🔗 <span style="color:${linkMode.color};">连线模式: ${linkMode.type} (跳转以连接/Esc 取消)</span>
+            `;
+
+        } catch (e) {
+            // Cancelled
+            exitLinkMode(); // 确保如果用户在选择类型时取消，连线模式也退出
+        }
+    }
+
+    function exitLinkMode() {
+        linkMode.active = false;
+        linkMode.sourceNode = null;
+        linkMode.type = null;
+        linkMode.color = null;
+        const indicator = document.getElementById('link-mode-indicator');
+        indicator.classList.remove('active');
+    }
+
+    // 执行连线动作 (连接/覆盖/删除)
+    function executeLinkAction(source, target) {
+        // 检查现有链接
+        const existingLink = data.links.find(l =>
+            (l.source.uuid === source.uuid && l.target.uuid === target.uuid) ||
+            (l.source.uuid === target.uuid && l.target.uuid === source.uuid)
+        );
+
+        // --- 删除逻辑 ---
+        if (linkMode.type === 'DELETE') {
+            if (existingLink) {
+                // 安全删除
+                executeSafeAction(
+                    () => ({ nodes: data.nodes, links: data.links.filter(l => l !== existingLink), nextFocus: target, nextSlots: slots }),
+                    () => {
+                        data.links = data.links.filter(l => l !== existingLink);
+                        restartSim();
+                    }
+                );
+            } else {
+                showFlashMessage("无连接可断开", 'info');
+            }
+            return;
+        }
+
+        // --- 创建/覆盖逻辑 ---
+        if (existingLink) {
+            // 覆盖：默认调整方向为 source -> target
+            existingLink.type = linkMode.type;
+            existingLink.source = source;
+            existingLink.target = target;
+            restartSim();
+        } else {
+            // 新建
+            data.links.push({ source: source, target: target, type: linkMode.type, alpha: 0 });
+            restartSim();
+        }
+    }
+
+    // 独立新建节点 (Shift+Tab removed, now Tab/N)
+    function createIndependentNodeFlow() {
+        const newNode = {
+            uuid: uuid.v4(), label: "新概念",
+            x: focusNode.x + 150, y: focusNode.y + 50,
+            summary: "", content: "", color: getRandomColor(), alpha: 0
+        };
+
+        const performCreate = () => {
+            data.nodes.push(newNode);
+            restartSim();
+            navigateTo(newNode, true, false);
+            focusTitle();
+        };
+        // [修复]：连线模式下直接创建并跳转
+        if (linkMode.active) {
+            performCreate();
+        } else {
+            // 安全导航检查 (因为焦点即将离开当前节点)
+            executeSafeAction(
+                () => ({
+                    nodes: [...data.nodes, newNode],
+                    links: data.links,
+                    nextFocus: newNode,
+                    nextSlots: slots
+                }),
+                performCreate
+            );
+        }
+    }
+
+    function focusTitle() { setTimeout(() => { const el = document.getElementById('node-label'); el.focus(); el.select(); }, 50); }
+
+    const modal = document.getElementById('content-modal');
+    const modalBody = document.getElementById('modal-body');
+    let activeNodeRunTimes = {}; // 存储当前活动脚本的清理函数映射
+
+    function showContentModal() {
+        if (!focusNode) return;
+
+        // 如果是同一个节点，先清理旧的运行时实例
+        if (activeNodeRunTimes[focusNode.uuid]) {
+            try {
+                activeNodeRunTimes[focusNode.uuid].unmountFn(); // 调用旧实例的清理函数
+            } catch (e) {
+                console.error("Cleanup error during showContentModal:", e);
+            }
+            delete activeNodeRunTimes[focusNode.uuid]; // 从列表中移除
+        }
+
+        // 每次打开模态框时，完全清除旧内容 (包括 DOM 和脚本元素)
+        closeContentModal(); // 调用增强后的 closeContentModal 来清理
+
+        const rawMarkdown = focusNode.content || "*暂无正文内容*";
+        const parsedHtml = typeof marked !== 'undefined' ? marked.parse(rawMarkdown) : rawMarkdown;
+
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = parsedHtml;
+
+        const scriptsToExecute = [];
+        const scriptElements = tempDiv.querySelectorAll('script');
+        scriptElements.forEach(script => {
+            scriptsToExecute.push(script.textContent);
+            script.remove(); // 从 tempDiv 中移除 script 标签
+        });
+
+        modalBody.innerHTML = `
+            <div style="font-size:2em; font-weight:bold; color:#4facfe; margin-bottom:10px;">${focusNode.label}</div>
+            <div style="color:#666; font-style:italic; margin-bottom:20px; border-left:3px solid #555; padding-left:10px;">
+                ${focusNode.summary ? (typeof marked !== 'undefined' ? marked.parse(focusNode.summary) : focusNode.summary) : '无摘要'}
+            </div>
+            <hr style="border:0; border-bottom:1px solid #333; margin-bottom:20px;">
+            <div id="node-content-host-${focusNode.uuid}" class="node-content-host" style="line-height:1.8; font-size:16px;">${tempDiv.innerHTML}</div> <!-- 为节点内容创建一个专属容器 -->
+            <div style="margin-top:50px; text-align:center; font-size:12px; color:#444; cursor:pointer;" onclick="closeContentModal()">按 ESC 关闭</div>
+        `;
+
+        if (typeof hljs !== 'undefined') {
+            const codeBlocks = modalBody.querySelectorAll('pre code');
+            codeBlocks.forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        }
+
+        const nodeContentHost = document.getElementById(`node-content-host-${focusNode.uuid}`);
+        if (!nodeContentHost) {
+            console.error("无法找到节点内容容器，无法执行脚本。");
+            return;
+        }
+
+        let nodeUnmountCallbacks = [];
+
+        const NodeRuntime = {
+            onMount: function(callback) {
+                try { callback(); } catch(e) { console.error("onMount callback error:", e); }
+            },
+            onUnmount: function(callback) {
+                nodeUnmountCallbacks.push(callback);
+            },
+            storage: {
+                _prefix: `node_storage_${focusNode.uuid}_`,
+                set: function(key, value) {
+                    try {
+                        localStorage.setItem(this._prefix + key, JSON.stringify(value));
+                        return true;
+                    } catch(e) { console.error("NodeStorage set error:", e); return false; }
+                },
+                get: function(key, defaultValue = null) {
+                    try {
+                        const item = localStorage.getItem(this._prefix + key);
+                        return item ? JSON.parse(item) : defaultValue;
+                    } catch(e) { console.error("NodeStorage get error:", e); return defaultValue; }
+                },
+                remove: function(key) {
+                    localStorage.removeItem(this._prefix + key);
+                },
+                clear: function() {
+                    // 仅清除当前节点相关的所有存储
+                    for (let i = localStorage.length - 1; i >= 0; i--) {
+                        const key = localStorage.key(i);
+                        if (key.startsWith(this._prefix)) {
+                            localStorage.removeItem(key);
+                        }
+                    }
+                }
+            },
+            hostElement: nodeContentHost,
+            $: function(selector) {
+                return nodeContentHost.querySelector(selector);
+            },
+            $$: function(selector) {
+                return nodeContentHost.querySelectorAll(selector);
+            },
+            document: document,
+            window: window,
+            node: {
+                uuid: focusNode.uuid,
+                label: focusNode.label,
+                color: focusNode.color
+            }
+        };
+
+        activeNodeRunTimes[focusNode.uuid] = {
+            instance: NodeRuntime,
+            unmountFn: () => {
+                nodeUnmountCallbacks.forEach(callback => {
+                    try { callback(); } catch(e) { console.error("onUnmount callback error:", e); }
+                });
+                nodeUnmountCallbacks = [];
+            }
+        };
+        scriptsToExecute.forEach((scriptText, index) => {
+            try {
+                const wrappedScriptCode = `
+                    (function(nodeRuntimeApi) {
+                        const Runtime = nodeRuntimeApi;
+                        try {
+                            ${scriptText}
+                        } catch(err) {
+                            console.error("Error inside node script block (Node UUID: ${focusNode.uuid}, Block: ${index}):", err);
+                        }
+                    })(arguments[0]);
+                `;
+                const dynamicScriptFunc = new Function('api', wrappedScriptCode);
+                dynamicScriptFunc(NodeRuntime);
+            } catch (e) {
+                console.error(`执行节点脚本 (Node UUID: ${focusNode.uuid}, Index: ${index}) 时出错:`, e, scriptText);
+                // 可以选择在这里显示一个用户友好的错误消息
+                const errDiv = document.createElement('div');
+                errDiv.style.color = 'red';
+                errDiv.style.fontSize = '12px';
+                errDiv.innerText = `Script Error in Block ${index+1}: ${e.message}`;
+                nodeContentHost.appendChild(errDiv);
+            }
+        });
+        modal.classList.add('active');
+        const closeModalHandler = (e) => {
+            if (e.key === 'Escape') {
+                closeContentModal();
+                e.stopPropagation();
+                e.preventDefault();
+                window.removeEventListener('keydown', closeModalHandler);
+            }
+        };
+        window.addEventListener('keydown', closeModalHandler);
+        modal.removeEventListener('click', closeContentModal); // 移除旧的，防止重复绑定
+        modalBody.removeEventListener('click', event.stopPropagation); // 移除旧的，防止重复绑定
+        modal.addEventListener('click', closeContentModal);
+        modalBody.addEventListener('click', event.stopPropagation);
+    }
+
+    function closeContentModal() {
+        modal.classList.remove('active');
+        // 检查当前是否有活跃的节点脚本，并调用其 onUnmount
+        if (focusNode && activeNodeRunTimes[focusNode.uuid]) {
+            activeNodeRunTimes[focusNode.uuid].unmountFn();
+            delete activeNodeRunTimes[focusNode.uuid];
+        }
+        modalBody.innerHTML = ''; // 清空模态框的 HTML 内容
+        // 确保移除事件监听器，避免内存泄漏
+        window.removeEventListener('keydown', (e) => { // 这里的匿名函数需要被捕获才能正确移除
+            if (e.key === 'Escape' && modal.classList.contains('active')) {
+                closeContentModal();
+                e.stopPropagation();
+                e.preventDefault();
+            }
+        });
+    }
+
+    function getRandomColor() {
+        const h = Math.random(); const s = Math.random(); const v = 1; let r, g, b;
+        const i = Math.floor(h * 6); const f = h * 6 - i; const p = v * (1 - s); const q = v * (1 - f * s); const t = v * (1 - (1 - f) * s);
+        switch (i % 6) {
+            case 0: r = v; g = t; b = p; break; case 1: r = q; g = v; b = p; break; case 2: r = p; g = v; b = t; break;
+            case 3: r = p; g = q; b = v; break; case 4: r = t; g = p; b = v; break; case 5: r = v; g = p; b = q; break;
+        }
+        const toHex = (c) => Math.round(c * 255).toString(16).padStart(2, '0'); return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+    }
+    const ui = {
+        label: document.getElementById('node-label'),
+        uuid: document.getElementById('node-uuid'),
+        linkStatus: document.getElementById('link-status'),
+        summary: document.getElementById('node-summary'),
+        content: document.getElementById('node-content'),
+        colorInput: document.getElementById('node-color-input'),
+        colorHex: document.getElementById('node-color-hex')
+    };
+    function updateUI() {
+        if(!focusNode) return;
+        ui.label.value = focusNode.label;
+        ui.uuid.innerText = "UUID: " + focusNode.uuid;
+        ui.summary.value = focusNode.summary || "";
+        ui.content.value = focusNode.content || "";
+        ui.colorInput.value = focusNode.color || DEFAULT_NODE_COLOR;
+        ui.colorHex.value = focusNode.color || DEFAULT_NODE_COLOR;
+        const count = getNodeLinkCount(focusNode.uuid);
+        ui.linkStatus.innerText = `Links: ${count}`;
+    }
+
+    function handleEditorTab(e, nextId, prevId) {
+        if (e.key === 'Tab') {
+            e.preventDefault(); const targetId = e.shiftKey ? prevId : nextId;
+            if (targetId) { const el = document.getElementById(targetId); el.focus(); if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') el.select(); }
+        }
+    }
+    ui.label.addEventListener('input', () => { if(focusNode) { focusNode.label = ui.label.value; updateSlotUI(); saveToLocalDebounced(); } });
+    ui.label.addEventListener('keydown', (e) => handleEditorTab(e, 'node-summary', 'node-content'));
+    ui.summary.addEventListener('input', () => { if(focusNode) { focusNode.summary = ui.summary.value; saveToLocalDebounced(); } });
+    ui.summary.addEventListener('keydown', (e) => handleEditorTab(e, 'node-content', 'node-label'));
+    ui.content.addEventListener('input', () => { if(focusNode) { focusNode.content = ui.content.value; saveToLocalDebounced(); } });
+    ui.content.addEventListener('keydown', (e) => handleEditorTab(e, 'node-label', 'node-summary'));
+    ui.colorInput.addEventListener('input', () => { if(focusNode) { focusNode.color = ui.colorInput.value; ui.colorHex.value = ui.colorInput.value; saveToLocalDebounced(); updateSlotUI(); } });
+    ui.colorHex.addEventListener('input', () => {
+        if(focusNode && /^#[0-9A-F]{6}$/i.test(ui.colorHex.value)) {
+             focusNode.color = ui.colorHex.value; ui.colorInput.value = ui.colorHex.value; saveToLocalDebounced(); updateSlotUI();
+        }
+    });
+
+    function restartSim() { simulation.nodes(data.nodes); simulation.force("link").links(data.links); simulation.alpha(1).restart(); saveToLocal(); updateUI(); }
+
+    function saveToLocal() {
+        const payload = {
+            data: {
+                nodes: data.nodes.map(n => ({ uuid: n.uuid, label: n.label, isRoot: n.isRoot, x: n.x, y: n.y, summary: n.summary, content: n.content, color: n.color })),
+                links: data.links.map(l => ({ source: l.source.uuid, target: l.target.uuid, type: l.type }))
+            },
+            focusNodeUuid: focusNode ? focusNode.uuid : null,
+            slots: slots.map(s => s ? s.uuid : null),
+            viewLayers: viewLayers,
+            presets: RELATION_PRESETS
+        };
+        localStorage.setItem('stars_v4', JSON.stringify(payload));
+    }
+
+    // 1. 定义防抖工具函数
+    function debounce(func, wait) {
+        let timeout;
+        return function(...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), wait);
+        };
+    }
+    // 2. 创建一个防抖版本的保存函数
+    const saveToLocalDebounced = debounce(saveToLocal, 1000); // 1秒延迟
+
+    function exportData() { saveToLocal(); const b = new Blob([localStorage.getItem('stars_v4')], {type:'application/json'}); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'stars_v4.json'; a.click(); }
+
+    function importData(inp) {
+        const f = inp.files[0];
+        if(f) {
+            const r = new FileReader();
+            r.onload = e => {
+                try {
+                    const importedData = JSON.parse(e.target.result);
+                    if (importedData && importedData.data && Array.isArray(importedData.data.nodes)) {
+                        clearAllNodeStorage(); // 🔴 在导入新数据前，清除所有节点的本地存储数据
+                        localStorage.setItem('stars_v4', e.target.result);
+                        location.reload();
+                    } else {
+                        showFlashMessage("导入文件格式不正确", 'warn');
+                    }
+                } catch (error) {
+                    console.error("导入数据解析错误:", error);
+                    showFlashMessage("导入数据解析错误", 'warn');
+                }
+            };
+            r.readAsText(f);
+            inp.value = ''; // 清空 input，确保同一个文件能再次触发 change 事件
+        }
+    }
+
+    // --- Overlay Menus (Updated for Link Mode) ---
+    const relationPicker = {
+        el: document.getElementById('relation-picker'), active: false, resolve: null, reject: null, allowDelete: false,
+        show: function(allowDelete = false) {
+            this.allowDelete = allowDelete;
+            return new Promise((res, rej) => {
+                let html = `<div class="menu-title">1. 选择类型 <span style="font-weight:normal; color:#888;">(Space 自定义${allowDelete ? ', D 删除' : ''})</span></div>`;
+                html += RELATION_PRESETS.slice(0, 9).map((p, i) => {
+                    const idxKey = i + 1;
+                    return `<div class="menu-opt" onclick="relationPicker.pick('${p.val}')"><span class="menu-key" style="color:${p.color}">[${idxKey}]</span>${p.label}</div>`;
+                }).join('');
+
+                if (RELATION_PRESETS.length > 9) {
+                    html += `<div class="menu-title" style="margin-top:10px;">更多</div>`;
+                    html += RELATION_PRESETS.slice(9).map((p, i) => {
+                        return `<div class="menu-opt" onclick="relationPicker.pick('${p.val}')"><span class="menu-key" style="visibility:hidden;">[]</span>${p.label}</div>`;
+                    }).join('');
+                }
+                // 显式删除选项
+                if (allowDelete) {
+                     html += `<div class="menu-opt delete-opt" style="margin-top:5px; border-top:1px solid #333" onclick="relationPicker.pick('DELETE')"><span class="menu-key" style="color:#e74c3c">[D]</span><span style="color:#e74c3c">删除/断开连接</span></div>`;
+                }
+
+                this.el.innerHTML = html; this.el.classList.add('active'); this.active = true;
+                this.resolve = res; this.reject = rej;
+            });
+        },
+        handleInput: function(e) {
+            const num = parseInt(e.key);
+            if (!isNaN(num) && num >= 1 && num <= Math.min(9, RELATION_PRESETS.length)) {
+                e.preventDefault(); this.pick(RELATION_PRESETS[num-1].val);
+            }
+            else if (e.key === ' ') { e.preventDefault(); this.pick('CUSTOM'); }
+            else if (e.key === 'Enter') { e.preventDefault(); if(RELATION_PRESETS.length>0) this.pick(RELATION_PRESETS[0].val); }
+            else if (this.allowDelete && (e.key === 'd' || e.key === 'D' || e.key === 'Delete')) { e.preventDefault(); this.pick('DELETE'); }
+            else if (e.key === 'Escape') { e.preventDefault(); this.reject(); this.close(); }
+        },
+        pick: function(val) { this.close(); this.resolve({ val: val }); },
+        close: function() { this.el.classList.remove('active'); this.active = false; }
+    };
+
+    const presetEditor = {
+        el: document.getElementById('preset-editor'),
+        listEl: document.getElementById('preset-list-container'),
+        active: false,
+        tempPresets: [],
+        open: function() {
+            if (this.active) return;
+            this.tempPresets = JSON.parse(JSON.stringify(RELATION_PRESETS));
+            this.renderList();
+            this.el.classList.add('active');
+            this.active = true;
+        },
+        renderList: function() {
+            this.listEl.innerHTML = '';
+            this.tempPresets.forEach((p, i) => {
+                const row = document.createElement('div');
+                row.className = 'preset-row';
+                row.innerHTML = `
+                    <span class="preset-idx">${i+1}</span>
+                    <input type="color" class="preset-color" value="${p.color}" onchange="presetEditor.update(${i}, 'color', this.value)">
+                    <input type="text" class="preset-input" style="width:120px" placeholder="显示名称 (Label)" value="${p.label}"
+                        oninput="presetEditor.update(${i}, 'label', this.value)"
+                        onkeydown="presetEditor.handleListKey(event, ${i}, 'label')">
+                    <input type="text" class="preset-input" style="flex:1; color:#aaa;" placeholder="数据值 (Value)" value="${p.val}"
+                        oninput="presetEditor.update(${i}, 'val', this.value)"
+                        onkeydown="presetEditor.handleListKey(event, ${i}, 'val')">
+                    <span class="preset-del" onclick="presetEditor.remove(${i})">✕</span>
+                `;
+                this.listEl.appendChild(row);
+            });
+        },
+        handleListKey: function(e, idx, field) { if (e.key === 'Enter') { e.preventDefault(); this.saveAndClose(); } },
+        update: function(idx, field, value) { this.tempPresets[idx][field] = value; },
+        add: function() {
+            if (this.tempPresets.length >= 20) { showFlashMessage("预设数量已达上限。", 'warn'); return; }
+            this.tempPresets.push({ label: '新关系', val: 'new_rel', color: getRandomColor() });
+            this.renderList();
+            setTimeout(() => this.listEl.scrollTop = this.listEl.scrollHeight, 10);
+        },
+        remove: function(idx) { this.tempPresets.splice(idx, 1); this.renderList(); },
+        saveAndClose: function() {
+            if (this.tempPresets.some(p => !p.val.trim())) { showFlashMessage("预设的 Value (数据值) 不能为空。", 'warn'); return; }
+            const values = this.tempPresets.map(p => p.val.trim());
+            if (new Set(values).size !== values.length) { showFlashMessage("预设的 Value (数据值) 不能重复。", 'warn'); return; }
+            RELATION_PRESETS = JSON.parse(JSON.stringify(this.tempPresets));
+            saveToLocal(); restartSim(); this.close(); showFlashMessage("预设已更新");
+        },
+        close: function() { this.el.classList.remove('active'); this.active = false; }
+    };
+
+    let currentSidebarWidth = 340;
+    document.documentElement.style.setProperty('--sidebar-width', `${currentSidebarWidth}px`);
+    let isResizing = false;
+    document.getElementById('sidebar-resizer').addEventListener('mousedown', (e) => { isResizing = true; e.preventDefault(); canvas.style.pointerEvents = 'none'; document.body.style.cursor = 'ew-resize'; });
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+        const newWidth = window.innerWidth - e.clientX;
+        currentSidebarWidth = Math.max(250, Math.min(newWidth, window.innerWidth * 0.6));
+        document.documentElement.style.setProperty('--sidebar-width', `${currentSidebarWidth}px`);
+        width = window.innerWidth - currentSidebarWidth; canvas.width = width;
+    });
+    document.addEventListener('mouseup', () => { if (!isResizing) return; isResizing = false; canvas.style.pointerEvents = 'auto'; document.body.style.cursor = 'default'; });
+    window.addEventListener('resize', () => { width=window.innerWidth-currentSidebarWidth; height=window.innerHeight; canvas.width=width; canvas.height=height; });
+
+    initSystem();
+</script>
+</body>
+</html>
