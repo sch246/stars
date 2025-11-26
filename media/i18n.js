@@ -43,12 +43,11 @@ const translations = {
         "alert.rootCannotDelete": "The root node cannot be deleted.",
         "flash.presetUpdated": "Presets updated.",
         "flash.linkCut": "Link cut.",
-        "flash.noHistory": "No more history to navigate back to.", // 新增
-        "linkMode.prompt": "Enter link relationship name or id:",
+        "flash.noHistory": "No more history to navigate back to.",
+        "linkMode.prompt": "Enter link relationship name or val:",
         "linkMode.promptPlaceholder": "e.g., contains, defined as...",
         "linkMode.typeIndicator": "🔗 <span style='color:{color};'>Link Mode: {type} (Jump to connect / Esc to cancel)</span>",
         "linkMode.deleteLabel": "Delete/Break Link",
-        // 修复 preset.title 的占位符匹配问题
         "preset.title": "1. Select Type <span style='font-weight:normal; color:#888;'>(Space Custom{deleteFragment})</span>",
         "preset.menuTitle": "Preset Relationship Editor",
         "preset.menuDesc": "Define common connection types. Press Enter to save.",
@@ -58,7 +57,6 @@ const translations = {
         "preset.input.value": "Data Value (Value)",
         "preset.delete": ", D Delete",
         "preset.more": "More",
-        // 新增默认预设的翻译键
         "preset.default.includes": "Includes...",
         "preset.default.definedAs": "Defined as...",
         "preset.default.intuitive": "Intuitive understanding",
@@ -67,13 +65,13 @@ const translations = {
         "preset.default.orthogonalTo": "Orthogonal to...",
         "fallback.origin": "Origin",
         "fallback.summary": "Workspace Root",
-        "fallback.content": "Welcome to Stars in VSCode.",
+        "fallback.content": "Welcome to Stars in VSCode. Start exploring!",
         "fallback.newNode": "New Concept",
         "dialog.confirm": "Confirm",
         "dialog.cancel": "Cancel",
         "tooltip.preview": "<strong>Preview: {label}</strong><br>{summary}<br><span style='color:#af4cae'>Press <span class=\"key\">↑</span> <span class=\"key\">/</span> to Jump</span>",
         "tooltip.click": "<span style='color:#666'>Click to Jump</span>",
-        "tooltip.nodeHover": "<strong>{label}</strong><br>{summary}<br><span style='color:#666'>Click to Jump</span>", // 新增
+        "tooltip.nodeHover": "<strong>{label}</strong><br>{summary}<br><span style='color:#666'>Click to Jump</span>",
         "status.saved": "Stars: Saved.",
         "status.noWorkspace": "Stars: Please open a folder to save data."
     },
@@ -116,12 +114,11 @@ const translations = {
         "alert.rootCannotDelete": "初始奇点不可删除。",
         "flash.presetUpdated": "预设已更新。",
         "flash.linkCut": "链接已切断。",
-        "flash.noHistory": "没有更多历史记录可回退", // 新增
-        "linkMode.prompt": "请输入链接关系名称或id:",
+        "flash.noHistory": "没有更多历史记录可回退。",
+        "linkMode.prompt": "请输入链接关系名称或数据值:",
         "linkMode.promptPlaceholder": "例如: 包含, 定义为...",
         "linkMode.typeIndicator": "🔗 <span style='color:{color};'>连线模式: {type} (跳转以连接/Esc 取消)</span>",
         "linkMode.deleteLabel": "删除/断开连接",
-        // 修复 preset.title 的占位符匹配问题
         "preset.title": "1. 选择类型 <span style='font-weight:normal; color:#888;'>(Space 自定义{deleteFragment})</span>",
         "preset.menuTitle": "预设关系编辑器",
         "preset.menuDesc": "定义常用的连接类型。按 Enter 保存。",
@@ -131,7 +128,6 @@ const translations = {
         "preset.input.value": "数据值 (Value)",
         "preset.delete": ", D 删除",
         "preset.more": "更多",
-        // 新增默认预设的翻译键
         "preset.default.includes": "包含...",
         "preset.default.definedAs": "定义为...",
         "preset.default.intuitive": "直观理解",
@@ -146,7 +142,7 @@ const translations = {
         "dialog.cancel": "取消",
         "tooltip.preview": "<strong>预览: {label}</strong><br>{summary}<br><span style='color:#af4cae'>按 <span class=\"key\">↑</span> <span class=\"key\">/</span> 跳转</span>",
         "tooltip.click": "<span style='color:#666'>点击跳转</span>",
-        "tooltip.nodeHover": "<strong>{label}</strong><br>{summary}<br><span style='color:#666'>点击跳转</span>", // 新增
+        "tooltip.nodeHover": "<strong>{label}</strong><br>{summary}<br><span style='color:#666'>点击跳转</span>",
         "status.saved": "星罗: 已保存。",
         "status.noWorkspace": "星罗: 请先打开一个文件夹以保存数据。"
     }

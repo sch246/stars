@@ -1185,7 +1185,7 @@ App.Input = {
             const mode = { active: true, source: App.Store.state.focusNode, type: res.val, color: '#fff' };
 
             if (res.val === 'CUSTOM') {
-                const cLabel = prompt("输入关系名称:");
+                const cLabel = prompt("输入关系名称或数据值:");
                 if(!cLabel) { this.exitLinkMode(); return; }
                 const preset = App.Store.state.presets.find(p=>p.label===cLabel);
                 mode.type = preset ? preset.val : cLabel;
@@ -1469,7 +1469,7 @@ App.Input = {
             }
         }
         // Optional feedback
-        App.UI.showFlash("没有更早的访问历史了", 'info');
+        App.UI.showFlash("没有更多历史记录可回退", 'info');
     },
 
     // --- Radar/Preview Logic ---

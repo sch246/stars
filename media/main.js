@@ -1,6 +1,5 @@
 /**
- * Stars v5.0 (VS Code Edition - Stability Fix)
- * Fixes: Slot Swap, Navigation Safety, Delete Logic, Event Handling
+ * Stars v5.0 Refactored
  */
 
 const vscode = acquireVsCodeApi();

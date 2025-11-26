@@ -3,6 +3,51 @@ import { getUri } from './utilities/getUri'; // 假设存在
 import { getNonce } from './utilities/getNonce'; // 假设存在
 import { TextDecoder, TextEncoder } from 'util';
 
+// ==============================
+// 扩展内部的翻译字典 (为了和 Webview 端保持一致)
+// 在实际项目中，这部分可能会从一个统一的 i18n.ts 文件导入
+// ==============================
+const extensionTranslations = {
+    "en": {
+        "status.noWorkspace": "Please open a folder to save data.",
+        "status.saved": "Stars: Saved.",
+        "fallback.origin": "Origin",
+        "fallback.summary": "Workspace Root",
+        "fallback.content": "Welcome to Stars in VSCode. Start exploring!",
+        "preset.default.includes": "Includes...",
+        "preset.default.definedAs": "Defined as...",
+        "preset.default.intuitive": "Intuitive understanding",
+        "preset.default.calculates": "Calculates...",
+        "preset.default.implies": "Implies...",
+        "preset.default.orthogonalTo": "Orthogonal to...",
+    },
+    "zh-cn": {
+        "status.noWorkspace": "星罗: 请先打开一个文件夹以保存数据。",
+        "status.saved": "星罗: 已保存。",
+        "fallback.origin": "起源",
+        "fallback.summary": "工作区根节点",
+        "fallback.content": "欢迎使用 VSCode 中的星罗系统。",
+        "preset.default.includes": "包含...",
+        "preset.default.definedAs": "定义为...",
+        "preset.default.intuitive": "直观理解",
+        "preset.default.calculates": "计算...",
+        "preset.default.implies": "意味着...",
+        "preset.default.orthogonalTo": "与...正交",
+    }
+};
+
+function t(key: string): string {
+    const langCode = vscode.env.language.toLowerCase();
+    let currentLang = 'en';
+    if (langCode.startsWith('zh')) {
+        currentLang = 'zh-cn';
+    }
+
+    const dict = extensionTranslations[currentLang as keyof typeof extensionTranslations] || extensionTranslations['en'];
+    return dict[key as keyof typeof dict] || key;
+}
+// ==============================
+
 export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('stars.openGraph', () => {
@@ -64,7 +109,7 @@ class StarsPanel {
         this._storageUri = vscode.Uri.joinPath(rootUri, '.stars.json');
         this._setupFileWatcher(rootUri);
     } else {
-        vscode.window.showWarningMessage("Stars: " + (globalThis.t ? globalThis.t('status.noWorkspace') : "Please open a folder to save data."));
+        vscode.window.showWarningMessage("Stars: " + t('status.noWorkspace')); // 使用扩展内部翻译
     }
   }
 
@@ -87,7 +132,7 @@ class StarsPanel {
 
   private async _loadAndSend() {
       if (!this._storageUri) {
-          vscode.window.showWarningMessage("Stars: " + (globalThis.t ? globalThis.t('status.noWorkspace') : "No workspace folder found, cannot load or save data."));
+          vscode.window.showWarningMessage("Stars: " + t('status.noWorkspace')); // 使用扩展内部翻译
           return;
       }
       try {
@@ -104,31 +149,32 @@ class StarsPanel {
   }
 
   private _createDefaultData() {
-    const DEFAULT_PRESETS = [
-        { label: '包含...', val: 'comp', color: '#0062ff' },
-        { label: '定义为...', val: 'def', color: '#00ff00' },
-        { label: '直观理解', val: 'ins', color: '#33ffff' },
-        { label: '计算...', val: 'calc', color: '#ffaa00' },
-        { label: '意味着...', val: 'impl', color: '#bd00ff' },
-        { label: '与...正交', val: 'orth', color: '#ff0055' },
+    // 动态获取本地化的默认预设
+    const localizedDefaultPresets = [
+        { label: t('preset.default.includes'), val: 'comp', color: '#0062ff' },
+        { label: t('preset.default.definedAs'), val: 'def', color: '#00ff00' },
+        { label: t('preset.default.intuitive'), val: 'ins', color: '#33ffff' },
+        { label: t('preset.default.calculates'), val: 'calc', color: '#ffaa00' },
+        { label: t('preset.default.implies'), val: 'impl', color: '#bd00ff' },
+        { label: t('preset.default.orthogonalTo'), val: 'orth', color: '#ff0055' },
     ];
       return {
           data: {
               nodes: [{
                   uuid: "origin-root",
-                  label: "Origin",
+                  label: t('fallback.origin'), // 使用扩展内部翻译
                   isRoot: true,
                   x: 0,
                   y: 0,
-                  summary: "Workspace Root",
-                  content: "Welcome to Stars in VSCode. Start exploring!",
+                  summary: t('fallback.summary'), // 使用扩展内部翻译
+                  content: t('fallback.content'), // 使用扩展内部翻译
                   color: "#ffffff"
               }],
               links: []
           },
           slots: [null, null, null, null],
           viewLayers: 1,
-          presets: JSON.parse(JSON.stringify(DEFAULT_PRESETS))
+          presets: JSON.parse(JSON.stringify(localizedDefaultPresets))
       };
   }
 
@@ -140,7 +186,7 @@ class StarsPanel {
           this._isSaving = true;
           const jsonString = JSON.stringify(data, null, 2);
           await vscode.workspace.fs.writeFile(this._storageUri, new TextEncoder().encode(jsonString));
-          vscode.window.setStatusBarMessage(globalThis.t ? globalThis.t('status.saved') : "Stars: Saved.", 2000);
+          vscode.window.setStatusBarMessage(t('status.saved'), 2000); // 使用扩展内部翻译
       } catch (e) {
           vscode.window.showErrorMessage(`Stars Save Error: ${e}`);
       }
