@@ -212,12 +212,13 @@ class StarsPanel {
       </head>
       <body>
           <div id="hud">
-              <h1><span id="txt-hud-title">Stars</span> <span style="font-size:10px; opacity:0.5">v4.6 Flow</span></h1>
+              <h1><span id="txt-hud-title">Stars</span> <span style="font-size:10px; opacity:0.5">v5.0 Refactored</span></h1>
               <div id="slot-bar">
-                  <div class="slot" id="slot-1"><div class="slot-circle"><span class="slot-num">1</span></div><span class="slot-name">-</span></div>
-                  <div class="slot" id="slot-2"><div class="slot-circle"><span class="slot-num">2</span></div><span class="slot-name">-</span></div>
-                  <div class="slot" id="slot-3"><div class="slot-circle"><span class="slot-num">3</span></div><span class="slot-name">-</span></div>
-                  <div class="slot" id="slot-4"><div class="slot-circle"><span class="slot-num">4</span></div><span class="slot-name">-</span></div>
+                  <!-- 移除 onclick/oncontextmenu，保留 id 和 class -->
+                  <div class="slot" id="slot-1" data-index="0"><div class="slot-circle"><span class="slot-num">1</span></div><span class="slot-name">-</span></div>
+                  <div class="slot" id="slot-2" data-index="1"><div class="slot-circle"><span class="slot-num">2</span></div><span class="slot-name">-</span></div>
+                  <div class="slot" id="slot-3" data-index="2"><div class="slot-circle"><span class="slot-num">3</span></div><span class="slot-name">-</span></div>
+                  <div class="slot" id="slot-4" data-index="3"><div class="slot-circle"><span class="slot-num">4</span></div><span class="slot-name">-</span></div>
               </div>
               <div id="view-controls">
                   <span id="txt-view-range">视野范围:</span> <span id="layer-indicator">1</span> <span id="txt-layers">层</span> (<span id="txt-adjust">按 +/- 调整</span>)<br>

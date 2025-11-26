@@ -1,1738 +1,1392 @@
+/**
+ * Stars v5.0 (VS Code Edition - Stability Fix)
+ * Fixes: Slot Swap, Navigation Safety, Delete Logic, Event Handling
+ */
+
 const vscode = acquireVsCodeApi();
+const App = {};
 
-// 🔴 确保全局可以使用 t() 和 setLanguage()
-// 它们在 media/i18n.js 中定义
-// eslint-disable-next-line no-undef
-if (typeof t === 'undefined' || typeof setLanguage === 'undefined') {
-    console.error("Stars: i18n.js was not loaded correctly.");
-    // Fallback or error handling if i18n functions are not available
-    window.t = (key, params) => {
-        console.warn(`i18n function 't' not found. Key: ${key}`);
+// ==========================================
+// 0. Utils
+// ==========================================
+App.Utils = {
+    t(key, params = {}) {
+        // eslint-disable-next-line no-undef
+        if (typeof t === 'function') return t(key, params);
         let str = key;
-        Object.keys(params).forEach(k => {
-            str = str.replace(new RegExp(`{${k}}`, 'g'), params[k]);
-        });
+        Object.keys(params).forEach(k => { str = str.replace(new RegExp(`{${k}}`, 'g'), params[k]); });
         return str;
-    };
-    window.setLanguage = (lang) => console.warn(`i18n function 'setLanguage' not found. Lang: ${lang}`);
-}
+    },
+    
+    debounce(func, wait) {
+        let timeout;
+        return function(...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), wait);
+        };
+    },
 
+    getRandomColor() {
+        const h = Math.random(); const s = Math.random(); const v = 1; let r, g, b;
+        const i = Math.floor(h * 6); const f = h * 6 - i; const p = v * (1 - s); const q = v * (1 - f * s); const t = v * (1 - (1 - f) * s);
+        switch (i % 6) {
+            case 0: r = v; g = t; b = p; break; case 1: r = q; g = v; b = p; break; case 2: r = p; g = v; b = t; break;
+            case 3: r = p; g = q; b = v; break; case 4: r = t; g = p; b = v; break; case 5: r = v; g = p; b = q; break;
+        }
+        const toHex = (c) => Math.round(c * 255).toString(16).padStart(2, '0'); return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+    },
 
-window.addEventListener('message', event => {
-    const message = event.data;
-    switch (message.command) {
-        case 'setLanguage':
-            setLanguage(message.lang); // 设置语言
-            applyTranslations(); // 应用翻译
-            break;
-        case 'loadData':
-            console.log("Stars: Received data from Extension");
-            initSystem(message.data);
-            break;
-    }
-});
-
-let animationFrameId = null;
-
-// --- 新增：应用翻译到静态 HTML 元素 ---
-function applyTranslations() {
-    const setTxt = (id, key) => {
-        const el = document.getElementById(id);
-        if (el) el.innerHTML = t(key);
-    };
-    const setPh = (id, key) => {
-        const el = document.getElementById(id);
-        if (el) el.placeholder = t(key);
-    };
-
-    // HUD
-    setTxt('txt-hud-title', 'hud.title');
-    setTxt('txt-view-range', 'hud.viewLayers');
-    setTxt('txt-layers', 'hud.layers');
-    setTxt('txt-adjust', 'hud.adjust');
-    setTxt('txt-visible', 'hud.visible');
-    setTxt('txt-nodes', 'hud.nodes');
-    document.getElementById('key-controls').innerHTML = t('hud.controls');
-
-    // Buttons
-    setTxt('save-btn', 'btn.save');
-    setTxt('export-btn', 'btn.export');
-    setTxt('reset-system-btn', 'btn.reset');
-    setTxt('import-btn', 'btn.import');
-    setTxt('manage-presets-btn', 'btn.presets');
-
-    // Sidebar placeholders
-    setPh('node-label', 'sidebar.placeholder.label');
-    setPh('node-summary', 'sidebar.placeholder.summary');
-    setPh('node-content', 'sidebar.placeholder.content');
-
-    // Dialog buttons
-    setTxt('btn-cancel', 'dialog.cancel');
-    setTxt('btn-confirm', 'dialog.confirm');
-
-    // Preset Editor
-    setTxt('txt-preset-editor-title', 'preset.menuTitle');
-    setTxt('txt-preset-editor-desc', 'preset.menuDesc');
-    setTxt('add-preset-btn', 'preset.btnAdd');
-    setTxt('save-presets-btn', 'preset.btnSave'); // 这里使用preset.btnSave
-
-    // 更新连线模式指示器
-    updateLinkModeIndicator();
-}
-
-
-// --- 0. Custom Dialogs (Replaces native confirm/prompt) ---
-const CustomDialog = {
-    overlay: document.getElementById('custom-dialog-overlay'),
-    msgEl: document.getElementById('custom-dialog-msg'),
-    inputEl: document.getElementById('custom-dialog-input'),
-    btnConfirm: document.getElementById('btn-confirm'),
-    btnCancel: document.getElementById('btn-cancel'),
-    _show: function(msg, needsInput = false, placeholder = '') {
-        return new Promise((resolve) => {
-            this.msgEl.innerText = msg;
-            this.inputEl.style.display = needsInput ? 'block' : 'none';
-            this.inputEl.value = '';
-            this.inputEl.placeholder = placeholder;
-            this.overlay.classList.add('active');
-            if (needsInput) setTimeout(() => this.inputEl.focus(), 50);
-            const cleanup = (e = null) => { // 增加一个可选的事件参数
-                if (e) {
-                    e.preventDefault(); // 阻止默认行为
-                    e.stopPropagation(); // 阻止事件冒泡
-                }
-                this.btnConfirm.onclick = null;
-                this.btnCancel.onclick = null;
-                this.inputEl.onkeydown = null;
-                // 移除按钮上的keydown监听，避免冲突
-                this.btnConfirm.removeEventListener('keydown', handleButtonKeydown);
-                this.btnCancel.removeEventListener('keydown', handleButtonKeydown);
-                this.overlay.classList.remove('active');
-            };
-            const handleButtonKeydown = (e) => {
-                if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); this.btnConfirm.click(); }
-                if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.btnCancel.click(); }
-            };
-            this.btnConfirm.onclick = (e) => {
-                const val = this.inputEl.value;
-                cleanup(e); // 传递事件对象
-                resolve(needsInput ? val : true);
-            };
-            this.btnCancel.onclick = (e) => {
-                cleanup(e); // 传递事件对象
-                resolve(needsInput ? null : false); // 对于 prompt，取消返回 null；对于 confirm，取消返回 false
-            };
-            this.inputEl.onkeydown = (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault(); e.stopPropagation(); // 阻止事件穿透
-                    this.btnConfirm.click();
-                }
-                if (e.key === 'Escape') {
-                    e.preventDefault(); e.stopPropagation(); // 阻止事件穿透
-                    this.btnCancel.click();
-                }
-            };
-
-            // 确保焦点在按钮上时，Enter/Esc 也能触发
-            // 使用addEventListener而不是直接赋值onclick，方便移除
-            this.btnConfirm.addEventListener('keydown', handleButtonKeydown);
-            this.btnCancel.addEventListener('keydown', handleButtonKeydown);
-            this.btnConfirm.focus(); // 默认焦点在确认按钮上
+    // Reachability Analysis (BFS)
+    findReachable(allNodes, allLinks, startNodes) {
+        const reachable = new Set();
+        const queue = [];
+        startNodes.forEach(s => {
+            if (s && !reachable.has(s.uuid)) {
+                const exists = allNodes.find(n => n.uuid === s.uuid);
+                if(exists) { reachable.add(s.uuid); queue.push(exists); }
+            }
         });
-    },
-    confirm: async function(msg) {
-        return await this._show(msg, false);
-    },
-    prompt: async function(msg, placeholder = '') {
-        return await this._show(msg, true, placeholder);
-    }
-};
-
-
-// --- Helper Functions ---
-
-function clearNodeStorage(nodeUuid) {
-    const prefix = `node_storage_${nodeUuid}_`;
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-        const key = localStorage.key(i);
-        if (key.startsWith(prefix)) {
-            localStorage.removeItem(key);
-        }
-    }
-    console.log(`Stars: Node specific localStorage data cleared for UUID: ${nodeUuid}`);
-}
-
-function clearAllNodeStorage() {
-    const prefix = "node_storage_"; // 所有节点存储的前缀
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-        const key = localStorage.key(i);
-        if (key.startsWith(prefix)) {
-            localStorage.removeItem(key);
-        }
-    }
-    console.log("Stars: All node specific localStorage data cleared.");
-}
-
-// --- 1. Config ---
-const DEFAULT_PRESETS = [
-    { label: '包含...', val: 'comp', color: '#0062ff' },
-    { label: '定义为...', val: 'def', color: '#00ff00' },
-    { label: '直观理解', val: 'ins', color: '#33ffff' },
-    { label: '计算...', val: 'calc', color: '#ffaa00' },
-    { label: '意味着...', val: 'impl', color: '#bd00ff' },
-    { label: '与...正交', val: 'orth', color: '#ff0055' },
-];
-let RELATION_PRESETS = JSON.parse(JSON.stringify(DEFAULT_PRESETS));
-
-const DEFAULT_NODE_COLOR = "#4facfe";
-const MAX_VIEW_LAYERS = 7;
-const MIN_VIEW_LAYERS = 1;
-
-let data = { nodes: [], links: [] };
-let slots = [null, null, null, null];
-let viewLayers = 1;
-let focusNode = null, hoverNode = null, previewNode = null;
-let navHistory = [];
-let viewX = 0, viewY = 0, viewK = 1, viewRotation = 0, targetRotation = 0;
-let lastRenderTime = 0;
-const FADE_DURATION = 400;
-const keyState = {};
-let hudVisible = true;
-
-
-// --- 连线模式状态 ---
-let linkMode = {
-    active: false,
-    sourceNode: null,
-    type: null,
-    customLabel: null,
-    color: null
-};
-
-function initSystem(payload) {
-    if (!payload || !payload.data || !payload.data.nodes) {
-        console.error("Stars: Invalid payload received. Fallback to local root.");
-        createRootNodeLocally();
-        // focusNode = data.nodes[0]; // createRoot中已经设置了焦点
-        updateUI(); updateSlotUI(); restartSim(); adjustZoomByLayer();
-        return;
-    }
-
-    // 重置全局状态
-    data = { nodes: [], links: [] };
-    slots = [null, null, null, null];
-    navHistory = [];
-
-    // 从 payload 恢复 viewLayers 和 presets
-    viewLayers = payload.viewLayers || 1;
-    RELATION_PRESETS = payload.presets && Array.isArray(payload.presets)
-        ? payload.presets
-        : JSON.parse(JSON.stringify(DEFAULT_PRESETS));
-    // 重新构建节点和链接数据，解决 JSON 序列化丢失的引用
-    const nodeMap = new Map(payload.data.nodes.map(n => [n.uuid, { ...n }]));
-    data.nodes = Array.from(nodeMap.values());
-
-    data.links = payload.data.links.map(l => ({
-        source: nodeMap.get(l.source) || l.source,
-        target: nodeMap.get(l.target) || l.target,
-        type: l.type,
-        alpha: 0
-    })).filter(l => l.source && l.target); // 过滤掉损坏的链接（源或目标节点不存在）
-
-    // 1. 确保 Focus Node 存在
-    focusNode = payload.focusNodeUuid
-        ? nodeMap.get(payload.focusNodeUuid)
-        : (data.nodes.find(n => n.isRoot) || data.nodes[0]);
-    // 如果经过上述逻辑 focusNode 仍然是 null/undefined
-    if (!focusNode) {
-        console.warn("Stars: No valid focus node found from Extension data, creating a local Origin node as fallback.");
-        createRootNodeLocally();
-        // focusNode = data.nodes[0]; // createRoot中已经设置了焦点
-    }
-
-    // ------------------------------------------------------------
-    // 🔴 修复核心：数据刚加载时，强制重置所有节点状态
-    // ------------------------------------------------------------
-    data.nodes.forEach(n => {
-        // 如果没有坐标，给一个随机初始位置，防止堆叠导致爆炸
-        if (n.x === undefined || isNaN(n.x) || n.x === null) n.x = (Math.random() - 0.5) * 50;
-        if (n.y === undefined || isNaN(n.y) || n.y === null) n.y = (Math.random() - 0.5) * 50;
-
-        // 重要：先全部设为透明，下面再计算谁该显示
-        n.alpha = 0;
-        // 重置速度，防止之前的动量残留
-        n.vx = 0; n.vy = 0;
-    });
-
-    // 2. 立即计算初始视野内的节点，直接设为不透明 (跳过淡入动画)
-    if (focusNode) {
-        focusNode.alpha = 1;
-        // 简单的广度优先搜索，找到初始邻居
-        const initialVisible = new Set([focusNode.uuid]);
-        const queue = [{n: focusNode, d: 0}];
+        const adj = {};
+        allLinks.forEach(l => {
+            const s = (typeof l.source === 'object') ? l.source.uuid : l.source;
+            const t = (typeof l.target === 'object') ? l.target.uuid : l.target;
+            if(!adj[s]) adj[s] = []; adj[s].push(t);
+            if(!adj[t]) adj[t] = []; adj[t].push(s);
+        });
         let head = 0;
-        while(head < queue.length){
-            const {n, d} = queue[head++];
-            if(d >= viewLayers) continue;
-            data.links.forEach(l => {
-                const sId = (typeof l.source === 'object' && l.source !== null) ? l.source.uuid : l.source;
-                const tId = (typeof l.target === 'object' && l.target !== null) ? l.target.uuid : l.target;
-
-                if (sId === n.uuid && !initialVisible.has(tId)) {
-                    const tNode = data.nodes.find(x=>x.uuid === tId);
-                    if(tNode) { initialVisible.add(tId); tNode.alpha = 1; queue.push({n: tNode, d: d+1}); }
-                } else if (tId === n.uuid && !initialVisible.has(sId)) {
-                    const sNode = data.nodes.find(x=>x.uuid === sId);
-                    if(sNode) { initialVisible.add(sId); sNode.alpha = 1; queue.push({n: sNode, d: d+1}); }
+        while(head < queue.length) {
+            const curr = queue[head++];
+            const neighbors = adj[curr.uuid] || [];
+            neighbors.forEach(nid => {
+                if (!reachable.has(nid)) {
+                    reachable.add(nid);
+                    const nodeObj = allNodes.find(n => n.uuid === nid);
+                    if(nodeObj) queue.push(nodeObj);
                 }
             });
         }
+        return reachable;
     }
+};
 
-    // 3. 强制重置视图中心到 FocusNode
-    viewX = 0; viewY = 0; viewK = 1; viewRotation = 0; targetRotation = 0;
-    // 这一步至关重要：让视图瞬间对准焦点
-    // 确保 width 和 height 已经初始化
-    if (focusNode && width > 0 && height > 0) {
-         // 模拟 render 中的逻辑，但立即执行
-         const targetX = width/2; const targetY = height/2;
-         viewX = -focusNode.x * viewK + targetX;
-         viewY = -focusNode.y * viewK + targetY;
-    }
+// ==========================================
+// 1. UI / Dialogs
+// ==========================================
+App.UI = {
+    els: {},
 
-    // 取消可能正在运行的渲染循环
-    if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-        animationFrameId = null;
-    }
+    init() {
+        this.initElements();
+        this.initBindings();
+        this.Dialog.init();
+        this.I18n.apply();
+    },
 
-    // 恢复槽位（UUID 转换为节点引用）
-    slots = (payload.slots || [null, null, null, null]).map(uuid =>
-        uuid ? nodeMap.get(uuid) : null
-    );
+    initElements() {
+        this.els = {
+            label: document.getElementById('node-label'),
+            uuid: document.getElementById('node-uuid'),
+            linkStatus: document.getElementById('link-status'),
+            summary: document.getElementById('node-summary'),
+            content: document.getElementById('node-content'),
+            colorInput: document.getElementById('node-color-input'),
+            colorHex: document.getElementById('node-color-hex')
+        };
+    },
 
-    // 更新 UI 和重新启动模拟
-    updateUI();
-    updateSlotUI();
-    updateCanvasSize(); // 确保尺寸正确，尤其是第一次加载时
-
-    // 4. 给予模拟器高能量，并多迭代几次预热
-    simulation.nodes(data.nodes);
-    simulation.force("link").links(data.links);
-    simulation.alpha(1).restart();
-    // 预热 30 次 tick，让混乱的节点先散开一点，然后再开始渲染
-    // 这有助于防止所有节点挤在一起，特别是新加载大量节点时
-    for (let i = 0; i < 30; ++i) simulation.tick();
-
-    adjustZoomByLayer();
-    animationFrameId = requestAnimationFrame(render); // 启动渲染
-    console.log("Stars: Graph initialized successfully with", data.nodes.length, "nodes from Extension data.");
-}
-
-function createRootNodeLocally() {
-    const rootUUID = uuid.v4();
-    // 确保x, y有初始值 // 🔴 国际化：使用 t()
-    const root = { uuid: rootUUID, label: t('fallback.origin'), isRoot: true, x: 0, y: 0, summary: t('fallback.summary'), content: t('fallback.content'), color: "#ffffff", alpha: 1 };
-    data = { nodes: [root], links: [] };
-    slots = [null, null, null, null];
-    focusNode = root;
-    viewLayers = 1;
-    RELATION_PRESETS = JSON.parse(JSON.stringify(DEFAULT_PRESETS));
-    console.warn("Stars: Created a local Origin node as fallback.");
-}
-
-async function resetSystem() {
-    // 🔴 国际化：使用 t()
-    if (await CustomDialog.confirm(t('alert.resetConfirm'))) {
-        clearAllNodeStorage();
-        // 通知 Extension 清空数据并重新加载默认
-        vscode.postMessage({ command: 'resetSystem' });
-    }
-}
-
-// --- 2. Core Logic ---
-
-function getNodeLinkCount(nodeUuid) {
-    return data.links.filter(l => l.source.uuid === nodeUuid || l.target.uuid === nodeUuid).length;
-}
-
-function showFlashMessage(msg, type = 'info') {
-    const el = document.getElementById('flash-message');
-    el.innerText = msg;
-    el.className = type;
-    el.style.opacity = 1;
-    setTimeout(() => { el.style.opacity = 0; }, 2000);
-}
-
-function findReachable(allNodes, allLinks, startNodes) {
-    const reachable = new Set();
-    const queue = [];
-    startNodes.forEach(s => {
-        if (s && !reachable.has(s.uuid)) {
-            const exists = allNodes.find(n => n.uuid === s.uuid);
-            if(exists) { reachable.add(s.uuid); queue.push(exists); }
-        }
-    });
-    const adj = {};
-    allLinks.forEach(l => {
-        const s = (typeof l.source === 'object' && l.source !== null) ? l.source.uuid : l.source;
-        const t = (typeof l.target === 'object' && l.target !== null) ? l.target.uuid : l.target;
-        if(!adj[s]) adj[s] = []; adj[s].push(t);
-        if(!adj[t]) adj[t] = []; adj[t].push(s);
-    });
-    let head = 0;
-    while(head < queue.length) {
-        const curr = queue[head++];
-        const neighbors = adj[curr.uuid] || [];
-        neighbors.forEach(nid => {
-            if (!reachable.has(nid)) {
-                reachable.add(nid);
-                const nodeObj = allNodes.find(n => n.uuid === nid);
-                if(nodeObj) queue.push(nodeObj);
+    initBindings() {
+        // Sidebar Inputs
+        this.els.label.addEventListener('input', () => this.onNodeEdit('label', this.els.label.value));
+        this.els.label.addEventListener('keydown', (e) => this.handleEditorTab(e, 'node-summary', 'node-content'));
+        
+        this.els.summary.addEventListener('input', () => this.onNodeEdit('summary', this.els.summary.value));
+        this.els.summary.addEventListener('keydown', (e) => this.handleEditorTab(e, 'node-content', 'node-label'));
+        
+        this.els.content.addEventListener('input', () => this.onNodeEdit('content', this.els.content.value));
+        this.els.content.addEventListener('keydown', (e) => this.handleEditorTab(e, 'node-label', 'node-summary'));
+        
+        this.els.colorInput.addEventListener('input', () => {
+            this.els.colorHex.value = this.els.colorInput.value;
+            this.onNodeEdit('color', this.els.colorInput.value);
+            this.updateSlotUI();
+        });
+        this.els.colorHex.addEventListener('input', () => {
+            if(/^#[0-9A-F]{6}$/i.test(this.els.colorHex.value)) {
+                this.els.colorInput.value = this.els.colorHex.value;
+                this.onNodeEdit('color', this.els.colorHex.value);
+                this.updateSlotUI();
             }
         });
+
+        // Modal Background Click to Close
+        const modal = document.getElementById('content-modal');
+        modal.addEventListener('mousedown', (e) => {
+            if (e.target === modal) App.UI.Modal.close();
+        });
+
+        // Slot Click Listeners (Dynamic)
+        for(let i=0; i<4; i++) {
+            const slotEl = document.getElementById(`slot-${i+1}`);
+            if(slotEl) {
+                slotEl.addEventListener('click', (e) => {
+                    // Shift detection fix
+                    App.Input.handleSlotClick(i, e.shiftKey);
+                });
+                slotEl.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    App.Input.clearSlot(i);
+                });
+            }
+        }
+
+        // Resizer
+        let isResizing = false;
+        const resizer = document.getElementById('sidebar-resizer');
+        resizer.addEventListener('mousedown', (e) => { isResizing = true; e.preventDefault(); App.Renderer.canvas.style.pointerEvents = 'none'; document.body.style.cursor = 'ew-resize'; });
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            const newWidth = Math.max(250, Math.min(window.innerWidth - e.clientX, window.innerWidth * 0.6));
+            document.documentElement.style.setProperty('--sidebar-width', `${newWidth}px`);
+            App.Renderer.resize();
+        });
+        document.addEventListener('mouseup', () => { if(isResizing) { isResizing = false; App.Renderer.canvas.style.pointerEvents = 'auto'; document.body.style.cursor = 'default'; } });
+        window.addEventListener('resize', () => App.Renderer.resize());
+    },
+
+    onNodeEdit(field, value) {
+        if(App.Store.state.focusNode) {
+            App.Store.state.focusNode[field] = value;
+            App.Store.saveDebounced();
+        }
+    },
+
+    handleEditorTab(e, nextId, prevId) {
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            const targetId = e.shiftKey ? prevId : nextId;
+            const el = document.getElementById(targetId);
+            el.focus(); if(el.tagName!=='DIV') el.select();
+        }
+    },
+
+    updateSidebar() {
+        const node = App.Store.state.focusNode;
+        if(!node) return;
+        this.els.label.value = node.label;
+        this.els.uuid.innerText = "UUID: " + node.uuid;
+        this.els.summary.value = node.summary || "";
+        this.els.content.value = node.content || "";
+        this.els.colorInput.value = node.color || "#4facfe";
+        this.els.colorHex.value = node.color || "#4facfe";
+        const count = App.Store.state.links.filter(l => l.source.uuid === node.uuid || l.target.uuid === node.uuid).length;
+        this.els.linkStatus.innerText = `Links: ${count}`;
+    },
+
+    updateSlotUI() {
+        const { slots } = App.Store.state;
+        for(let i=0; i<4; i++) {
+            const el = document.getElementById(`slot-${i+1}`);
+            const node = slots[i];
+            const circle = el.querySelector('.slot-circle');
+            const nameEl = el.querySelector('.slot-name');
+            if (node) {
+                el.classList.add('active');
+                nameEl.innerText = node.label;
+                circle.style.background = node.color || "#4facfe";
+                circle.style.boxShadow = `0 0 8px ${node.color || "#4facfe"}`;
+            } else {
+                el.classList.remove('active');
+                nameEl.innerText = "-";
+                circle.style.background = "#222";
+                circle.style.boxShadow = "none";
+            }
+        }
+    },
+
+    showFlash(msg, type = 'info') {
+        const el = document.getElementById('flash-message');
+        el.innerText = msg; el.className = type; el.style.opacity = 1;
+        setTimeout(() => { el.style.opacity = 0; }, 2000);
+    },
+
+    // --- Async Dialogs ---
+    Dialog: {
+        overlay: document.getElementById('custom-dialog-overlay'),
+        msgEl: document.getElementById('custom-dialog-msg'),
+        inputEl: document.getElementById('custom-dialog-input'),
+        btnConfirm: document.getElementById('btn-confirm'),
+        btnCancel: document.getElementById('btn-cancel'),
+        isActive: false,
+
+        init() {},
+
+        _show(msg, needsInput = false, placeholder = '') {
+            return new Promise((resolve) => {
+                this.isActive = true;
+                this.msgEl.innerText = msg;
+                this.inputEl.style.display = needsInput ? 'block' : 'none';
+                this.inputEl.value = '';
+                this.inputEl.placeholder = placeholder;
+                
+                this.btnConfirm.innerText = App.Utils.t('dialog.confirm');
+                this.btnCancel.innerText = App.Utils.t('dialog.cancel');
+
+                this.overlay.classList.add('active');
+                if (needsInput) setTimeout(() => this.inputEl.focus(), 50);
+                else this.btnConfirm.focus();
+
+                const cleanup = (e) => {
+                    if(e) { e.preventDefault(); e.stopPropagation(); }
+                    this.btnConfirm.onclick = null;
+                    this.btnCancel.onclick = null;
+                    this.inputEl.onkeydown = null;
+                    this.btnConfirm.removeEventListener('keydown', handleBtnKey);
+                    this.btnCancel.removeEventListener('keydown', handleBtnKey);
+                    
+                    this.overlay.classList.remove('active');
+                    this.isActive = false;
+                    App.Renderer.canvas.focus();
+                };
+
+                const handleBtnKey = (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); this.btnConfirm.click(); }
+                    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.btnCancel.click(); }
+                };
+
+                this.btnConfirm.onclick = (e) => { const val = this.inputEl.value; cleanup(e); resolve(needsInput ? val : true); };
+                this.btnCancel.onclick = (e) => { cleanup(e); resolve(needsInput ? null : false); };
+                
+                this.inputEl.onkeydown = (e) => {
+                    if(e.key === 'Enter') { e.preventDefault(); this.btnConfirm.click(); }
+                    if(e.key === 'Escape') { e.preventDefault(); this.btnCancel.click(); }
+                };
+
+                this.btnConfirm.addEventListener('keydown', handleBtnKey);
+                this.btnCancel.addEventListener('keydown', handleBtnKey);
+            });
+        },
+        confirm(msg) { return this._show(msg, false); },
+        prompt(msg, ph = '') { return this._show(msg, true, ph); }
+    },
+
+    I18n: {
+        apply() {
+            const setText = (id, key) => { const el = document.getElementById(id); if(el) el.innerHTML = App.Utils.t(key); };
+            const setPh = (id, key) => { const el = document.getElementById(id); if(el) el.placeholder = App.Utils.t(key); };
+
+            setText('txt-hud-title', 'hud.title');
+            setText('txt-view-range', 'hud.viewLayers');
+            setText('txt-layers', 'hud.layers');
+            setText('txt-adjust', 'hud.adjust');
+            setText('txt-visible', 'hud.visible');
+            setText('txt-nodes', 'hud.nodes');
+            const ctrlDiv = document.getElementById('key-controls');
+            if(ctrlDiv) ctrlDiv.innerHTML = App.Utils.t('hud.controls');
+
+            setText('save-btn', 'btn.save');
+            setText('export-btn', 'btn.export');
+            setText('reset-system-btn', 'btn.reset');
+            setText('import-btn', 'btn.import');
+            setText('manage-presets-btn', 'btn.presets');
+
+            setPh('node-label', 'sidebar.placeholder.label');
+            setPh('node-summary', 'sidebar.placeholder.summary');
+            setPh('node-content', 'sidebar.placeholder.content');
+
+            setText('txt-preset-editor-title', 'preset.menuTitle');
+            setText('txt-preset-editor-desc', 'preset.menuDesc');
+            setText('add-preset-btn', 'preset.btnAdd');
+            setText('save-presets-btn', 'preset.btnSave');
+
+            App.Input.updateLinkModeIndicator();
+        }
+    },
+
+    Modal: {
+        el: document.getElementById('content-modal'),
+        body: document.getElementById('modal-body'),
+        show() {
+            const node = App.Store.state.focusNode;
+            if (!node) return;
+            if(App.Runtime.activeInstances[node.uuid]) App.Runtime.unmount(node.uuid);
+            
+            this.body.innerHTML = '';
+            
+            const raw = node.content || App.Utils.t('modal.noContent');
+            const html = typeof marked !== 'undefined' ? marked.parse(raw) : raw;
+            const containerId = `node-content-host-${node.uuid}`;
+            
+            this.body.innerHTML = `
+                <div style="font-size:2em; font-weight:bold; color:#4facfe; margin-bottom:10px;">${node.label}</div>
+                <div style="color:#666; font-style:italic; margin-bottom:20px; border-left:3px solid #555; padding-left:10px;">
+                    ${node.summary ? (typeof marked !== 'undefined' ? marked.parse(node.summary) : node.summary) : ''}
+                </div>
+                <hr style="border:0; border-bottom:1px solid #333; margin-bottom:20px;">
+                <div id="${containerId}" class="node-content-host" style="line-height:1.8; font-size:16px;">${html}</div>
+                <div id="modal-close-btn" style="margin-top:50px; text-align:center; font-size:12px; color:#444; cursor:pointer;">
+                    ${App.Utils.t('modal.close')} (Esc)
+                </div>
+            `;
+            
+            // CSP Safe Binding
+            document.getElementById('modal-close-btn').addEventListener('click', () => App.UI.Modal.close());
+
+            if (typeof hljs !== 'undefined') this.body.querySelectorAll('pre code').forEach(b => hljs.highlightElement(b));
+            App.Runtime.mount(node, containerId);
+            
+            this.el.classList.add('active');
+            
+            this._escHandler = (e) => {
+                if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.close(); }
+            };
+            window.addEventListener('keydown', this._escHandler);
+        },
+        close() {
+            this.el.classList.remove('active');
+            const node = App.Store.state.focusNode;
+            if(node) App.Runtime.unmount(node.uuid);
+            this.body.innerHTML = '';
+            if(this._escHandler) window.removeEventListener('keydown', this._escHandler);
+        }
+    },
+
+    RelationPicker: {
+        el: document.getElementById('relation-picker'),
+        active: false, resolve: null, reject: null, allowDelete: false,
+        show(allowDelete = false) {
+            this.allowDelete = allowDelete;
+            return new Promise((res, rej) => {
+                const presets = App.Store.state.presets;
+                const delStr = allowDelete ? App.Utils.t('preset.delete') : '';
+                let html = `<div class="menu-title">${App.Utils.t('preset.title', {delStr})}</div>`;
+                
+                html += presets.slice(0, 9).map((p, i) => 
+                    `<div class="menu-opt" data-val="${p.val}"><span class="menu-key" style="color:${p.color}">[${i+1}]</span>${p.label}</div>`
+                ).join('');
+                
+                if (presets.length > 9) {
+                    html += `<div class="menu-title" style="margin-top:10px;">${App.Utils.t('preset.more')}</div>` + 
+                    presets.slice(9).map(p => `<div class="menu-opt" data-val="${p.val}"><span class="menu-key" style="visibility:hidden;">[]</span>${p.label}</div>`).join('');
+                }
+                
+                if (allowDelete) {
+                    html += `<div class="menu-opt delete-opt" data-val="DELETE" style="margin-top:5px; border-top:1px solid #333">
+                    <span class="menu-key" style="color:#e74c3c">[D]</span>${App.Utils.t('linkMode.deleteLabel')}</div>`;
+                }
+                
+                this.el.innerHTML = html; 
+                this.el.classList.add('active'); this.active = true;
+                this.resolve = res; this.reject = rej;
+
+                this.el.querySelectorAll('.menu-opt').forEach(el => {
+                    el.addEventListener('click', () => this.pick(el.getAttribute('data-val')));
+                });
+            });
+        },
+        handleInput(e) {
+            if(!this.active) return;
+            const num = parseInt(e.key);
+            const presets = App.Store.state.presets;
+            if (!isNaN(num) && num >= 1 && num <= Math.min(9, presets.length)) { e.preventDefault(); this.pick(presets[num-1].val); }
+            else if (e.key === ' ') { e.preventDefault(); this.pick('CUSTOM'); }
+            else if (e.key === 'Enter' && presets.length>0) { e.preventDefault(); this.pick(presets[0].val); }
+            else if (this.allowDelete && ['d','D','Delete'].includes(e.key)) { e.preventDefault(); this.pick('DELETE'); }
+            else if (e.key === 'Escape') { e.preventDefault(); this.reject(); this.close(); }
+        },
+        pick(val) { if(this.resolve) { this.resolve({ val }); this.resolve=null; this.reject=null; } this.close(); },
+        close() { this.el.classList.remove('active'); this.active = false; if(this.reject) { this.reject(); this.resolve=null; this.reject=null; } }
+    },
+
+    PresetEditor: {
+        el: document.getElementById('preset-editor'),
+        listEl: document.getElementById('preset-list-container'),
+        active: false, tempPresets: [],
+        open() {
+            if(this.active) return;
+            this.tempPresets = JSON.parse(JSON.stringify(App.Store.state.presets));
+            this.renderList();
+            this.el.classList.add('active'); this.active = true;
+        },
+        renderList() {
+            this.listEl.innerHTML = '';
+            this.tempPresets.forEach((p, i) => {
+                const row = document.createElement('div'); row.className = 'preset-row';
+                row.innerHTML = `
+                    <span class="preset-idx">${i+1}</span>
+                    <input type="color" class="preset-color" value="${p.color}" data-idx="${i}" data-field="color">
+                    <input type="text" class="preset-input" style="width:120px" placeholder="${App.Utils.t('preset.input.label')}" value="${p.label}" data-idx="${i}" data-field="label">
+                    <input type="text" class="preset-input" style="flex:1; color:#aaa;" placeholder="${App.Utils.t('preset.input.value')}" value="${p.val}" data-idx="${i}" data-field="val">
+                    <span class="preset-del" data-idx="${i}">✕</span>`;
+                this.listEl.appendChild(row);
+            });
+
+            this.listEl.querySelectorAll('input').forEach(input => {
+                const idx = input.getAttribute('data-idx');
+                const field = input.getAttribute('data-field');
+                input.addEventListener('input', (e) => this.update(idx, field, e.target.value));
+                if(input.type === 'text') input.addEventListener('keydown', (e) => this.handleListKey(e));
+            });
+            this.listEl.querySelectorAll('.preset-del').forEach(btn => {
+                btn.addEventListener('click', (e) => this.remove(btn.getAttribute('data-idx')));
+            });
+        },
+        handleListKey: function(e) { if (e.key === 'Enter') { e.preventDefault(); this.saveAndClose(); } },
+        update(idx, field, val) { this.tempPresets[idx][field] = val; },
+        remove(idx) { this.tempPresets.splice(idx, 1); this.renderList(); },
+        add() { 
+            if (this.tempPresets.length >= 20) { App.UI.showFlash(App.Utils.t('alert.presetExceedMax'), 'warn'); return; }
+            this.tempPresets.push({label: App.Utils.t('fallback.newNode'), val:'new', color: App.Utils.getRandomColor()}); 
+            this.renderList(); setTimeout(() => this.listEl.scrollTop = this.listEl.scrollHeight, 10); 
+        },
+        saveAndClose() {
+            if (this.tempPresets.some(p => !p.val || !p.val.trim())) { App.UI.showFlash(App.Utils.t('alert.presetValueEmpty'), 'warn'); return; }
+            const values = this.tempPresets.map(p => p.val.trim());
+            if (new Set(values).size !== values.length) { App.UI.showFlash(App.Utils.t('alert.presetValueDuplicate'), 'warn'); return; }
+            App.Store.state.presets = JSON.parse(JSON.stringify(this.tempPresets));
+            App.Store.save(); App.Renderer.restartSim();
+            this.close();
+            App.UI.showFlash(App.Utils.t('flash.presetUpdated'));
+        },
+        close() { this.el.classList.remove('active'); this.active = false; }
     }
-    return reachable;
-}
+};
 
-async function executeSafeAction(simulator, executor) {
-    const proposed = simulator();
-    const { nodes, links, nextFocus, nextSlots } = proposed;
-    const anchors = [];
-    const root = nodes.find(n => n.isRoot);
-    if (root) anchors.push(root);
-    if (nextFocus) anchors.push(nextFocus);
-    nextSlots.forEach(s => { if(s) anchors.push(s); });
+// ==========================================
+// 2. Store (Fixed: ExecuteSafeAction Logic)
+// ==========================================
+App.Store = {
+    state: { nodes: [], links: [], slots: [null,null,null,null], focusNode: null, viewLayers: 1, navHistory: [], presets: [] },
 
-    const reachableUUIDs = findReachable(nodes, links, anchors);
-    const lostNodes = nodes.filter(n => !reachableUUIDs.has(n.uuid));
+    loadFromExtension(payload) {
+        App.Runtime.clearAllStorage();
+        if (!payload || !payload.data || !payload.data.nodes) {
+            this.createRoot();
+        } else {
+            this.state.nodes = []; this.state.links = []; this.state.navHistory = [];
+            this.state.viewLayers = payload.viewLayers || 1;
+            const DEFAULT_PRESETS = [
+                { label: '包含...', val: 'comp', color: '#0062ff' },
+                { label: '定义为...', val: 'def', color: '#00ff00' },
+                { label: '直观理解', val: 'ins', color: '#33ffff' },
+                { label: '计算...', val: 'calc', color: '#ffaa00' },
+                { label: '意味着...', val: 'impl', color: '#bd00ff' },
+                { label: '与...正交', val: 'orth', color: '#ff0055' },
+            ];
+            this.state.presets = (payload.presets && Array.isArray(payload.presets)) ? payload.presets : DEFAULT_PRESETS;
 
-    if (lostNodes.length > 0) {
-        // 🔴 国际化：使用 t()
-        const confirmMsg = t('alert.deleteConfirm', { n: lostNodes.length, label: lostNodes[0].label });
-        if (await CustomDialog.confirm(confirmMsg)) {
-            executor();
-            const deadUUIDs = new Set(lostNodes.map(n => n.uuid));
-            data.nodes = data.nodes.filter(n => !deadUUIDs.has(n.uuid));
-            data.links = data.links.filter(l => !deadUUIDs.has(l.source.uuid) && !deadUUIDs.has(l.target.uuid));
-            navHistory = navHistory.filter(n => !deadUUIDs.has(n.uuid));
-            slots = slots.map(s => (s && deadUUIDs.has(s.uuid)) ? null : s);
-            restartSim();
+            const nodeMap = new Map(payload.data.nodes.map(n => [n.uuid, { ...n }]));
+            this.state.nodes = Array.from(nodeMap.values());
+            this.state.links = payload.data.links.map(l => ({
+                source: nodeMap.get(l.source) || l.source,
+                target: nodeMap.get(l.target) || l.target,
+                type: l.type,
+                alpha: 0
+            })).filter(l => l.source && l.target);
+
+            this.state.focusNode = payload.focusNodeUuid ? nodeMap.get(payload.focusNodeUuid) : (this.state.nodes.find(n => n.isRoot) || this.state.nodes[0]);
+            if (!this.state.focusNode) this.createRoot();
+
+            this.state.nodes.forEach(n => {
+                if(n.x==null || isNaN(n.x)) n.x = (Math.random()-0.5)*50;
+                if(n.y==null || isNaN(n.y)) n.y = (Math.random()-0.5)*50;
+                n.alpha = 0; n.vx = 0; n.vy = 0; n.fx = null; n.fy = null; 
+                if(n.isRoot) { n.fx=0; n.fy=0; }
+            });
+
+            if (this.state.focusNode) {
+                this.state.focusNode.alpha = 1;
+                const initVis = new Set([this.state.focusNode.uuid]);
+                const q = [{n:this.state.focusNode, d:0}]; let h=0;
+                while(h < q.length) {
+                    const {n, d} = q[h++];
+                    if(d >= this.state.viewLayers) continue;
+                    this.state.links.forEach(l => {
+                        const sId = l.source.uuid||l.source, tId = l.target.uuid||l.target;
+                        if(sId === n.uuid && !initVis.has(tId)) {
+                            const t = this.state.nodes.find(x=>x.uuid===tId);
+                            if(t) { initVis.add(tId); t.alpha=1; q.push({n:t, d:d+1}); }
+                        } else if(tId === n.uuid && !initVis.has(sId)) {
+                            const s = this.state.nodes.find(x=>x.uuid===sId);
+                            if(s) { initVis.add(sId); s.alpha=1; q.push({n:s, d:d+1}); }
+                        }
+                    });
+                }
+                if(App.Renderer.width > 0) {
+                    App.Renderer.viewX = -this.state.focusNode.x * App.Renderer.viewK + App.Renderer.width/2;
+                    App.Renderer.viewY = -this.state.focusNode.y * App.Renderer.viewK + App.Renderer.height/2;
+                }
+            }
+            this.state.slots = (payload.slots || [null,null,null,null]).map(uuid => uuid ? nodeMap.get(uuid) : null);
+        }
+        App.UI.updateSidebar();
+        App.UI.updateSlotUI();
+        App.Renderer.restartSim();
+        for(let i=0; i<30; i++) App.Renderer.simulation.tick();
+    },
+
+    createRoot() {
+        const rootUUID = uuid.v4();
+        const root = { uuid: rootUUID, label: App.Utils.t('fallback.origin'), isRoot: true, x: 0, y: 0, fx: 0, fy: 0, summary: App.Utils.t('fallback.summary'), content: App.Utils.t('fallback.content'), color: "#ffffff", alpha: 1 };
+        this.state.nodes = [root];
+        this.state.links = [];
+        this.state.slots = [null,null,null,null];
+        this.state.focusNode = root;
+        this.state.viewLayers = 1;
+    },
+
+    // --- Critical Fix: Execute Safe Action ---
+    // Now correctly applies changes regardless of unsafe/safe path
+    async executeSafeAction(simulator) {
+        const { nodes, focusNode, slots } = this.state;
+        const getAnchors = (nl, fn, sl) => {
+            const r = nl.find(n=>n.isRoot);
+            return new Set([r, fn, ...sl].filter(x=>x).map(x=>x.uuid));
+        };
+        const curAnchors = getAnchors(nodes, focusNode, slots);
+        
+        // 1. Simulate Next State
+        const next = simulator();
+        const nextAnchors = getAnchors(next.nodes, next.nextFocus, next.nextSlots);
+        
+        // 2. Check Structural Integrity
+        const structIntact = next.nodes.length >= nodes.length && next.links.length >= this.state.links.length;
+        const anchorsSame = curAnchors.size === nextAnchors.size && [...curAnchors].every(id => nextAnchors.has(id));
+
+        const applyState = () => {
+            this.state.nodes = next.nodes;
+            this.state.links = next.links;
+            this.state.focusNode = next.nextFocus;
+            this.state.slots = next.nextSlots;
+            App.UI.updateSidebar(); 
+            App.UI.updateSlotUI();
+            this.save();
+            App.Renderer.restartSim();
+        };
+
+        if (structIntact && anchorsSame) {
+            applyState();
             return true;
         }
-        return false;
-    } else {
-        executor();
-        restartSim();
-        return true;
-    }
-}
 
-// --- Action Handlers ---
+        // 3. Reachability Check (Unsafe Path)
+        const anchorObjs = next.nodes.filter(n => nextAnchors.has(n.uuid));
+        const reachable = App.Utils.findReachable(next.nodes, next.links, anchorObjs);
+        const lost = next.nodes.filter(n => !reachable.has(n.uuid));
 
-function handleSlot(index) {
-    const slotNode = slots[index];
-    const currentFocus = focusNode;
-    if (slotNode === currentFocus) return;
-    if (slotNode) {
-        const performJump = () => {
-            slots[index] = currentFocus;
-            navigateTo(slotNode, true, false);
-            updateSlotUI();
-        };
-        if (linkMode.active) {
-            performJump();
+        if (lost.length > 0) {
+            const label = lost[0].label;
+            const msg = App.Utils.t('alert.deleteConfirm', { n: lost.length, label: label });
+            
+            if (await App.UI.Dialog.confirm(msg)) {
+                // Apply simulation result first
+                applyState(); 
+                
+                // Then cleanup lost nodes
+                const deadSet = new Set(lost.map(n => n.uuid));
+                this.state.nodes = this.state.nodes.filter(n => !deadSet.has(n.uuid));
+                this.state.links = this.state.links.filter(l => !deadSet.has(l.source.uuid) && !deadSet.has(l.target.uuid));
+                this.state.slots = this.state.slots.map(s => (s && deadSet.has(s.uuid)) ? null : s);
+                this.state.navHistory = this.state.navHistory.filter(n => !deadSet.has(n.uuid));
+                lost.forEach(n => App.Runtime.clearStorage(n.uuid));
+                
+                // Re-save and Re-sim after cleanup
+                this.save();
+                App.Renderer.restartSim();
+                return true;
+            }
+            return false;
         } else {
-            executeSafeAction(
-                () => ({
-                    nodes: data.nodes,
-                    links: data.links,
-                    nextFocus: slotNode,
-                    nextSlots: slots.map((s,i) => i===index ? currentFocus : s)
-                }),
-                performJump
-            );
+            // Safe Path (structure changed but no loss)
+            applyState();
+            return true;
         }
-    } else {
-        slots[index] = currentFocus; updateSlotUI(); saveToLocal();
-    }
-}
-
-function clearSlot(index, e) {
-    e.preventDefault();
-    if(!slots[index]) return;
-    executeSafeAction(
-            () => ({ nodes: data.nodes, links: data.links, nextFocus: focusNode, nextSlots: slots.map((s,i)=>i===index?null:s) }),
-            () => { slots[index] = null; updateSlotUI(); }
-    );
-}
-
-function handleSlotStore(index) {
-    const currentFocus = focusNode;
-    if (slots[index] === currentFocus) return;
-    executeSafeAction(
-        () => ({ nodes: data.nodes, links: data.links, nextFocus: currentFocus, nextSlots: slots.map((s,i)=>i===index?currentFocus:s) }),
-        () => { slots[index] = currentFocus; updateSlotUI(); saveToLocal(); }
-    );
-}
-
-function safeNavigate(targetNode, isHistoryBack = false) {
-    if(!targetNode) return;
-    if (linkMode.active) {
-        navigateTo(targetNode, !isHistoryBack, false);
-        return;
-    }
-    executeSafeAction(
-        () => ({ nodes: data.nodes, links: data.links, nextFocus: targetNode, nextSlots: slots }),
-        () => { navigateTo(targetNode, !isHistoryBack, false); }
-    );
-}
-
-function safeNavigateBack() {
-    if(navHistory.length) {
-        let target = null;
-        for(let i = navHistory.length - 1; i >= 0; i--) {
-            if(data.nodes.find(n => n.uuid === navHistory[i].uuid) && navHistory[i].uuid !== focusNode.uuid) { target = navHistory[i]; break; }
-        }
-        if(target) safeNavigate(target, true);
-    }
-}
-
-function safeDeleteNode(target = null) {
-    const nodeToDelete = target || focusNode;
-    // 🔴 国际化：使用 t()
-    if (nodeToDelete.isRoot) { showFlashMessage(t('alert.rootCannotDelete'), 'warn'); return; }
-
-    let nextFocus = focusNode;
-    if (nodeToDelete.uuid === focusNode.uuid) {
-        let fallback = navHistory.length > 0 ? navHistory[navHistory.length - 1] : null;
-        if (fallback && fallback.uuid === nodeToDelete.uuid) fallback = null;
-        if (!fallback) fallback = data.nodes.find(n => n.isRoot);
-        nextFocus = fallback;
-    }
-
-    executeSafeAction(
-        () => ({
-            nodes: data.nodes.filter(n => n.uuid !== nodeToDelete.uuid),
-            links: data.links.filter(l => l.source.uuid !== nodeToDelete.uuid && l.target.uuid !== nodeToDelete.uuid),
-            nextFocus: nextFocus,
-            nextSlots: slots.map(s => (s && s.uuid === nodeToDelete.uuid) ? null : s)
-        }),
-        () => {
-            // 在删除节点时，清除该节点自身的本地存储数据
-            clearNodeStorage(nodeToDelete.uuid);
-            slots = slots.map(s => (s && s.uuid === nodeToDelete.uuid) ? null : s);
-            data.links = data.links.filter(l => l.source.uuid !== nodeToDelete.uuid && l.target.uuid !== nodeToDelete.uuid);
-            data.nodes = data.nodes.filter(n => n.uuid !== nodeToDelete.uuid);
-            if (nodeToDelete.uuid === focusNode.uuid) {
-                navigateTo(nextFocus, false, false);
-            } else {
-                restartSim();
-                updateSlotUI();
-            }
-        }
-    );
-}
-
-function safeDeleteLink(link) {
-    executeSafeAction(
-        () => ({ nodes: data.nodes, links: data.links.filter(l => l !== link), nextFocus: focusNode, nextSlots: slots }),
-        // 🔴 国际化：使用 t()
-        () => { data.links = data.links.filter(l => l !== link); restartSim(); showFlashMessage(t('flash.linkCut'), 'warn'); }
-    );
-}
-
-function updateSlotUI() {
-    for(let i=0; i<4; i++) {
-        const el = document.getElementById(`slot-${i+1}`);
-        const node = slots[i];
-        const circle = el.querySelector('.slot-circle');
-        const nameEl = el.querySelector('.slot-name');
-        if (node) {
-            el.classList.add('active');
-            nameEl.innerText = node.label;
-            circle.style.background = node.color || DEFAULT_NODE_COLOR;
-            circle.style.boxShadow = `0 0 8px ${node.color || DEFAULT_NODE_COLOR}`;
-            circle.style.border = "1px solid rgba(255,255,255,0.3)";
-        } else {
-            el.classList.remove('active');
-            nameEl.innerText = "-";
-            circle.style.background = "#222";
-            circle.style.boxShadow = "none";
-            circle.style.border = "1px solid #333";
-        }
-    }
-}
-
-// --- 3. D3 & Render ---
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-let width = 0, height = 0;
-
-const simulation = d3.forceSimulation()
-    .force("link", d3.forceLink().id(d => d.uuid).distance(220).strength(0.1))
-    .force("charge", d3.forceManyBody().strength(-200))
-    .force("collide", d3.forceCollide(10))
-    .force("center", d3.forceCenter(0, 0))
-    .alphaDecay(0.05)
-    .alphaMin(0.05);
-
-const POINTER_FORCE_STRENGTH = 0.25;
-const pointerForce = (() => {
-    let node = null; let target = null; let strength = POINTER_FORCE_STRENGTH;
-    function force(alpha) {
-        if (!node || !target) return;
-        const dx = target.x - node.x; const dy = target.y - node.y;
-        const dist = Math.hypot(dx, dy);
-        const falloff = 1 - Math.exp(-dist / 120);
-        const k = strength * falloff * alpha;
-        node.vx += dx * k; node.vy += dy * k;
-    }
-    force.initialize = () => {};
-    force.node = function(n) { node = n || null; return force; };
-    force.target = function(x, y) { target = (x!=null && y!=null) ? {x, y} : null; return force; };
-    force.strength = function(s) { strength = s; return force; };
-    return force;
-})();
-simulation.force('pointerDrag', pointerForce);
-
-function adjustZoomByLayer() {
-    const targetK = 1.0 / (Math.pow(viewLayers, 0.7));
-    viewK = Math.max(0.15, Math.min(2.5, targetK));
-}
-
-function render(currentTime) {
-    if (!focusNode || width === 0 || height === 0) {
-        animationFrameId = requestAnimationFrame(render);
-        return;
-    }
-    if (!lastRenderTime) lastRenderTime = currentTime;
-    const deltaTime = currentTime - lastRenderTime;
-    lastRenderTime = currentTime;
-
-    const targetX = width/2; const targetY = height/2;
-    viewX += ((-focusNode.x * viewK + targetX) - viewX) * 0.1;
-    viewY += ((-focusNode.y * viewK + targetY) - viewY) * 0.1;
-    if (keyState['<']) targetRotation += 0.05;
-    if (keyState['>']) targetRotation -= 0.05;
-    if ((keyState['<'] || keyState['>']) && previewNode) {
-        previewNode = null;
-        hideTooltip();
-    }
-    let diff = targetRotation - viewRotation;
-    while (diff > Math.PI) diff -= 2 * Math.PI; while (diff < -Math.PI) diff += 2 * Math.PI;
-    viewRotation += diff * 0.1;
-
-    ctx.save();
-    ctx.clearRect(0, 0, width, height);
-
-    // 应用视图变换
-    ctx.translate(width/2, height/2);
-    ctx.rotate(viewRotation);
-    ctx.translate(-width/2, -height/2);
-    ctx.translate(viewX, viewY);
-    ctx.scale(viewK, viewK);
-
-    const visibleTargets = new Set();
-    const visibleLinksTarget = new Set();
-
-    const addNeighbors = (startNode, depth) => {
-        if(!startNode) return;
-        let queue = [{n: startNode, d: 0}];
-        visibleTargets.add(startNode.uuid);
-        let head = 0;
-        while(head < queue.length) {
-            const {n, d} = queue[head++];
-            if (d >= depth) continue;
-            data.links.forEach(l => {
-                const s = l.source, t = l.target;
-                if (s.uuid === n.uuid) {
-                    if(!visibleTargets.has(t.uuid)) { visibleTargets.add(t.uuid); queue.push({n: t, d: d+1}); }
-                    visibleLinksTarget.add(`${s.uuid}-${t.uuid}`);
-                } else if (t.uuid === n.uuid) {
-                    if(!visibleTargets.has(s.uuid)) { visibleTargets.add(s.uuid); queue.push({n: s, d: d+1}); }
-                    visibleLinksTarget.add(`${s.uuid}-${t.uuid}`);
-                }
-            });
-        }
-    };
-
-    if (focusNode) addNeighbors(focusNode, viewLayers);
-    if (hoverNode && hoverNode !== focusNode) addNeighbors(hoverNode, 1);
-    if (previewNode && previewNode !== focusNode) addNeighbors(previewNode, 1);
-
-    const SIMULATION_LAYERS = 7;
-    const simulationTargets = new Set();
-    const addSimulationNeighbors = (startNode, depth) => {
-        if(!startNode) return;
-        let queue = [{n: startNode, d: 0}];
-        simulationTargets.add(startNode.uuid);
-        let head = 0;
-        while(head < queue.length) {
-            const {n, d} = queue[head++];
-            if (d >= depth) continue;
-            data.links.forEach(l => {
-                const s = l.source, t = l.target;
-                if (s.uuid === n.uuid) {
-                    if(!simulationTargets.has(t.uuid)) { simulationTargets.add(t.uuid); queue.push({n: t, d: d+1}); }
-                } else if (t.uuid === n.uuid) {
-                    if(!simulationTargets.has(s.uuid)) { simulationTargets.add(s.uuid); queue.push({n: s, d: d+1}); }
-                }
-            });
-        }
-    };
-    if (focusNode) addSimulationNeighbors(focusNode, SIMULATION_LAYERS);
-    const activeNodes = data.nodes.filter(n => simulationTargets.has(n.uuid));
-    const activeLinks = data.links.filter(l => simulationTargets.has(l.source.uuid) && simulationTargets.has(l.target.uuid));
-    simulation.nodes(activeNodes);
-    simulation.force("link").links(activeLinks);
-    // 只在模拟器 alpha 低于某个阈值时才重启，防止频繁重启导致不稳定
-    if (simulation.alpha() < simulation.alphaMin() * 2) simulation.alpha(0.3).restart();
-
-    let visibleCount = 0;
-
-    data.links.forEach(link => {
-        const key = `${link.source.uuid}-${link.target.uuid}`;
-        const keyRev = `${link.target.uuid}-${link.source.uuid}`;
-        const isTargetVisible = visibleLinksTarget.has(key) || visibleLinksTarget.has(keyRev);
-
-        // 如果可见，增加透明度；如果不可见，降低透明度 (淡入淡出效果)
-        if (isTargetVisible && link.alpha < 1) link.alpha += deltaTime / FADE_DURATION;
-        else if (!isTargetVisible && link.alpha > 0) link.alpha -= deltaTime / FADE_DURATION;
-        link.alpha = Math.max(0, Math.min(1, link.alpha)); // 限制在 0-1 之间
-
-        if (link.alpha > 0.01) { // 只有足够可见时才绘制
-            const src = link.source, tgt = link.target;
-            const isFocusLink = (src === focusNode || tgt === focusNode);
-            const isHoverLink = (hoverNode && (src === hoverNode || tgt === hoverNode));
-            const isPreviewLink = (previewNode && (src === previewNode || tgt === previewNode));
-
-            let linkAlphaMultiplier = 0.2; // 默认亮度
-            if (isHoverLink || isPreviewLink) {
-                linkAlphaMultiplier = 0.5;
-            } else if (isFocusLink) {
-                linkAlphaMultiplier = 0.9;
-            }
-
-            ctx.globalAlpha = link.alpha * linkAlphaMultiplier;
-            ctx.lineWidth = 2.5;
-            const typeColor = RELATION_PRESETS.find(p=>p.val===link.type)?.color || '#666';
-
-            const grad = ctx.createLinearGradient(src.x, src.y, tgt.x, tgt.y);
-            grad.addColorStop(0, typeColor); grad.addColorStop(0.7, "#444"); grad.addColorStop(1, "#222");
-            ctx.strokeStyle = grad;
-            ctx.beginPath(); ctx.moveTo(src.x, src.y); ctx.lineTo(tgt.x, tgt.y); ctx.stroke();
-
-            // 绘制连线类型标签
-            if (link.type && isFocusLink) {
-                    const mx = (src.x+tgt.x)/2, my = (src.y+tgt.y)/2;
-                    ctx.save(); ctx.translate(mx, my); ctx.rotate(-viewRotation);
-                    ctx.fillStyle = typeColor; ctx.font = "11px Arial"; ctx.textAlign="center";
-                    const linkLabel = RELATION_PRESETS.find(p=>p.val===link.type)?.label || link.type;
-                    ctx.fillText(linkLabel, 0, -8); ctx.restore();
-            }
-        }
-    });
-
-    // 光晕动画因子
-    const pulse = (Math.sin(currentTime * 0.002) + 1) * 0.5 * 20 + 10;
-
-    data.nodes.forEach(node => {
-        const isTargetVisible = visibleTargets.has(node.uuid);
-
-        // 节点透明度控制
-        if (node === focusNode) node.alpha = 1; // 焦点节点始终完全可见
-        else {
-            if (isTargetVisible && node.alpha < 1) node.alpha += deltaTime / FADE_DURATION;
-            else if (!isTargetVisible && node.alpha > 0) node.alpha -= deltaTime / FADE_DURATION;
-            node.alpha = Math.max(0, Math.min(1, node.alpha));
-        }
-
-        if (node.alpha > 0.01) { // 只有足够可见时才绘制
-            visibleCount++;
-            const isSlot = slots.includes(node);
-            const isFocus = (node === focusNode);
-            const isPreview = (node === previewNode || node === hoverNode);
-
-            ctx.globalAlpha = isFocus ? 1 : node.alpha; // 焦点节点不透明，其他节点按 alpha
-            ctx.beginPath();
-            let r = isFocus ? 20 : (isSlot ? 14 : 10);
-            if (viewK < 0.5) r = r / viewK * 0.5; // 在缩放很小时，节点半径相对变大，保持可见性
-
-            ctx.arc(node.x, node.y, r, 0, 2*Math.PI);
-            ctx.fillStyle = node.color || DEFAULT_NODE_COLOR;
-
-            // 阴影/光晕逻辑
-            if(isFocus) {
-                if (linkMode.active) {
-                    // 连线模式下的特殊光晕
-                    ctx.shadowBlur = pulse;
-                    ctx.shadowColor = linkMode.color || '#fff';
-                } else {
-                    ctx.shadowBlur = 35; ctx.shadowColor = ctx.fillStyle;
-                }
-            } else if(isPreview) {
-                ctx.shadowBlur = 20; ctx.shadowColor = ctx.fillStyle;
-            }
-
-            if (isFocus && linkMode.active) { ctx.strokeStyle = linkMode.color || '#fff'; ctx.lineWidth = 3; ctx.stroke(); }
-            if(isSlot && !isFocus) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke(); }
-            ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle = "transparent"; // 绘制后清除阴影和描边样式
-
-            // 绘制节点标签
-            if (isFocus || isPreview || node.alpha > 0.5) { // 只有在焦点/预览或足够可见时才绘制标签
-                ctx.save(); ctx.translate(node.x, node.y); ctx.rotate(-viewRotation); // 标签反向旋转，保持文字朝上
-                ctx.fillStyle = (isFocus || isPreview) ? "#fff" : "rgba(200,200,200,0.7)";
-                ctx.font = (isFocus || isPreview) ? "bold 14px Arial" : "11px Arial";
-                ctx.textAlign = "center";
-                ctx.fillText(node.label, 0, r + 16); // 标签在节点下方
-                const sIdx = slots.indexOf(node);
-                if (sIdx >= 0) { // 如果是槽位节点，显示槽位编号
-                    ctx.fillStyle = "#4facfe";
-                    ctx.font = "bold 11px monospace";
-                    ctx.fillText(`[${sIdx+1}]`, 0, -r - 6);
-                }
-                ctx.restore();
-            }
-        }
-    });
-    ctx.restore(); // 恢复 Canvas 状态
-    document.getElementById('visible-count').innerText = visibleCount;
-    animationFrameId = requestAnimationFrame(render); // 请求下一帧
-}
-
-
-// --- 4. Interaction ---
-
-function getNeighborsWithAngle() {
-    const neighbors = [];
-    data.links.forEach(l => {
-        let other = null; const sId = l.source.uuid, tId = l.target.uuid, fId = focusNode.uuid;
-        if(sId === fId) other = l.target; if(tId === fId) other = l.source;
-        if(other) {
-            const rawAngle = Math.atan2(other.y - focusNode.y, other.x - focusNode.x);
-            let visualAngle = rawAngle + viewRotation;
-            while(visualAngle > Math.PI) visualAngle -= 2*Math.PI; while(visualAngle <= -Math.PI) visualAngle += 2*Math.PI;
-            neighbors.push({ node: other, vAngle: visualAngle, rawAngle: rawAngle });
-        }
-    });
-    neighbors.sort((a,b) => a.vAngle - b.vAngle);
-    return neighbors;
-}
-
-function cyclePreview(dir) {
-    const neighbors = getNeighborsWithAngle();
-    if (neighbors.length === 0) return;
-    hideTooltip()
-    const UP_ANGLE = -Math.PI / 2;
-    const EXACT_THRESHOLD = 5 * Math.PI / 180;
-    const exactMatch = neighbors.find(n => Math.abs(n.vAngle - UP_ANGLE) < EXACT_THRESHOLD);
-    const shouldSkipExact = exactMatch && previewNode && previewNode.uuid === exactMatch.node.uuid;
-
-    if (exactMatch && !shouldSkipExact) {
-        previewNode = exactMatch.node;
-        setTargetRotation(-Math.PI/2 - exactMatch.rawAngle);
-        // 🔴 国际化：使用 t()
-        showTooltip(t('tooltip.preview', {label: previewNode.label, summary: previewNode.summary||''}), 0, 0, 'fixed');
-        return;
-    }
-
-    let targetNode = null;
-    if (dir > 0) {
-        targetNode = neighbors.find(n => n.vAngle > UP_ANGLE && (!shouldSkipExact || n.node.uuid !== exactMatch.node.uuid));
-        if (!targetNode) targetNode = neighbors.find(n => (!shouldSkipExact || !exactMatch || n.node.uuid !== exactMatch.node.uuid));
-    } else {
-        for (let i = neighbors.length - 1; i >= 0; i--) {
-            if (neighbors[i].vAngle < UP_ANGLE && (!shouldSkipExact || neighbors[i].node.uuid !== exactMatch.node.uuid)) {
-                targetNode = neighbors[i]; break;
-            }
-        }
-        if (!targetNode) {
-            for (let i = neighbors.length - 1; i >= 0; i--) {
-                if (!shouldSkipExact || !exactMatch || neighbors[i].node.uuid !== exactMatch.node.uuid) {
-                    targetNode = neighbors[i]; break;
-                }
-            }
-        }
-    }
-    if (targetNode) {
-        previewNode = targetNode.node;
-        setTargetRotation(-Math.PI/2 - targetNode.rawAngle);
-        // 🔴 国际化：使用 t()
-        showTooltip(t('tooltip.preview', {label: previewNode.label, summary: previewNode.summary||''}), 0, 0, 'fixed');
-    }
-}
-
-function setTargetRotation(target) {
-    let current = targetRotation; let diff = target - current;
-    while (diff > Math.PI) diff -= 2 * Math.PI; while (diff < -Math.PI) diff += 2 * Math.PI;
-    targetRotation = current + diff;
-}
-
-const tooltipEl = document.getElementById('tooltip');
-function showTooltip(html, x, y, mode) {
-    tooltipEl.innerHTML = html; tooltipEl.style.opacity = 1;
-    if (mode === 'mouse') {
-        tooltipEl.className = ''; tooltipEl.style.left = (x + 15) + 'px'; tooltipEl.style.top = (y + 15) + 'px'; tooltipEl.style.transform = 'none';
-    } else { tooltipEl.className = 'fixed-mode'; }
-}
-function hideTooltip() {
-    tooltipEl.style.opacity = 0; tooltipEl.className = ''; tooltipEl.style.left = ''; tooltipEl.style.top = ''; tooltipEl.style.transform = '';
-}
-
-function screenToWorld(sx, sy) {
-    const rect = canvas.getBoundingClientRect();
-    const canvasX = sx - rect.left;
-    const canvasY = sy - rect.top;
-
-    let x = canvasX - width/2;
-    let y = canvasY - height/2;
-
-    const cos = Math.cos(-viewRotation), sin = Math.sin(-viewRotation);
-    let rx = x * cos - y * sin; let ry = x * sin + y * cos;
-    return { x: (rx + width/2 - viewX) / viewK, y: (ry + height/2 - viewY) / viewK };
-}
-
-// --- Drag & Mouse State ---
-const DRAG_HIT_RADIUS2 = 600;
-let drag = { active: false, node: null, startSX: 0, startSY: 0, startTime: 0, maxMove: 0 };
-
-function pickNodeAtScreen(sx, sy, alphaThresh = 0.5) {
-    const pos = screenToWorld(sx, sy);
-    for (let i = data.nodes.length - 1; i >= 0; i--) {
-        const n = data.nodes[i];
-        if (n.alpha <= alphaThresh) continue;
-        const dx = n.x - pos.x, dy = n.y - pos.y;
-        if ((dx*dx + dy*dy) < DRAG_HIT_RADIUS2) return n;
-    }
-    return null;
-}
-
-function pickLinkAtScreen(sx, sy) {
-    const pos = screenToWorld(sx, sy);
-    for (let i = 0; i < data.links.length; i++) {
-        const l = data.links[i];
-        if (l.alpha < 0.3) continue;
-        const x1 = l.source.x, y1 = l.source.y;
-        const x2 = l.target.x, y2 = l.target.y;
-        const A = x2 - x1, B = y2 - y1;
-        const lenSq = A*A + B*B;
-        let dist = 0;
-        if (lenSq === 0) dist = Math.hypot(pos.x - x1, pos.y - y1);
-        else {
-            let t = ((pos.x - x1) * A + (pos.y - y1) * B) / lenSq;
-            t = Math.max(0, Math.min(1, t));
-            dist = Math.hypot(pos.x - (x1 + t * A), pos.y - (y1 + t * B));
-        }
-        if (dist < 10 / viewK) return l;
-    }
-    return null;
-}
-
-canvas.addEventListener('contextmenu', e => {
-    e.preventDefault();
-    const node = pickNodeAtScreen(e.clientX, e.clientY);
-    if (node) { safeDeleteNode(node); return; }
-    const link = pickLinkAtScreen(e.clientX, e.clientY);
-    if (link) { safeDeleteLink(link); return; }
-});
-
-canvas.addEventListener('mousemove', e => {
-    if (document.getElementById('content-modal').classList.contains('active') || CustomDialog.overlay.classList.contains('active')) return;
-    if (drag.active) {
-        const dx = e.clientX - drag.startSX; const dy = e.clientY - drag.startSY;
-        drag.maxMove = Math.max(drag.maxMove, Math.hypot(dx, dy));
-        if (drag.node) {
-            const w = screenToWorld(e.clientX, e.clientY);
-            pointerForce.node(drag.node).target(w.x, w.y);
-            hoverNode = null; previewNode = null; hideTooltip();
-        }
-        return;
-    }
-    const found = pickNodeAtScreen(e.clientX, e.clientY);
-    if (found) {
-        hoverNode = found; previewNode = null;
-        const summaryText = found.summary || '';
-        const summaryHtml = typeof marked !== 'undefined' ? marked.parse(summaryText) : summaryText;
-        // 🔴 国际化：使用 t()
-        showTooltip(`<strong>${found.label}</strong><br>${summaryHtml}<br>${t('tooltip.click')}`, e.clientX, e.clientY, 'mouse');
-    } else {
-        hoverNode = null;
-        if (!previewNode) hideTooltip();
-    }
-});
-
-canvas.addEventListener('mousedown', e => {
-    if (document.getElementById('content-modal').classList.contains('active') || CustomDialog.overlay.classList.contains('active')) return;
-
-    if (e.button === 3) {
-            e.preventDefault();
-            safeNavigateBack();
-            return;
-    }
-    if (e.button === 4) {
-            e.preventDefault();
-            enterLinkMode();
-            return;
-    }
-    if (e.button !== 0) return;
-
-    const node = pickNodeAtScreen(e.clientX, e.clientY);
-    drag.active = true; drag.node = node || null;
-    drag.startSX = e.clientX; drag.startSY = e.clientY;
-    drag.startTime = performance.now(); drag.maxMove = 0;
-    if (drag.node) {
-        const w = screenToWorld(e.clientX, e.clientY);
-        pointerForce.node(drag.node).target(w.x, w.y);
-        simulation.alphaTarget(0.3).restart();
-        hoverNode = null; previewNode = null; hideTooltip();
-        canvas.style.cursor = 'grabbing';
-    } else {
-        relationPicker.close();
-    }
-});
-
-canvas.addEventListener('mouseup', e => {
-    if (e.button !== 0) return;
-    if (!drag.active) return;
-    const elapsed = performance.now() - drag.startTime;
-    const moved = drag.maxMove;
-    const node = drag.node;
-    if (node) {
-        pointerForce.node(null).target(null); simulation.alphaTarget(0);
-        saveToLocal(); canvas.style.cursor = 'crosshair';
-    }
-    if (elapsed < 200 && moved < 8) {
-        const target = node || pickNodeAtScreen(e.clientX, e.clientY);
-        if (target) {
-            if (target !== focusNode) safeNavigate(target);
-            else showContentModal();
-        };
-    }
-    drag.active = false; drag.node = null;
-});
-
-canvas.addEventListener('wheel', e => { e.preventDefault(); viewK -= e.deltaY * 0.001; viewK = Math.max(0.1, Math.min(5, viewK)); }, { passive: false });
-
-window.addEventListener('keydown', e => {
-    // 优先检查 CustomDialog 是否激活，如果是，则不处理后续的全局快捷键
-    if (CustomDialog.overlay.classList.contains('active')) {
-        return; // Custom dialog is active, let it handle keydowns
-    }
-    if (modal.classList.contains('active')) return;
-    if (CustomDialog.overlay.classList.contains('active')) return; // Custom dialog active
-    if (presetEditor.active) {
-        if (e.key === 'Escape') presetEditor.close();
-        return;
-    }
-    const tag = e.target.tagName;
-    const isInput = (tag === 'INPUT' || tag === 'TEXTAREA');
-
-    if (relationPicker.active) {
-            relationPicker.handleInput(e);
-            return;
-    }
-
-    if (isInput) {
-        if (e.key === 'Escape') { e.target.blur(); canvas.focus(); return; }
-        if (e.key === 'Enter' && e.target.id === 'node-label') { e.preventDefault(); e.target.blur(); canvas.focus(); return; }
-        return;
-    }
-
-    keyState[e.key] = true; if (e.shiftKey) keyState['Shift'] = true;
-
-    if (e.key === '`') { e.preventDefault(); presetEditor.open(); return; }
-
-    const isSlotKey = (e.key >= '1' && e.key <= '4');
-    const isShiftSymbol = ['!', '@', '#', '$'].includes(e.key);
-
-    if (isShiftSymbol) { handleSlotStore({'!':0, '@':1, '#':2, '$':3}[e.key]); return; }
-    if (!e.shiftKey && isSlotKey) { handleSlot(parseInt(e.key) - 1); return; }
-
-    const neighbors = getNeighborsWithAngle();
-    switch(e.key) {
-        case 'ArrowUp': case '/': if (previewNode) safeNavigate(previewNode); else jumpDirection(-Math.PI/2, neighbors); break;
-        case 'ArrowDown': case '?': jumpDirection(Math.PI/2, neighbors); break;
-        case 'ArrowLeft': jumpDirection(-Math.PI, neighbors); break;
-        case 'ArrowRight': jumpDirection(0, neighbors); break;
-        case '.': cyclePreview(1); break; case ',': cyclePreview(-1); break;
-        case '=': case '+': viewLayers = Math.max(MIN_VIEW_LAYERS, viewLayers - 1); adjustZoomByLayer(); document.getElementById('layer-indicator').innerText = viewLayers; break;
-        case '-': case '_': viewLayers = Math.min(MAX_VIEW_LAYERS, viewLayers + 1); adjustZoomByLayer(); document.getElementById('layer-indicator').innerText = viewLayers; break;
-
-        case 'Tab': case 'n': case 'N':
-            e.preventDefault();
-            createIndependentNodeFlow();
-            break;
-        case 'F2': e.preventDefault(); const labelInp = document.getElementById('node-label'); labelInp.focus(); labelInp.select(); break;
-        case ' ': e.preventDefault(); const sumInp = document.getElementById('node-summary'); sumInp.focus(); sumInp.select(); break;
-        case 'Enter': if(!isInput && focusNode) showContentModal(); break;
-
-        case 'l': case 'L': enterLinkMode(); break;
-        case 'e': case 'E': showFlashMessage(t('hud.linkMode'), 'info'); break; // 🔴 国际化：使用 t()
-        case 'h': case 'H': const root = data.nodes.find(n=>n.isRoot); if(root) safeNavigate(root); break;
-        case 'Escape':
-            if (linkMode.active) { exitLinkMode(); }
-            break;
-        case 'b': case 'B': safeNavigateBack(); break;
-        case 'Delete': case 'd': case 'D': safeDeleteNode(); break;
-        case 'i': case 'I': e.preventDefault(); hudVisible = !hudVisible; document.getElementById('key-controls').style.display = hudVisible ? 'block' : 'none'; break;
-    }
-});
-window.addEventListener('keyup', e => { keyState[e.key] = false; if(e.key==='Shift') keyState['Shift']=false; });
-
-function jumpDirection(targetAng, neighbors) {
-    let best = null, minDiff = Infinity;
-    neighbors.forEach(n => {
-        let diff = Math.abs(n.vAngle - targetAng); if (diff > Math.PI) diff = 2*Math.PI - diff;
-        if (diff < minDiff) { minDiff = diff; best = n.node; }
-    });
-    if (best && minDiff < 1.2) safeNavigate(best);
-}
-
-function navigateTo(node, record, resetRot) {
-    if(!node) return;
-
-    if (linkMode.active && linkMode.sourceNode && linkMode.sourceNode.uuid !== node.uuid) {
-        executeLinkAction(linkMode.sourceNode, node);
-        exitLinkMode(); // 每次链接后退出连线模式
-    }
-
-    if(focusNode && record && focusNode !== node) { navHistory.push(focusNode); if(navHistory.length>50) navHistory.shift(); }
-    focusNode = node; focusNode.alpha = 1; previewNode = null; hideTooltip();
-    if(resetRot) targetRotation = 0;
-    updateUI(); saveToLocal();
-}
-
-// --- 5. New Link Mode Implementation ---
-
-async function enterLinkMode() {
-    if (linkMode.active) return;
-    try {
-        const result = await relationPicker.show(true);
-
-        linkMode.active = true;
-        linkMode.sourceNode = focusNode;
-        linkMode.type = result.val;
-
-        if (result.val === 'CUSTOM') {
-            // 🔴 国际化：使用 t()
-            let customType = await CustomDialog.prompt(t('linkMode.prompt'), t('linkMode.promptPlaceholder'));
-            if (!customType) {
-                exitLinkMode();
-                return;
-            }
-            const matchedPreset = RELATION_PRESETS.find(p => p.label === customType);
-            linkMode.type = matchedPreset ? matchedPreset.val : customType;
-            linkMode.customLabel = linkMode.type;
-            linkMode.color = '#fff';
-        } else if (result.val === 'DELETE') {
-            linkMode.color = '#ff4d4d';
-        } else {
-            const p = RELATION_PRESETS.find(pre => pre.val === result.val);
-            linkMode.color = p ? p.color : '#fff';
-        }
-
-        updateLinkModeIndicator(); // 更新指示器
-
-    } catch (e) {
-       // Cancelled
-    }
-}
-
-function exitLinkMode() {
-    linkMode.active = false;
-    linkMode.sourceNode = null;
-    linkMode.type = null;
-    linkMode.color = null;
-    updateLinkModeIndicator(); // 更新指示器
-}
-
-function updateLinkModeIndicator() {
-    const indicator = document.getElementById('link-mode-indicator');
-    if (linkMode.active) {
-        // 🔴 国际化：使用 t()
-        indicator.innerHTML = t('linkMode.typeIndicator', {color: linkMode.color, type: linkMode.type});
-        indicator.classList.add('active');
-    } else {
-        // 🔴 国际化：使用 t()
-        indicator.innerHTML = t('hud.linkMode');
-        indicator.classList.remove('active');
-    }
-}
-
-function executeLinkAction(source, target) {
-    const existingLink = data.links.find(l =>
-        (l.source.uuid === source.uuid && l.target.uuid === target.uuid) ||
-        (l.source.uuid === target.uuid && l.target.uuid === source.uuid)
-    );
-
-    if (linkMode.type === 'DELETE') {
-        if (existingLink) {
-            executeSafeAction(
-                () => ({ nodes: data.nodes, links: data.links.filter(l => l !== existingLink), nextFocus: target, nextSlots: slots }),
-                // 🔴 国际化：使用 t()
-                () => {
-                    data.links = data.links.filter(l => l !== existingLink);
-                    restartSim();
-                    showFlashMessage(t('flash.linkCut'), 'info');
-                }
-            );
-        } else {
-            // 🔴 国际化：使用 t()
-            showFlashMessage(t('alert.noLinkToBreak'), 'info');
-        }
-        return;
-    }
-
-    if (existingLink) {
-        existingLink.type = linkMode.type;
-        existingLink.source = source;
-        existingLink.target = target;
-        restartSim();
-    } else {
-        data.links.push({ source: source, target: target, type: linkMode.type, alpha: 0 });
-        restartSim();
-    }
-}
-
-function createIndependentNodeFlow() {
-    const newNode = {
-        uuid: uuid.v4(),
-        label: t('fallback.newNode'), // 🔴 国际化：使用 t()
-        x: focusNode.x + 150, y: focusNode.y + 50, // 初始位置在焦点节点旁边
-        summary: "", content: "", color: getRandomColor(), alpha: 0
-    };
-
-    const performCreate = () => {
-        data.nodes.push(newNode);
-        restartSim();
-        navigateTo(newNode, true, false);
-        focusTitle();
-    };
-    if (linkMode.active) {
-        performCreate();
-    } else {
-        executeSafeAction(
-            () => ({
-                nodes: [...data.nodes, newNode],
-                links: data.links,
-                nextFocus: newNode,
-                nextSlots: slots
-            }),
-            performCreate
-        );
-    }
-}
-
-function focusTitle() { setTimeout(() => { const el = document.getElementById('node-label'); el.focus(); el.select(); }, 50); }
-
-const modal = document.getElementById('content-modal');
-const modalBody = document.getElementById('modal-body');
-let activeNodeRunTimes = {};
-let stopPropagationHandler = e => { e.stopPropagation(); }
-
-function showContentModal() {
-    if (!focusNode) return;
-
-    // 清理旧的运行时
-    if (activeNodeRunTimes[focusNode.uuid]) {
-        try {
-            activeNodeRunTimes[focusNode.uuid].unmountFn();
-        } catch (e) {
-            console.error("Cleanup error:", e);
-        }
-        delete activeNodeRunTimes[focusNode.uuid];
-    }
-
-    closeContentModal();
-
-    // 🔴 国际化：使用 t()
-    const rawMarkdown = focusNode.content || t('modal.noContent');
-
-    // 使用 marked 解析
-    const parsedHtml = typeof marked !== 'undefined' ? marked.parse(rawMarkdown) : rawMarkdown;
-
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = parsedHtml;
-
-    // 提取并移除 script 标签，防止插入 HTML 时自动执行（虽然 innerHTML 通常不会执行 script，但我们要手动控制）
-    const scriptsToExecute = [];
-    const scriptElements = tempDiv.querySelectorAll('script');
-    scriptElements.forEach(script => {
-        scriptsToExecute.push(script.textContent);
-        script.remove(); // 从 DOM 中移除，避免显示代码文本
-    });
-
-    // 构建 Modal 内容
-    modalBody.innerHTML = `
-        <div style="font-size:2em; font-weight:bold; color:#4facfe; margin-bottom:10px;">${focusNode.label}</div>
-        <div style="color:#666; font-style:italic; margin-bottom:20px; border-left:3px solid #555; padding-left:10px;">
-            ${focusNode.summary ? (typeof marked !== 'undefined' ? marked.parse(focusNode.summary) : focusNode.summary) : ''}
-        </div>
-        <hr style="border:0; border-bottom:1px solid #333; margin-bottom:20px;">
-        <div id="node-content-host-${focusNode.uuid}" class="node-content-host" style="line-height:1.8; font-size:16px;">
-            ${tempDiv.innerHTML}
-        </div>
-        <div style="margin-top:50px; text-align:center; font-size:12px; color:#444; cursor:pointer;" onclick="document.getElementById('content-modal').classList.remove('active')">${t('modal.close')} (Esc)</div>
-    `;
-
-    // 代码高亮
-    if (typeof hljs !== 'undefined') {
-        modalBody.querySelectorAll('pre code').forEach((block) => {
-            hljs.highlightElement(block);
-        });
-    }
-
-    const nodeContentHost = document.getElementById(`node-content-host-${focusNode.uuid}`);
-    if (!nodeContentHost) {
-        console.error("Stars: Node content host not found!");
-        return;
-    }
-
-    // 准备运行时环境
-    let nodeUnmountCallbacks = [];
-
-    const NodeRuntime = {
-        onMount: function(callback) {
-            // 立即执行挂载逻辑
-            try { callback(); } catch(e) { console.error("Node Script onMount Error:", e); }
-        },
-        onUnmount: function(callback) {
-            nodeUnmountCallbacks.push(callback);
-        },
-        // 简单的存储封装
-        storage: {
-            _prefix: `node_storage_${focusNode.uuid}_`,
-            set: function(key, value) {
-                try { localStorage.setItem(this._prefix + key, JSON.stringify(value)); return true; }
-                catch(e) { console.error("Node Storage set error:", e); return false; }
+    },
+
+    save() {
+        const payload = {
+            data: {
+                nodes: this.state.nodes.map(n => ({
+                    uuid: n.uuid, label: n.label, isRoot: n.isRoot, x: n.x, y: n.y,
+                    summary: n.summary, content: n.content, color: n.color
+                })),
+                links: this.state.links.map(l => ({
+                    source: l.source.uuid, target: l.target.uuid, type: l.type
+                }))
             },
-            get: function(key, defaultValue = null) {
-                try { const item = localStorage.getItem(this._prefix + key); return item ? JSON.parse(item) : defaultValue; }
-                catch(e) { console.error("Node Storage get error:", e); return defaultValue; }
-            },
-            remove: function(key) { localStorage.removeItem(this._prefix + key); },
-            clear: function() {
-                 // 简化的 clear，只清理当前前缀
-                 Object.keys(localStorage).forEach(k => {
-                     if(k.startsWith(this._prefix)) localStorage.removeItem(k);
-                 });
-            }
-        },
-        hostElement: nodeContentHost,
-        // 便捷选择器，限制在当前节点内容范围内
-        $: function(selector) { return nodeContentHost.querySelector(selector); },
-        $$: function(selector) { return nodeContentHost.querySelectorAll(selector); },
-        // 暴露全局对象
-        window: window,
-        document: document,
-        // 当前节点信息（只读）
-        node: {
-            uuid: focusNode.uuid,
-            label: focusNode.label,
-            color: focusNode.color
+            focusNodeUuid: this.state.focusNode ? this.state.focusNode.uuid : null,
+            slots: this.state.slots.map(s => s ? s.uuid : null),
+            viewLayers: this.state.viewLayers,
+            presets: this.state.presets
+        };
+        vscode.postMessage({ command: 'saveData', data: payload });
+    },
+    saveDebounced: null,
+
+    async resetSystem() {
+        if(await App.UI.Dialog.confirm(App.Utils.t('alert.resetConfirm'))) {
+            App.Runtime.clearAllStorage();
+            vscode.postMessage({ command: 'resetSystem' });
         }
-    };
-
-    // 注册清理函数
-    activeNodeRunTimes[focusNode.uuid] = {
-        unmountFn: () => {
-            nodeUnmountCallbacks.forEach(cb => {
-                try { cb(); } catch(e) { console.error("Node Script onUnmount Error:", e); }
-            });
-            nodeUnmountCallbacks = [];
-        }
-    };
-
-    // 执行脚本
-    scriptsToExecute.forEach((scriptText, index) => {
-        if (!scriptText.trim()) return;
-        try {
-            // 核心：使用 new Function 创建沙箱式作用域
-            // 这里的 'api' 参数对应下面调用时传入的 NodeRuntime
-            const wrappedScriptCode = `
-                "use strict";
-                return (function(nodeRuntimeApi) {
-                    const Runtime = nodeRuntimeApi;
-                    const console = window.console; // 确保能打印日志
-                    try {
-                        ${scriptText}
-                    } catch(err) {
-                        console.error("Error inside node script block (Runtime ID: ${focusNode.uuid}, Block: ${index}):", err);
-                    }
-                })(arguments[0]);
-            `;
-
-            // 这行代码需要 'unsafe-eval' CSP 才能运行
-            const dynamicScriptFunc = new Function(wrappedScriptCode);
-            dynamicScriptFunc(NodeRuntime);
-
-            console.log(`Stars: Executed script block ${index + 1} for node ${focusNode.label}`);
-        } catch (e) {
-            console.error(`Stars: Failed to execute script (Node: ${focusNode.label}, Block: ${index}):`, e);
-            // 可以在界面上显示一个小的错误提示，如果需要的话
-            const errDiv = document.createElement('div');
-            errDiv.style.color = 'red';
-            errDiv.style.fontSize = '12px';
-            errDiv.innerText = `Script Error in Block ${index+1}: ${e.message}`;
-            nodeContentHost.appendChild(errDiv);
-        }
-    });
-
-    modal.classList.add('active');
-
-    // 事件监听器
-    const closeModalHandler = (e) => {
-        if (e.key === 'Escape') {
-            closeContentModal();
-            e.stopPropagation();
-            e.preventDefault();
-            window.removeEventListener('keydown', closeModalHandler);
-        }
-    };
-    window.addEventListener('keydown', closeModalHandler);
-
-    // 移除旧的监听器防止堆叠 (这里需要注意 main.js 全局作用域是否有 closeContentModal 的引用，通常这样写没问题)
-    modal.removeEventListener('click', closeContentModal);
-    modalBody.removeEventListener('click', stopPropagationHandler);
-
-    modal.addEventListener('click', closeContentModal);
-    modalBody.addEventListener('click', stopPropagationHandler);
-}
-
-function closeContentModal() {
-    modal.classList.remove('active');
-    modal.removeEventListener('click', closeContentModal)
-    modalBody.removeEventListener('click', stopPropagationHandler);
-    if (focusNode && activeNodeRunTimes[focusNode.uuid]) {
-        activeNodeRunTimes[focusNode.uuid].unmountFn();
-        delete activeNodeRunTimes[focusNode.uuid];
     }
-    modalBody.innerHTML = '';
-}
-
-function getRandomColor() {
-    const h = Math.random(); const s = Math.random(); const v = 1; let r, g, b;
-    const i = Math.floor(h * 6); const f = h * 6 - i; const p = v * (1 - s); const q = v * (1 - f * s); const t = v * (1 - (1 - f) * s);
-    switch (i % 6) {
-        case 0: r = v; g = t; b = p; break; case 1: r = q; g = v; b = p; break; case 2: r = p; g = v; b = t; break;
-        case 3: r = p; g = q; b = v; break; case 4: r = t; g = p; b = v; break; case 5: r = v; g = p; b = q; break;
-    }
-    const toHex = (c) => Math.round(c * 255).toString(16).padStart(2, '0'); return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-}
-
-const ui = {
-    label: document.getElementById('node-label'),
-    uuid: document.getElementById('node-uuid'),
-    linkStatus: document.getElementById('link-status'),
-    summary: document.getElementById('node-summary'),
-    content: document.getElementById('node-content'),
-    colorInput: document.getElementById('node-color-input'),
-    colorHex: document.getElementById('node-color-hex')
 };
+App.Store.saveDebounced = App.Utils.debounce(() => App.Store.save(), 1000);
 
-function updateUI() {
-    if(!focusNode) return;
-    ui.label.value = focusNode.label;
-    ui.uuid.innerText = "UUID: " + focusNode.uuid;
-    ui.summary.value = focusNode.summary || "";
-    ui.content.value = focusNode.content || "";
-    ui.colorInput.value = focusNode.color || DEFAULT_NODE_COLOR;
-    ui.colorHex.value = focusNode.color || DEFAULT_NODE_COLOR;
-    const count = getNodeLinkCount(focusNode.uuid);
-    ui.linkStatus.innerText = `Links: ${count}`;
-}
-
-function handleEditorTab(e, nextId, prevId) {
-    if (e.key === 'Tab') {
-        e.preventDefault(); const targetId = e.shiftKey ? prevId : nextId;
-        if (targetId) { const el = document.getElementById(targetId); el.focus(); if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') el.select(); }
-    }
-}
-ui.label.addEventListener('input', () => { if(focusNode) { focusNode.label = ui.label.value; updateSlotUI(); saveToLocalDebounced(); } });
-ui.label.addEventListener('keydown', (e) => handleEditorTab(e, 'node-summary', 'node-content'));
-ui.summary.addEventListener('input', () => { if(focusNode) { focusNode.summary = ui.summary.value; saveToLocalDebounced(); } });
-ui.summary.addEventListener('keydown', (e) => handleEditorTab(e, 'node-content', 'node-label'));
-ui.content.addEventListener('input', () => { if(focusNode) { focusNode.content = ui.content.value; saveToLocalDebounced(); } });
-ui.content.addEventListener('keydown', (e) => handleEditorTab(e, 'node-label', 'node-summary'));
-ui.colorInput.addEventListener('input', () => { if(focusNode) { focusNode.color = ui.colorInput.value; ui.colorHex.value = ui.colorInput.value; saveToLocalDebounced(); updateSlotUI(); } });
-ui.colorHex.addEventListener('input', () => {
-    if(focusNode && /^#[0-9A-F]{6}$/i.test(ui.colorHex.value)) {
-            focusNode.color = ui.colorHex.value; ui.colorInput.value = ui.colorHex.value; saveToLocalDebounced(); updateSlotUI();
-    }
-});
-
-function restartSim() { simulation.nodes(data.nodes); simulation.force("link").links(data.links); simulation.alpha(1).restart(); saveToLocal(); updateUI(); }
-
-function saveToLocal() {
-    const payload = {
-        data: {
-            nodes: data.nodes.map(n => ({
-                uuid: n.uuid, label: n.label, isRoot: n.isRoot,
-                x: n.x, y: n.y,
-                summary: n.summary, content: n.content, color: n.color
-            })),
-            links: data.links.map(l => ({
-                source: typeof l.source === 'object' ? l.source.uuid : l.source,
-                target: typeof l.target === 'object' ? l.target.uuid : l.target,
-                type: l.type
-            }))
-        },
-        focusNodeUuid: focusNode ? focusNode.uuid : null,
-        slots: slots.map(s => s ? s.uuid : null),
-        viewLayers: viewLayers,
-        presets: RELATION_PRESETS
-    };
-    vscode.postMessage({
-        command: 'saveData',
-        data: payload
-    });
-    console.log("Stars: Sent 'saveData' to Extension.");
-    return payload;
-}
-
-function debounce(func, wait) {
-    let timeout;
-    return function(...args) {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => func.apply(this, args), wait);
-    };
-}
-const saveToLocalDebounced = debounce(saveToLocal, 1000);
-
-function exportData() { const b = new Blob([JSON.stringify(saveToLocal())], {type:'application/json'}); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'stars_data.json'; a.click(); }
-
-function importData(inp) {
-    const f = inp.files[0];
-    if(f) {
-        const r = new FileReader();
-        r.onload = e => {
+// ==========================================
+// 3. Runtime
+// ==========================================
+App.Runtime = {
+    activeInstances: {},
+    mount(node, containerId) {
+        this.unmount(node.uuid);
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        const scripts = [];
+        container.querySelectorAll('script').forEach(s => { scripts.push(s.textContent); s.remove(); });
+        let unmountCbs = [];
+        const api = {
+            $: (s) => container.querySelector(s),
+            $$: (s) => container.querySelectorAll(s),
+            storage: this._createStorageApi(node.uuid),
+            node: { uuid: node.uuid, label: node.label, color: node.color },
+            onMount: (cb) => { try{cb()}catch(e){console.error(e)} },
+            onUnmount: (cb) => { unmountCbs.push(cb) },
+            window: window, document: document
+        };
+        this.activeInstances[node.uuid] = { unmountFn: () => unmountCbs.forEach(cb => cb()) };
+        scripts.forEach((code, idx) => {
             try {
-                const importedData = JSON.parse(e.target.result);
-                // 严格校验格式
-                if (importedData && importedData.data && Array.isArray(importedData.data.nodes)) {
-                    console.log("Stars: Importing data...", importedData);
+                new Function('api', `(function(Runtime){ "use strict"; ${code} })(arguments[0])`)(api);
+            } catch(e) {
+                const err = document.createElement('div');
+                err.style.color = 'red'; err.innerText = `Script Error: ${e.message}`;
+                container.appendChild(err);
+            }
+        });
+    },
+    unmount(uuid) {
+        if(this.activeInstances[uuid]) {
+            try { this.activeInstances[uuid].unmountFn(); } catch(e){}
+            delete this.activeInstances[uuid];
+        }
+    },
+    _createStorageApi(uuid) {
+        const p = `node_storage_${uuid}_`;
+        return {
+            set: (k, v) => { localStorage.setItem(p+k, JSON.stringify(v)); return true; },
+            get: (k, d) => { const i=localStorage.getItem(p+k); return i?JSON.parse(i):d; },
+            remove: (k) => localStorage.removeItem(p+k),
+            clear: () => this.clearStorage(uuid)
+        };
+    },
+    clearStorage(uuid) {
+        const p = `node_storage_${uuid}_`;
+        Object.keys(localStorage).forEach(k => { if(k.startsWith(p)) localStorage.removeItem(k); });
+    },
+    clearAllStorage() {
+        Object.keys(localStorage).forEach(k => { if(k.startsWith('node_storage_')) localStorage.removeItem(k); });
+    }
+};
 
-                    // 在导入新数据前，清除所有节点的本地存储数据
-                    clearAllNodeStorage();
+// ==========================================
+// 4. Renderer
+// ==========================================
+App.Renderer = {
+    canvas: document.getElementById('canvas'),
+    ctx: document.getElementById('canvas').getContext('2d'),
+    width: 0, height: 0, viewX: 0, viewY: 0, viewK: 1, viewRotation: 0, targetRotation: 0,
+    simulation: null, pointerForce: null, lastRenderTime: 0, FADE_DURATION: 400, DEFAULT_NODE_COLOR: "#4facfe",
 
-                    // 1. 先通知后端保存（为了下次打开能记住）
-                    vscode.postMessage({ command: 'saveData', data: importedData });
+    init() {
+        this.resize();
+        this.simulation = d3.forceSimulation()
+            .force("link", d3.forceLink().id(d => d.uuid).distance(220).strength(0.1))
+            .force("charge", d3.forceManyBody().strength(-200))
+            .force("collide", d3.forceCollide(10))
+            .force("x", d3.forceX(0).strength(0.01))
+            .force("y", d3.forceY(0).strength(0.01))
+            .alphaDecay(0.05).alphaMin(0.05);
+        
+        this.pointerForce = (() => {
+            let node, target, strength=0.02;
+            function f(alpha) {
+                if (!node || !target) return;
+                const dx = target.x - node.x, dy = target.y - node.y;
+                const k = strength * (1 - Math.exp(-Math.hypot(dx, dy) / 120));
+                node.vx += dx * k; node.vy += dy * k;
+            }
+            f.initialize=()=>{}; f.node=n=>{node=n; return f;}; f.target=(x,y)=>{target={x,y}; return f;};
+            return f;
+        })();
+        this.simulation.force('pointerDrag', this.pointerForce);
+        requestAnimationFrame(t => this.render(t));
+    },
 
-                    // 2. 🔴 关键：直接在前端初始化，不要 reload！
-                    // reload 会导致短暂的白屏和状态丢失
-                    initSystem(importedData);
+    resize() {
+        const el = this.canvas;
+        if (el) {
+            this.width = el.clientWidth; this.height = el.clientHeight;
+            const dpr = window.devicePixelRatio || 1;
+            el.width = this.width * dpr; el.height = this.height * dpr;
+            this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+            this.ctx.scale(dpr, dpr);
+        }
+    },
 
-                    // 🔴 国际化：使用 t()
-                    showFlashMessage(t('alert.importSuccess'));
-                } else {
-                    // 🔴 国际化：使用 t()
-                    showFlashMessage(t('alert.importFail'), 'warn');
-                }
-            } catch (error) {
-                console.error(error);
-                // 🔴 国际化：使用 t()
-                showFlashMessage(t('alert.parseFail'), 'warn');
+    adjustZoomByLayer() {
+        this.viewK = Math.max(0.3, Math.min(5, 2.0 / (Math.pow(App.Store.state.viewLayers, 0.7))));
+    },
+
+    restartSim() {
+        const { nodes, links, focusNode } = App.Store.state;
+        const root = nodes.find(n => n.isRoot);
+        if(root) { root.fx=0; root.fy=0; }
+        nodes.forEach(n => { if(!n.isRoot) { n.fx=null; n.fy=null; } });
+
+        const SIM_LAYERS = 7;
+        const targets = new Set();
+        if(focusNode) {
+            targets.add(focusNode.uuid);
+            let q = [{n:focusNode, d:0}], h=0;
+            const adj = {};
+            links.forEach(l => {
+                const s=l.source.uuid||l.source, t=l.target.uuid||l.target;
+                if(!adj[s]) adj[s]=[]; adj[s].push(t);
+                if(!adj[t]) adj[t]=[]; adj[t].push(s);
+            });
+            while(h<q.length) {
+                const {n,d} = q[h++];
+                if(d>=SIM_LAYERS) continue;
+                (adj[n.uuid]||[]).forEach(id => {
+                    if(!targets.has(id)) { targets.add(id); const obj=nodes.find(x=>x.uuid===id); if(obj) q.push({n:obj, d:d+1}); }
+                });
+            }
+        }
+        const activeNodes = nodes.filter(n => targets.has(n.uuid));
+        const activeLinks = links.filter(l => targets.has(l.source.uuid) && targets.has(l.target.uuid));
+        this.simulation.nodes(activeNodes);
+        this.simulation.force("link").links(activeLinks);
+        this.simulation.alpha(1).restart();
+    },
+
+    render(t) {
+        const { keyState, dragNode, mouseX, mouseY, hoverNode, previewNode, linkMode } = App.Input.state;
+        if (keyState['<']) { this.targetRotation += 0.05; if(App.Input.state.previewNode) { App.Input.state.previewNode=null; App.Input.hideTooltip(); } }
+        if (keyState['>']) { this.targetRotation -= 0.05; if(App.Input.state.previewNode) { App.Input.state.previewNode=null; App.Input.hideTooltip(); } }
+
+        if (!this.lastRenderTime) this.lastRenderTime = t;
+        const dt = t - this.lastRenderTime; this.lastRenderTime = t;
+
+        if (dragNode) {
+            const w = this.screenToWorld(mouseX, mouseY);
+            this.pointerForce.node(dragNode).target(w.x, w.y);
+        }
+
+        const { nodes, links, focusNode, viewLayers } = App.Store.state;
+        const tx = this.width/2, ty = this.height/2;
+        if(focusNode) {
+            this.viewX += ((-focusNode.x * this.viewK + tx) - this.viewX) * 0.1;
+            this.viewY += ((-focusNode.y * this.viewK + ty) - this.viewY) * 0.1;
+        }
+        let diff = this.targetRotation - this.viewRotation;
+        while(diff > Math.PI) diff -= 2*Math.PI; while(diff < -Math.PI) diff += 2*Math.PI;
+        this.viewRotation += diff * 0.1;
+
+        this.ctx.save();
+        this.ctx.clearRect(0, 0, this.width, this.height);
+        this.ctx.translate(this.width/2, this.height/2);
+        this.ctx.rotate(this.viewRotation);
+        this.ctx.translate(-this.width/2, -this.height/2);
+        this.ctx.translate(this.viewX, this.viewY);
+        this.ctx.scale(this.viewK, this.viewK);
+
+        const visNodes = new Set(); const visLinks = new Set();
+        const addVis = (s, d) => {
+            if(!s) return;
+            visNodes.add(s.uuid);
+            let q=[{n:s, d:0}], h=0;
+            while(h<q.length){
+                const {n,d:depth} = q[h++];
+                if(depth>=d) continue;
+                links.forEach(l => {
+                    const src=l.source, tgt=l.target;
+                    if(src.uuid===n.uuid) { if(!visNodes.has(tgt.uuid)) {visNodes.add(tgt.uuid); q.push({n:tgt,d:depth+1});} visLinks.add(l); }
+                    else if(tgt.uuid===n.uuid) { if(!visNodes.has(src.uuid)) {visNodes.add(src.uuid); q.push({n:src,d:depth+1});} visLinks.add(l); }
+                });
             }
         };
-        r.readAsText(f);
-        // 清空 input，确保同一个文件能再次触发 change 事件
-        inp.value = '';
-    }
-}
+        if(focusNode) addVis(focusNode, viewLayers);
+        if(hoverNode && hoverNode!==focusNode) addVis(hoverNode, 1);
+        if(previewNode && previewNode!==focusNode) addVis(previewNode, 1);
 
-const relationPicker = {
-    el: document.getElementById('relation-picker'), active: false, resolve: null, reject: null, allowDelete: false,
-    show: function(allowDelete = false) {
-        this.allowDelete = allowDelete;
-        return new Promise((res, rej) => {
-            // 🔴 国际化：使用 t()
-            const delStr = allowDelete ? t('preset.delete') : '';
-            let html = `<div class="menu-title">${t('preset.title', {delStr: delStr})}</div>`;
-            const optionsHtml = RELATION_PRESETS.slice(0, 9).map((p, i) => {
-                const idxKey = i + 1;
-                return `<div class="menu-opt" data-value="${p.val}"><span class="menu-key" style="color:${p.color}">[${idxKey}]</span>${p.label}</div>`;
-            }).join('');
-
-            html += optionsHtml;
-
-            if (RELATION_PRESETS.length > 9) {
-                html += `<div class="menu-title" style="margin-top:10px;">${t('preset.more')}</div>`; // 🔴 国际化：新增 key "preset.more"
-                html += RELATION_PRESETS.slice(9).map((p, i) => {
-                    return `<div class="menu-opt" data-value="${p.val}"><span class="menu-key" style="visibility:hidden;">[]</span>${p.label}</div>`;
-                }).join('');
+        links.forEach(l => {
+            const isVis = visLinks.has(l);
+            if(isVis && l.alpha<1) l.alpha += dt/this.FADE_DURATION;
+            else if(!isVis && l.alpha>0) l.alpha -= dt/this.FADE_DURATION;
+            l.alpha = Math.max(0, Math.min(1, l.alpha));
+            if(l.alpha > 0.01) {
+                const src=l.source, tgt=l.target;
+                const isFocus = (src===focusNode||tgt===focusNode);
+                const isHigh = (hoverNode&&(src===hoverNode||tgt===hoverNode)) || (previewNode&&(src===previewNode||tgt===previewNode));
+                const mult = isFocus ? 0.9 : (isHigh ? 0.5 : 0.2);
+                this.ctx.globalAlpha = l.alpha * mult;
+                this.ctx.lineWidth = (isFocus||isHigh) ? 2.5 : 1.5;
+                const color = App.Store.state.presets.find(p=>p.val===l.type)?.color || '#666';
+                const g = this.ctx.createLinearGradient(src.x, src.y, tgt.x, tgt.y);
+                g.addColorStop(0, color); g.addColorStop(0.7, "#444"); g.addColorStop(1, "#222");
+                this.ctx.strokeStyle = g;
+                this.ctx.beginPath(); this.ctx.moveTo(src.x, src.y); this.ctx.lineTo(tgt.x, tgt.y); this.ctx.stroke();
+                if(l.type && isFocus) {
+                    const mx=(src.x+tgt.x)/2, my=(src.y+tgt.y)/2;
+                    this.ctx.save(); this.ctx.translate(mx,my); this.ctx.rotate(-this.viewRotation);
+                    this.ctx.fillStyle = color; this.ctx.font="11px Arial"; this.ctx.textAlign="center";
+                    const label = App.Store.state.presets.find(p=>p.val===l.type)?.label || l.type;
+                    this.ctx.fillText(label, 0, -8); this.ctx.restore();
+                }
             }
-            if (allowDelete) {
-                // 🔴 国际化：使用 t()
-                html += `<div class="menu-opt delete-opt" data-value="DELETE"><span class="menu-key" style="color:#e74c3c">[D]</span>${t('linkMode.deleteLabel')}</div>`; // 修改这里以正确显示
-            }
-
-            this.el.innerHTML = html;
-            this.el.classList.add('active');
-            this.active = true;
-            this.resolve = res;
-            this.reject = rej;
-
-            const currentPicker = this;
-            this.el.querySelectorAll('.menu-opt').forEach(opt => {
-                opt.addEventListener('click', () => currentPicker.pick(opt.dataset.value));
-            });
         });
+
+        const pulse = (Math.sin(t * 0.002) + 1) * 10 + 10;
+        let vCount = 0;
+        nodes.forEach(n => {
+            const isVis = visNodes.has(n.uuid);
+            if(n===focusNode) n.alpha = 1;
+            else {
+                if(isVis && n.alpha<1) n.alpha += dt/this.FADE_DURATION;
+                else if(!isVis && n.alpha>0) n.alpha -= dt/this.FADE_DURATION;
+                n.alpha = Math.max(0, Math.min(1, n.alpha));
+            }
+            if(n.alpha > 0.01) {
+                vCount++;
+                const isSlot = App.Store.state.slots.includes(n);
+                const isFocus = (n===focusNode);
+                const isPreview = (n===previewNode||n===hoverNode);
+                this.ctx.globalAlpha = isFocus ? 1 : n.alpha;
+                let r = isFocus ? 20 : (isSlot ? 14 : 10);
+                if(this.viewK < 0.5) r = r / this.viewK * 0.5;
+                this.ctx.beginPath(); this.ctx.arc(n.x, n.y, r, 0, 2*Math.PI);
+                this.ctx.fillStyle = n.color || this.DEFAULT_NODE_COLOR;
+                if(isFocus) {
+                    if(linkMode.active) { this.ctx.shadowBlur=pulse; this.ctx.shadowColor=linkMode.color||'#fff'; }
+                    else { this.ctx.shadowBlur=35; this.ctx.shadowColor=this.ctx.fillStyle; }
+                } else if(isPreview) { this.ctx.shadowBlur=20; this.ctx.shadowColor=this.ctx.fillStyle; } else this.ctx.shadowBlur=0;
+                if(isFocus && linkMode.active) { this.ctx.strokeStyle=linkMode.color||'#fff'; this.ctx.lineWidth=3; this.ctx.stroke(); }
+                if(isSlot && !isFocus) { this.ctx.strokeStyle="#fff"; this.ctx.lineWidth=2; this.ctx.stroke(); }
+                this.ctx.fill(); this.ctx.shadowBlur=0;
+                if(isFocus || isPreview || n.alpha > 0.5) {
+                    this.ctx.save(); this.ctx.translate(n.x, n.y); this.ctx.rotate(-this.viewRotation);
+                    this.ctx.fillStyle = (isFocus||isPreview) ? "#fff" : "rgba(200,200,200,0.7)";
+                    this.ctx.font = (isFocus||isPreview) ? "bold 14px Arial" : "11px Arial";
+                    this.ctx.textAlign = "center";
+                    this.ctx.fillText(n.label, 0, r + 16);
+                    const sIdx = App.Store.state.slots.indexOf(n);
+                    if(sIdx>=0) { this.ctx.fillStyle="#4facfe"; this.ctx.font="bold 11px monospace"; this.ctx.fillText(`[${sIdx+1}]`, 0, -r-6); }
+                    this.ctx.restore();
+                }
+            }
+        });
+        this.ctx.restore();
+        document.getElementById('visible-count').innerText = vCount;
+        if (this.simulation.alpha() < 0.3) this.simulation.alpha(0.3).restart();
+        requestAnimationFrame(now => this.render(now));
     },
-    handleInput: function(e) {
-        const num = parseInt(e.key);
-        if (!isNaN(num) && num >= 1 && num <= Math.min(9, RELATION_PRESETS.length)) {
-            e.preventDefault(); this.pick(RELATION_PRESETS[num-1].val);
+
+    screenToWorld(sx, sy) {
+        const rect = this.canvas.getBoundingClientRect();
+        let x = (sx - rect.left) - this.width/2;
+        let y = (sy - rect.top) - this.height/2;
+        const cos = Math.cos(-this.viewRotation), sin = Math.sin(-this.viewRotation);
+        let rx = x * cos - y * sin, ry = x * sin + y * cos;
+        return { x: (rx + this.width/2 - this.viewX) / this.viewK, y: (ry + this.height/2 - this.viewY) / this.viewK };
+    },
+    setTargetRotation(rad) {
+        let diff = rad - this.targetRotation;
+        while(diff > Math.PI) diff -= 2*Math.PI; while(diff < -Math.PI) diff += 2*Math.PI;
+        this.targetRotation += diff;
+    }
+};
+
+// ==========================================
+// 5. Input
+// ==========================================
+App.Input = {
+    state: { hoverNode: null, previewNode: null, linkMode: { active: false }, dragNode: null, click: {}, keyState: {}, mouseX: 0, mouseY: 0 },
+
+    init() {
+        const C = App.Renderer.canvas;
+        C.addEventListener('mousedown', this.onMouseDown.bind(this));
+        C.addEventListener('mouseup', this.onMouseUp.bind(this));
+        C.addEventListener('mousemove', this.onMouseMove.bind(this));
+        C.addEventListener('wheel', this.onWheel.bind(this), {passive:false});
+        C.addEventListener('contextmenu', this.onContextMenu.bind(this));
+        window.addEventListener('keydown', this.onKeyDown.bind(this));
+        window.addEventListener('keyup', e => {
+            this.state.keyState[e.key] = false;
+            if(e.key==='Shift') this.state.keyState['Shift'] = false;
+        });
+
+        document.getElementById('save-btn').addEventListener('click', () => App.Store.save());
+        document.getElementById('export-btn').addEventListener('click', () => App.Store.exportData()); 
+        document.getElementById('reset-system-btn').addEventListener('click', () => App.Store.resetSystem());
+        document.getElementById('import-btn').addEventListener('click', () => document.getElementById('importFile').click());
+        document.getElementById('importFile').addEventListener('change', (e) => this.importData(e.target));
+        document.getElementById('manage-presets-btn').addEventListener('click', () => App.UI.PresetEditor.open());
+        document.getElementById('preset-editor-close-btn').addEventListener('click', () => App.UI.PresetEditor.close());
+        document.getElementById('add-preset-btn').addEventListener('click', () => App.UI.PresetEditor.add());
+        document.getElementById('save-presets-btn').addEventListener('click', () => App.UI.PresetEditor.saveAndClose());
+    },
+
+    handleSlotClick(idx, isShift) {
+        if (isShift) this.handleSlotStore(idx);
+        else this.handleSlot(idx);
+    },
+
+    handleSlot(idx) {
+        const { slots, focusNode } = App.Store.state;
+        if (slots[idx] === focusNode) return;
+        if (slots[idx]) {
+            // Swap Logic (Fixed in ExecuteSafeAction)
+            const perform = () => {}; // Logic is now inside executeSafeAction state applicator
+            
+            if(this.state.linkMode.active) {
+                // In Link Mode, we just Jump
+                this.safeNavigate(slots[idx]); 
+                this.handleSlot(idx); // Recursive call to swap after jump? No, just update slot UI
+                App.Store.state.slots[idx] = focusNode; // Swap manually for link mode simplicity?
+                // Actually, let's keep it simple: LinkMode doesn't support Swap-Jump easily.
+                // Just Jump.
+            }
+            else {
+                App.Store.executeSafeAction(() => ({ 
+                    nodes: App.Store.state.nodes, 
+                    links: App.Store.state.links, 
+                    nextFocus: slots[idx], 
+                    nextSlots: slots.map((s,i)=>i===idx?focusNode:s) 
+                }));
+            }
+        } else {
+            slots[idx] = focusNode; App.UI.updateSlotUI(); App.Store.save();
         }
-        else if (e.key === ' ') { e.preventDefault(); this.pick('CUSTOM'); }
-        else if (e.key === 'Enter') { e.preventDefault(); if(RELATION_PRESETS.length>0) this.pick(RELATION_PRESETS[0].val); }
-        else if (this.allowDelete && (e.key === 'd' || e.key === 'D' || e.key === 'Delete')) { e.preventDefault(); this.pick('DELETE'); }
-        else if (e.key === 'Escape') { e.preventDefault(); this.reject(); this.close(); }
     },
-    pick: function(val) { this.close(); this.resolve({ val: val }); },
-    close: function() {
-        this.el.classList.remove('active');
-        this.active = false;
-        const currentPicker = this;
-        this.el.querySelectorAll('.menu-opt').forEach(opt => {
-            opt.removeEventListener('click', () => currentPicker.pick(opt.dataset.value));
+
+    handleSlotStore(idx) {
+        const { slots, focusNode } = App.Store.state;
+        if (slots[idx] === focusNode) return;
+        App.Store.executeSafeAction(() => ({ 
+            nodes: App.Store.state.nodes, 
+            links: App.Store.state.links, 
+            nextFocus: focusNode, 
+            nextSlots: slots.map((s,i)=>i===idx?focusNode:s) 
+        }));
+    },
+
+    clearSlot(idx) {
+        const { slots, focusNode } = App.Store.state;
+        if(!slots[idx]) return;
+        App.Store.executeSafeAction(() => ({ 
+            nodes: App.Store.state.nodes, 
+            links: App.Store.state.links, 
+            nextFocus: focusNode, 
+            nextSlots: slots.map((s,i)=>i===idx?null:s) 
+        }));
+    },
+
+    // --- Safe Navigation Wrapper ---
+    // Replaces simple navigateTo to ensure orphan checking
+    safeNavigate(node, recordHistory = true) {
+        if (!node) return;
+        if (this.state.linkMode.active) {
+            this.navigateTo(node, recordHistory);
+            return;
+        }
+        // Wrap in Safe Action
+        App.Store.executeSafeAction(() => ({
+            nodes: App.Store.state.nodes,
+            links: App.Store.state.links,
+            nextFocus: node,
+            nextSlots: App.Store.state.slots
+        }));
+        // Note: executeSafeAction will call navigateTo if safe via its applyState
+    },
+
+    // Internal Navigate (State Update)
+    // Called by executeSafeAction or Link Mode
+    navigateTo(node, recordHistory = true) {
+        if(!node) return;
+        const { linkMode } = this.state;
+        if (linkMode.active && linkMode.source && linkMode.source.uuid !== node.uuid) {
+            this.executeLinkAction(linkMode.source, node);
+            this.exitLinkMode();
+        }
+        const { focusNode } = App.Store.state;
+        if(focusNode && recordHistory && focusNode !== node) {
+            App.Store.state.navHistory.push(focusNode);
+            if(App.Store.state.navHistory.length > 50) App.Store.state.navHistory.shift();
+        }
+        App.Store.state.focusNode = node;
+        node.alpha = 1;
+        this.state.previewNode = null; this.hideTooltip();
+        App.UI.updateSidebar(); App.Store.save(); App.Renderer.restartSim();
+    },
+
+    async enterLinkMode() {
+        if(this.state.linkMode.active) return;
+        try {
+            const res = await App.UI.RelationPicker.show(true);
+            if(!App.UI.RelationPicker.active && !res) return; 
+            const mode = { active: true, source: App.Store.state.focusNode, type: res.val, color: '#fff' };
+            if (res.val === 'CUSTOM') {
+                const cLabel = await App.UI.Dialog.prompt(App.Utils.t('linkMode.prompt'), App.Utils.t('linkMode.promptPlaceholder'));
+                if(!cLabel) { this.exitLinkMode(); return; }
+                const preset = App.Store.state.presets.find(p=>p.label===cLabel);
+                mode.type = preset ? preset.val : cLabel;
+            } else if (res.val === 'DELETE') { mode.color = '#ff4d4d'; }
+            else { const p = App.Store.state.presets.find(x => x.val === res.val); if(p) mode.color = p.color; }
+            this.state.linkMode = mode;
+            this.updateLinkModeIndicator();
+        } catch(e) { this.exitLinkMode(); }
+    },
+
+    exitLinkMode() {
+        this.state.linkMode = { active: false, source: null, type: null, color: null };
+        this.updateLinkModeIndicator();
+    },
+
+    updateLinkModeIndicator() {
+        const el = document.getElementById('link-mode-indicator');
+        if (this.state.linkMode.active) {
+            el.innerHTML = App.Utils.t('linkMode.typeIndicator', {color: this.state.linkMode.color, type: this.state.linkMode.type});
+            el.classList.add('active');
+        } else {
+            el.innerHTML = App.Utils.t('hud.linkMode');
+            el.classList.remove('active');
+        }
+    },
+
+    executeLinkAction(source, target) {
+        const { links } = App.Store.state;
+        const existing = links.find(l => (l.source.uuid===source.uuid && l.target.uuid===target.uuid) || (l.source.uuid===target.uuid && l.target.uuid===source.uuid));
+        const { type } = this.state.linkMode;
+
+        if (type === 'DELETE') {
+            if(existing) {
+                App.Store.executeSafeAction(() => ({ 
+                    nodes: App.Store.state.nodes, 
+                    links: links.filter(l=>l!==existing), 
+                    nextFocus: target, 
+                    nextSlots: App.Store.state.slots 
+                }));
+            } else App.UI.showFlash(App.Utils.t('alert.noLinkToBreak'), 'info');
+        } else {
+            if(existing) { existing.type = type; existing.source = source; existing.target = target; }
+            else links.push({source, target, type, alpha: 0});
+            App.Renderer.restartSim();
+        }
+    },
+
+    createNode() {
+        const { focusNode, nodes, links, slots } = App.Store.state;
+        const newNode = {
+            uuid: uuid.v4(), label: App.Utils.t('fallback.newNode'),
+            x: focusNode.x + 150, y: focusNode.y + 50,
+            summary: "", content: "", color: App.Utils.getRandomColor(), alpha: 0
+        };
+        
+        // If LinkMode, we skip safe check because we create a link immediately
+        if (this.state.linkMode.active) {
+            nodes.push(newNode); 
+            App.Renderer.restartSim();
+            this.executeLinkAction(this.state.linkMode.source, newNode);
+            this.exitLinkMode();
+            this.navigateTo(newNode, false);
+            setTimeout(() => { App.UI.els.label.focus(); App.UI.els.label.select(); }, 50);
+        } else {
+            // Safe Create
+            App.Store.executeSafeAction(() => ({ 
+                nodes: [...nodes, newNode], 
+                links, 
+                nextFocus: newNode, 
+                nextSlots: slots 
+            }));
+            // Auto-focus label after safe action applies
+            setTimeout(() => { App.UI.els.label.focus(); App.UI.els.label.select(); }, 100);
+        }
+    },
+
+    deleteNode(target = null) {
+        const node = target || App.Store.state.focusNode;
+        if(node.isRoot) { App.UI.showFlash(App.Utils.t('alert.rootCannotDelete'), 'warn'); return; }
+        let next = App.Store.state.focusNode;
+        if(node === next) {
+            next = App.Store.state.navHistory.length > 0 ? App.Store.state.navHistory[App.Store.state.navHistory.length-1] : App.Store.state.nodes.find(n=>n.isRoot);
+            if (next === node) next = App.Store.state.nodes.find(n=>n.isRoot);
+        }
+        App.Store.executeSafeAction(() => ({
+            nodes: App.Store.state.nodes.filter(n=>n.uuid!==node.uuid),
+            links: App.Store.state.links.filter(l=>l.source.uuid!==node.uuid && l.target.uuid!==node.uuid),
+            nextFocus: next,
+            nextSlots: App.Store.state.slots.map(s=>(s&&s.uuid===node.uuid)?null:s)
+        }));
+    },
+
+    deleteLink(link) {
+        App.Store.executeSafeAction(() => ({ 
+            nodes: App.Store.state.nodes, 
+            links: App.Store.state.links.filter(l=>l!==link), 
+            nextFocus: App.Store.state.focusNode, 
+            nextSlots: App.Store.state.slots 
+        }));
+    },
+
+    navigateBack() {
+        const h = App.Store.state.navHistory;
+        if(h.length) {
+            let t = null;
+            for(let i=h.length-1; i>=0; i--) {
+                if(App.Store.state.nodes.find(n=>n.uuid===h[i].uuid) && h[i].uuid !== App.Store.state.focusNode.uuid) { t=h[i]; break; }
+            }
+            if(t) this.safeNavigate(t, true);
+        }
+    },
+
+    importData(inp) {
+        const f = inp.files[0];
+        if(f) {
+            const r = new FileReader();
+            r.onload = e => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (data && data.data && Array.isArray(data.data.nodes)) {
+                        vscode.postMessage({ command: 'saveData', data: data });
+                        App.Store.loadFromExtension(data);
+                        App.UI.showFlash(App.Utils.t('alert.importSuccess'));
+                    } else App.UI.showFlash(App.Utils.t('alert.importFail'), 'warn');
+                } catch(e) { App.UI.showFlash(App.Utils.t('alert.parseFail'), 'warn'); }
+            };
+            r.readAsText(f);
+            inp.value = '';
+        }
+    },
+
+    // --- Mouse ---
+    onMouseDown(e) {
+        if(App.UI.Modal.el.classList.contains('active') || App.UI.Dialog.isActive) return;
+        if(e.button===3) { e.preventDefault(); this.navigateBack(); return; }
+        if(e.button===4) { e.preventDefault(); this.enterLinkMode(); return; }
+        if(e.button!==0) return;
+
+        const node = this.pickNode(e.clientX, e.clientY);
+        this.state.mouseX = e.clientX; this.state.mouseY = e.clientY;
+        this.state.dragNode = node;
+        this.state.click = { start: performance.now(), x: e.clientX, y: e.clientY };
+
+        if(node) {
+            this.state.hoverNode=null; this.state.previewNode=null; this.hideTooltip();
+            App.Renderer.canvas.style.cursor = 'grabbing';
+        } else App.UI.RelationPicker.close();
+    },
+
+    onMouseMove(e) {
+        this.state.mouseX = e.clientX; this.state.mouseY = e.clientY;
+        if(App.UI.Modal.el.classList.contains('active') || App.UI.Dialog.isActive) return;
+        if(this.state.dragNode) return;
+        
+        const node = this.pickNode(e.clientX, e.clientY);
+        if(node) {
+            this.state.hoverNode = node; this.state.previewNode = null;
+            const html = typeof marked!=='undefined' ? marked.parse(node.summary||'') : node.summary;
+            this.showTooltip(`<strong>${node.label}</strong><br>${html}<br>${App.Utils.t('tooltip.click')}`, e.clientX, e.clientY, 'mouse');
+        } else {
+            this.state.hoverNode = null;
+            if(!this.state.previewNode) this.hideTooltip();
+        }
+    },
+
+    onMouseUp(e) {
+        if(e.button!==0 || !this.state.dragNode) return;
+        const node = this.state.dragNode;
+        if(node) {
+            App.Renderer.pointerForce.node(null).target(null);
+            App.Store.save();
+            App.Renderer.canvas.style.cursor = 'crosshair';
+        }
+        this.state.dragNode = null;
+
+        const dist = Math.hypot(e.clientX - this.state.click.x, e.clientY - this.state.click.y);
+        if(performance.now() - this.state.click.start < 200 && dist < 8) {
+            const target = node || this.pickNode(e.clientX, e.clientY);
+            if(target) {
+                if(target !== App.Store.state.focusNode) this.safeNavigate(target);
+                else App.UI.Modal.show();
+            }
+        }
+    },
+
+    onContextMenu(e) {
+        e.preventDefault();
+        const node = this.pickNode(e.clientX, e.clientY);
+        if(node) { this.deleteNode(node); return; }
+        const link = this.pickLink(e.clientX, e.clientY);
+        if(link) { this.deleteLink(link); return; }
+    },
+
+    onWheel(e) {
+        e.preventDefault();
+        App.Renderer.viewK = Math.max(0.1, Math.min(5, App.Renderer.viewK - e.deltaY * 0.001));
+    },
+
+    // --- Keyboard ---
+    onKeyDown(e) {
+        if(App.UI.Dialog.isActive) return;
+        if(App.UI.Modal.el.classList.contains('active')) return;
+        if(App.UI.PresetEditor.active) { if(e.key==='Escape') App.UI.PresetEditor.close(); return; }
+        if(App.UI.RelationPicker.active) { App.UI.RelationPicker.handleInput(e); return; }
+        
+        if(['INPUT','TEXTAREA'].includes(e.target.tagName)) {
+            if(e.key==='Escape') e.target.blur();
+            if(e.key==='Enter' && e.target.id==='node-label') { e.preventDefault(); e.target.blur(); }
+            return;
+        }
+
+        this.state.keyState[e.key] = true; if(e.shiftKey) this.state.keyState['Shift']=true;
+        
+        const isSlot = (e.key>='1' && e.key<='4');
+        if(['!','@','#','$'].includes(e.key)) { this.handleSlotStore({'!':0,'@':1,'#':2,'$':3}[e.key]); return; }
+        if(!e.shiftKey && isSlot) { this.handleSlot(parseInt(e.key)-1); return; }
+
+        switch(e.key) {
+            case 'ArrowUp': case '/': if(this.state.previewNode) this.safeNavigate(this.state.previewNode); else this.jumpDirection(-Math.PI/2); break;
+            case 'ArrowDown': case '?': this.jumpDirection(Math.PI/2); break;
+            case 'ArrowLeft': this.jumpDirection(Math.PI); break;
+            case 'ArrowRight': this.jumpDirection(0); break;
+            case '.': this.cyclePreview(1); break;
+            case ',': this.cyclePreview(-1); break;
+            case '=': case '+': App.Store.state.viewLayers = Math.max(1, App.Store.state.viewLayers-1); App.Renderer.adjustZoomByLayer(); document.getElementById('layer-indicator').innerText=App.Store.state.viewLayers; break;
+            case '-': case '_': App.Store.state.viewLayers = Math.min(7, App.Store.state.viewLayers+1); App.Renderer.adjustZoomByLayer(); document.getElementById('layer-indicator').innerText=App.Store.state.viewLayers; break;
+            case 'Tab': case 'n': case 'N': e.preventDefault(); this.createNode(); break;
+            case 'F2': e.preventDefault(); App.UI.els.label.focus(); App.UI.els.label.select(); break;
+            case ' ': e.preventDefault(); App.UI.els.summary.focus(); App.UI.els.summary.select(); break;
+            case 'Enter': if(App.Store.state.focusNode) App.UI.Modal.show(); break;
+            case 'l': case 'L': this.enterLinkMode(); break;
+            case 'e': case 'E': App.UI.showFlash(App.Utils.t('hud.linkMode'), 'info'); break;
+            case 'h': case 'H': const root = App.Store.state.nodes.find(n=>n.isRoot); if(root) this.safeNavigate(root); break;
+            case 'Escape': if(this.state.linkMode.active) this.exitLinkMode(); break;
+            case 'b': case 'B': this.navigateBack(); break;
+            case 'Delete': case 'd': case 'D': this.deleteNode(); break;
+            case 'i': case 'I': e.preventDefault(); this.state.hudVisible=!this.state.hudVisible; document.getElementById('key-controls').style.display=this.state.hudVisible?'block':'none'; break;
+            case '`': e.preventDefault(); App.UI.PresetEditor.open(); break;
+            case '<': App.Renderer.targetRotation += 0.05; break;
+            case '>': App.Renderer.targetRotation -= 0.05; break;
+        }
+    },
+
+    // --- Helpers ---
+    getNeighbors() {
+        const { links, focusNode } = App.Store.state;
+        const list = [];
+        links.forEach(l => {
+            let other = null;
+            if(l.source.uuid===focusNode.uuid) other = l.target;
+            else if(l.target.uuid===focusNode.uuid) other = l.source;
+            if(other) {
+                const dx = other.x - focusNode.x, dy = other.y - focusNode.y;
+                const rawAng = Math.atan2(dy, dx);
+                let vAng = rawAng + App.Renderer.viewRotation;
+                while(vAng > Math.PI) vAng -= 2*Math.PI; while(vAng <= -Math.PI) vAng += 2*Math.PI;
+                list.push({ node: other, vAngle: vAng, rawAngle: rawAng });
+            }
         });
+        return list.sort((a,b) => a.vAngle - b.vAngle);
+    },
+
+    cyclePreview(dir) {
+        const neighbors = this.getNeighbors();
+        if(!neighbors.length) return;
+        this.hideTooltip();
+        const UP = -Math.PI/2, THRESHOLD = 0.087;
+        const exact = neighbors.find(n => Math.abs(n.vAngle - UP) < THRESHOLD);
+        const curIsExact = exact && this.state.previewNode && this.state.previewNode.uuid === exact.node.uuid;
+        if (exact && !curIsExact) { this.setPreview(exact); return; }
+        let target = null;
+        if (dir > 0) {
+            target = neighbors.find(n => n.vAngle > UP && (!exact || n.node.uuid !== exact.node.uuid));
+            if (!target) target = neighbors.find(n => (!exact || n.node.uuid !== exact.node.uuid));
+        } else {
+            for(let i=neighbors.length-1; i>=0; i--) if(neighbors[i].vAngle < UP && (!exact || neighbors[i].node.uuid !== exact.node.uuid)) { target=neighbors[i]; break; }
+            if(!target) for(let i=neighbors.length-1; i>=0; i--) if(!exact || neighbors[i].node.uuid !== exact.node.uuid) { target=neighbors[i]; break; }
+        }
+        if(target) this.setPreview(target);
+    },
+
+    setPreview(wrapper) {
+        this.state.previewNode = wrapper.node;
+        App.Renderer.setTargetRotation(-Math.PI/2 - wrapper.rawAngle);
+        const html = typeof marked!=='undefined' ? marked.parse(wrapper.node.summary||'') : '';
+        this.showTooltip(App.Utils.t('tooltip.preview', {label: wrapper.node.label, summary: html}), 0, 0, 'fixed');
+    },
+
+    jumpDirection(targetAng) {
+        const neighbors = this.getNeighbors();
+        let best = null, minDiff = 1.2;
+        neighbors.forEach(n => {
+            let diff = Math.abs(n.vAngle - targetAng); if (diff > Math.PI) diff = 2*Math.PI - diff;
+            if (diff < minDiff) { minDiff = diff; best = n.node; }
+        });
+        if(best) this.safeNavigate(best);
+    },
+
+    pickNode(sx, sy) {
+        const w = App.Renderer.screenToWorld(sx, sy);
+        const nodes = App.Store.state.nodes;
+        for(let i=nodes.length-1; i>=0; i--) {
+            const n = nodes[i];
+            if(n.alpha <= 0.5) continue;
+            const dx = n.x - w.x, dy = n.y - w.y;
+            if(dx*dx + dy*dy < 600) return n;
+        }
+        return null;
+    },
+    pickLink(sx, sy) {
+        const w = App.Renderer.screenToWorld(sx, sy);
+        const links = App.Store.state.links;
+        for(let l of links) {
+            if(l.alpha < 0.3) continue;
+            const x1 = l.source.x, y1 = l.source.y, x2 = l.target.x, y2 = l.target.y;
+            const A = x2-x1, B = y2-y1, lenSq = A*A+B*B;
+            let t = ((w.x-x1)*A + (w.y-y1)*B) / lenSq;
+            t = Math.max(0, Math.min(1, t));
+            if(Math.hypot(w.x-(x1+t*A), w.y-(y1+t*B)) < 10/App.Renderer.viewK) return l;
+        }
+        return null;
+    },
+    showTooltip(html, x, y, mode) {
+        const t = document.getElementById('tooltip');
+        t.innerHTML = html; t.style.opacity = 1;
+        if(mode==='mouse') { t.className=''; t.style.left=(x+15)+'px'; t.style.top=(y+15)+'px'; t.style.transform='none'; }
+        else t.className='fixed-mode';
+    },
+    hideTooltip() {
+        const t = document.getElementById('tooltip');
+        t.style.opacity=0; t.className=''; t.style.left=''; t.style.top=''; t.style.transform='';
     }
 };
 
-const presetEditor = {
-    el: document.getElementById('preset-editor'),
-    listEl: document.getElementById('preset-list-container'),
-    active: false,
-    tempPresets: [],
-    open: function() {
-        if (this.active) return;
-        this.tempPresets = JSON.parse(JSON.stringify(RELATION_PRESETS));
-        this.renderList();
-        this.el.classList.add('active');
-        this.active = true;
-    },
-    renderList: function() {
-        this.listEl.innerHTML = '';
-        this.tempPresets.forEach((p, i) => {
-            const row = document.createElement('div');
-            row.className = 'preset-row';
-            row.innerHTML = `
-                <span class="preset-idx">${i+1}</span>
-                <input type="color" class="preset-color" value="${p.color}" data-idx="${i}" data-field="color">
-                <input type="text" class="preset-input" style="width:120px" placeholder="${t('preset.input.label')}" value="${p.label}"
-                    data-idx="${i}" data-field="label">
-                <input type="text" class="preset-input" style="flex:1; color:#aaa;" placeholder="${t('preset.input.value')}" value="${p.val}"
-                    data-idx="${i}" data-field="val">
-                <span class="preset-del" data-idx="${i}">✕</span>
-            `;
-            this.listEl.appendChild(row);
-        });
-
-        const currentEditor = this;
-        this.listEl.querySelectorAll('.preset-color').forEach(input => {
-            input.addEventListener('change', (e) => currentEditor.update(e.target.dataset.idx, e.target.dataset.field, e.target.value));
-        });
-        this.listEl.querySelectorAll('.preset-input').forEach(input => {
-            input.addEventListener('input', (e) => currentEditor.update(e.target.dataset.idx, e.target.dataset.field, e.target.value));
-            input.addEventListener('keydown', (e) => currentEditor.handleListKey(e, e.target.dataset.idx, e.target.dataset.field));
-        });
-        this.listEl.querySelectorAll('.preset-del').forEach(span => {
-            span.addEventListener('click', (e) => currentEditor.remove(e.target.dataset.idx));
-        });
-    },
-    handleListKey: function(e, idx, field) { if (e.key === 'Enter') { e.preventDefault(); this.saveAndClose(); } },
-    update: function(idx, field, value) { this.tempPresets[idx][field] = value; },
-    add: function() {
-        // 🔴 国际化：使用 t()
-        if (this.tempPresets.length >= 20) { showFlashMessage(t('alert.presetExceedMax'), 'warn'); return; }
-        this.tempPresets.push({ label: t('fallback.newNode'), val: 'new_rel', color: getRandomColor() }); // 🔴 国际化：使用 t()
-        this.renderList();
-        setTimeout(() => this.listEl.scrollTop = this.listEl.scrollHeight, 10);
-    },
-    remove: function(idx) { this.tempPresets.splice(idx, 1); this.renderList(); },
-    saveAndClose: function() {
-        // 🔴 国际化：使用 t()
-        if (this.tempPresets.some(p => !p.val.trim())) { showFlashMessage(t('alert.presetValueEmpty'), 'warn'); return; }
-        const values = this.tempPresets.map(p => p.val.trim());
-        if (new Set(values).size !== values.length) { showFlashMessage(t('alert.presetValueDuplicate'), 'warn'); return; }
-        RELATION_PRESETS = JSON.parse(JSON.stringify(this.tempPresets));
-        saveToLocal(); restartSim(); this.close(); showFlashMessage(t('flash.presetUpdated')); // 🔴 国际化：使用 t()
-    },
-    close: function() {
-        this.el.classList.remove('active');
-        this.active = false;
-        const currentEditor = this;
-        this.listEl.querySelectorAll('.preset-color').forEach(input => {
-            input.removeEventListener('change', (e) => currentEditor.update(e.target.dataset.idx, e.target.dataset.field, e.target.value));
-        });
-        this.listEl.querySelectorAll('.preset-input').forEach(input => {
-            input.removeEventListener('input', (e) => currentEditor.update(e.target.dataset.idx, e.target.dataset.field, e.target.value));
-            input.removeEventListener('keydown', (e) => currentEditor.handleListKey(e, e.target.dataset.idx, e.target.dataset.field));
-        });
-        this.listEl.querySelectorAll('.preset-del').forEach(span => {
-            span.removeEventListener('click', (e) => currentEditor.remove(e.target.dataset.idx));
-        });
+window.addEventListener('message', event => {
+    const msg = event.data;
+    switch (msg.command) {
+        case 'setLanguage':
+            if(typeof setLanguage !== 'undefined') setLanguage(msg.lang);
+            if(App.UI.I18n) App.UI.I18n.apply();
+            break;
+        case 'loadData':
+            console.log("Stars: Data received.");
+            if(!App.Renderer.simulation) { App.Renderer.init(); App.UI.init(); App.Input.init(); }
+            App.Store.loadFromExtension(msg.data);
+            break;
     }
-};
-
-document.getElementById('save-btn').addEventListener('click', saveToLocal);
-document.getElementById('export-btn').addEventListener('click', exportData);
-document.getElementById('reset-system-btn').addEventListener('click', resetSystem);
-document.getElementById('import-btn').addEventListener('click', () => document.getElementById('importFile').click());
-document.getElementById('importFile').addEventListener('change', (e) => importData(e.target));
-document.getElementById('manage-presets-btn').addEventListener('click', () => presetEditor.open());
-
-document.getElementById('preset-editor-close-btn').addEventListener('click', () => presetEditor.close());
-document.getElementById('add-preset-btn').addEventListener('click', () => presetEditor.add());
-document.getElementById('save-presets-btn').addEventListener('click', () => presetEditor.saveAndClose());
-
-
-let currentSidebarWidth = 340;
-document.documentElement.style.setProperty('--sidebar-width', `${currentSidebarWidth}px`);
-let isResizing = false;
-document.getElementById('sidebar-resizer').addEventListener('mousedown', (e) => { isResizing = true; e.preventDefault(); canvas.style.pointerEvents = 'none'; document.body.style.cursor = 'ew-resize'; });
-document.addEventListener('mousemove', (e) => {
-    if (!isResizing) return;
-    const newWidth = window.innerWidth - e.clientX;
-    currentSidebarWidth = Math.max(250, Math.min(newWidth, window.innerWidth * 0.6));
-    document.documentElement.style.setProperty('--sidebar-width', `${currentSidebarWidth}px`);
-    updateCanvasSize();
 });
-document.addEventListener('mouseup', () => { if (!isResizing) return; isResizing = false; canvas.style.pointerEvents = 'auto'; document.body.style.cursor = 'default'; });
-
-function updateCanvasSize() {
-    const canvasElement = document.getElementById('canvas');
-    if (canvasElement) {
-        // 获取 canvas 元素的实际 DOM 尺寸
-        width = canvasElement.clientWidth;
-        height = canvasElement.clientHeight;
-
-        // 设置 canvas 内部绘图缓冲区的尺寸，并考虑设备像素比 (DPR)
-        const dpr = window.devicePixelRatio || 1;
-        canvasElement.width = width * dpr;
-        canvasElement.height = height * dpr;
-
-        // 重置并应用上下文缩放，以确保绘制清晰
-        ctx.setTransform(1, 0, 0, 1, 0, 0); // 重置任何之前的变换
-        ctx.scale(dpr, dpr); // 应用 DPR 缩放
-    }
-}
-
-window.addEventListener('resize', updateCanvasSize);
-
 
 window.onload = () => {
-    const canvasElement = document.getElementById('canvas');
-    if (!canvasElement) {
-        console.error("Stars: Canvas element not found!");
-        return;
-    }
-
-    // 在 onload 时初始化 canvas 尺寸和上下文
-    updateCanvasSize();
-
-    // 请求 Extension 发送数据
+    App.Renderer.init(); App.UI.init(); App.Input.init();
     vscode.postMessage({ command: 'ready' });
-    console.log("Stars: Webview DOM ready, sent 'ready' command to Extension.");
+    console.log("Stars: Webview Ready.");
 };
