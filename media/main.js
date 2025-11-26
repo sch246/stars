@@ -357,8 +357,9 @@ App.UI = {
             this.allowDelete = allowDelete;
             return new Promise((res, rej) => {
                 const presets = App.Store.state.presets;
-                const delStr = allowDelete ? App.Utils.t('preset.delete') : '';
-                let html = `<div class="menu-title">${App.Utils.t('preset.title', {delStr})}</div>`;
+                // 注意这里，原先的 preset.title 只有一个占位符，现在需要适配
+                const deleteFragment = allowDelete ? App.Utils.t('preset.delete') : '';
+                let html = `<div class="menu-title">${App.Utils.t('preset.title', {deleteFragment})}</div>`;
 
                 html += presets.slice(0, 9).map((p, i) =>
                     `<div class="menu-opt" data-val="${p.val}"><span class="menu-key" style="color:${p.color}">[${i+1}]</span>${p.label || p.val}</div>`
@@ -474,12 +475,12 @@ App.Store = {
             this.state.nodes = []; this.state.links = []; this.state.navHistory = [];
             this.state.viewLayers = payload.viewLayers || 1;
             const DEFAULT_PRESETS = [
-                { label: '包含...', val: 'comp', color: '#0062ff' },
-                { label: '定义为...', val: 'def', color: '#00ff00' },
-                { label: '直观理解', val: 'ins', color: '#33ffff' },
-                { label: '计算...', val: 'calc', color: '#ffaa00' },
-                { label: '意味着...', val: 'impl', color: '#bd00ff' },
-                { label: '与...正交', val: 'orth', color: '#ff0055' },
+                { label: App.Utils.t('preset.default.includes'), val: 'comp', color: '#0062ff' },
+                { label: App.Utils.t('preset.default.definedAs'), val: 'def', color: '#00ff00' },
+                { label: App.Utils.t('preset.default.intuitive'), val: 'ins', color: '#33ffff' },
+                { label: App.Utils.t('preset.default.calculates'), val: 'calc', color: '#ffaa00' },
+                { label: App.Utils.t('preset.default.implies'), val: 'impl', color: '#bd00ff' },
+                { label: App.Utils.t('preset.default.orthogonalTo'), val: 'orth', color: '#ff0055' },
             ];
             this.state.presets = (payload.presets && Array.isArray(payload.presets)) ? payload.presets : DEFAULT_PRESETS;
 
@@ -1242,7 +1243,7 @@ App.Input = {
         if(node) {
             this.state.hoverNode = node; this.state.previewNode = null;
             const html = typeof marked!=='undefined' ? marked.parse(node.summary||'') : node.summary;
-            this.showTooltip(`<strong>${node.label}</strong><br>${html}<br>${App.Utils.t('tooltip.click')}`, e.clientX, e.clientY, 'mouse');
+            this.showTooltip(App.Utils.t('tooltip.nodeHover', {label: node.label, summary: html}), e.clientX, e.clientY, 'mouse');
         } else {
             this.state.hoverNode = null;
             if(!this.state.previewNode) this.hideTooltip();

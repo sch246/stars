@@ -43,20 +43,28 @@ const translations = {
         "alert.rootCannotDelete": "The root node cannot be deleted.",
         "flash.presetUpdated": "Presets updated.",
         "flash.linkCut": "Link cut.",
-        "linkMode.prompt": "Enter link relationship name:",
+        "flash.noHistory": "No more history to navigate back to.", // 新增
+        "linkMode.prompt": "Enter link relationship name or id:",
         "linkMode.promptPlaceholder": "e.g., contains, defined as...",
         "linkMode.typeIndicator": "🔗 <span style='color:{color};'>Link Mode: {type} (Jump to connect / Esc to cancel)</span>",
         "linkMode.deleteLabel": "Delete/Break Link",
-        "preset.title": "1. Select Type <span style='font-weight:normal; color:#888;'>(Space Custom{delStr})</span>",
-        "preset.deleteOption": "<div class=\"menu-opt\" style=\"margin-top:5px; border-top:1px solid #333\" data-value=\"DELETE\"><span class=\"menu-key\" style=\"color:#e74c3c\">[D]</span><span style=\"color:#e74c3c\">{text}</span></div>",
+        // 修复 preset.title 的占位符匹配问题
+        "preset.title": "1. Select Type <span style='font-weight:normal; color:#888;'>(Space Custom{deleteFragment})</span>",
         "preset.menuTitle": "Preset Relationship Editor",
         "preset.menuDesc": "Define common connection types. Press Enter to save.",
         "preset.btnAdd": "+ Add Preset",
         "preset.btnSave": "Save & Apply",
         "preset.input.label": "Display Name (Label)",
         "preset.input.value": "Data Value (Value)",
-        "preset.delete": ", D Delete", // <-- 确保存在
-        "preset.more": "More", // <-- 确保存在
+        "preset.delete": ", D Delete",
+        "preset.more": "More",
+        // 新增默认预设的翻译键
+        "preset.default.includes": "Includes...",
+        "preset.default.definedAs": "Defined as...",
+        "preset.default.intuitive": "Intuitive understanding",
+        "preset.default.calculates": "Calculates...",
+        "preset.default.implies": "Implies...",
+        "preset.default.orthogonalTo": "Orthogonal to...",
         "fallback.origin": "Origin",
         "fallback.summary": "Workspace Root",
         "fallback.content": "Welcome to Stars in VSCode.",
@@ -65,6 +73,7 @@ const translations = {
         "dialog.cancel": "Cancel",
         "tooltip.preview": "<strong>Preview: {label}</strong><br>{summary}<br><span style='color:#af4cae'>Press <span class=\"key\">↑</span> <span class=\"key\">/</span> to Jump</span>",
         "tooltip.click": "<span style='color:#666'>Click to Jump</span>",
+        "tooltip.nodeHover": "<strong>{label}</strong><br>{summary}<br><span style='color:#666'>Click to Jump</span>", // 新增
         "status.saved": "Stars: Saved.",
         "status.noWorkspace": "Stars: Please open a folder to save data."
     },
@@ -107,20 +116,28 @@ const translations = {
         "alert.rootCannotDelete": "初始奇点不可删除。",
         "flash.presetUpdated": "预设已更新。",
         "flash.linkCut": "链接已切断。",
-        "linkMode.prompt": "请输入链接关系名称:",
+        "flash.noHistory": "没有更多历史记录可回退", // 新增
+        "linkMode.prompt": "请输入链接关系名称或id:",
         "linkMode.promptPlaceholder": "例如: 包含, 定义为...",
         "linkMode.typeIndicator": "🔗 <span style='color:{color};'>连线模式: {type} (跳转以连接/Esc 取消)</span>",
         "linkMode.deleteLabel": "删除/断开连接",
-        "preset.title": "1. 选择类型 <span style='font-weight:normal; color:#888;'>(Space 自定义{delStr})</span>",
-        "preset.deleteOption": "<div class=\"menu-opt\" style=\"margin-top:5px; border-top:1px solid #333\" data-value=\"DELETE\"><span class=\"menu-key\" style=\"color:#e74c3c\">[D]</span><span style=\"color:#e74c3c\">{text}</span></div>",
+        // 修复 preset.title 的占位符匹配问题
+        "preset.title": "1. 选择类型 <span style='font-weight:normal; color:#888;'>(Space 自定义{deleteFragment})</span>",
         "preset.menuTitle": "预设关系编辑器",
         "preset.menuDesc": "定义常用的连接类型。按 Enter 保存。",
         "preset.btnAdd": "+ 新增预设",
         "preset.btnSave": "保存并应用",
         "preset.input.label": "显示名称 (Label)",
         "preset.input.value": "数据值 (Value)",
-        "preset.delete": ", D 删除", // <-- 确保存在
-        "preset.more": "更多", // <-- 确保存在
+        "preset.delete": ", D 删除",
+        "preset.more": "更多",
+        // 新增默认预设的翻译键
+        "preset.default.includes": "包含...",
+        "preset.default.definedAs": "定义为...",
+        "preset.default.intuitive": "直观理解",
+        "preset.default.calculates": "计算...",
+        "preset.default.implies": "意味着...",
+        "preset.default.orthogonalTo": "与...正交",
         "fallback.origin": "起源",
         "fallback.summary": "工作区根节点",
         "fallback.content": "欢迎使用 VSCode 中的星罗系统。",
@@ -129,6 +146,7 @@ const translations = {
         "dialog.cancel": "取消",
         "tooltip.preview": "<strong>预览: {label}</strong><br>{summary}<br><span style='color:#af4cae'>按 <span class=\"key\">↑</span> <span class=\"key\">/</span> 跳转</span>",
         "tooltip.click": "<span style='color:#666'>点击跳转</span>",
+        "tooltip.nodeHover": "<strong>{label}</strong><br>{summary}<br><span style='color:#666'>点击跳转</span>", // 新增
         "status.saved": "星罗: 已保存。",
         "status.noWorkspace": "星罗: 请先打开一个文件夹以保存数据。"
     }
