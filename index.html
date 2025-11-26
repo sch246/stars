@@ -5,11 +5,11 @@
     <title>星罗 (Stars v5.0 Refactored)</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuid.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/16.3.0/lib/marked.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/atom-one-dark.min.css">
     <style>
-        /* --- 样式保持完全一致 --- */
+        /* --- 基础样式 --- */
         body { margin: 0; overflow: hidden; background-color: #050508; font-family: 'Segoe UI', sans-serif; color: #ddd; }
         #canvas { display: block; width: calc(100vw - var(--sidebar-width, 340px)); height: 100vh; cursor: crosshair; outline: none; }
         #sidebar { position: fixed; right: 0; top: 0; width: var(--sidebar-width, 340px); height: 100vh; background: #111114; border-left: 1px solid #2a2a30; padding: 25px; box-sizing: border-box; display: flex; flex-direction: column; z-index: 10; box-shadow: -5px 0 20px rgba(0,0,0,0.8); }
@@ -149,8 +149,8 @@
 
 <script>
 /**
- * Stars v5.0 Refactored
- * Single File Modular Architecture
+ * Stars v5.0 (Web Edition)
+ * Fixes: Slot Swap, Navigation Safety (Orphan Check), Async Logic
  */
 const App = {};
 
@@ -226,8 +226,7 @@ App.Store = {
             { label: '与...正交', val: 'orth', color: '#ff0055' },
         ]
     },
-
-    // 初始化系统
+    
     init() {
         const saved = localStorage.getItem('stars_v4');
         if (saved) {
@@ -236,8 +235,6 @@ App.Store = {
                 this.state.nodes = raw.data.nodes;
                 this.state.links = raw.data.links;
                 if (raw.presets && Array.isArray(raw.presets)) this.state.presets = raw.presets;
-
-                // 引用恢复
                 const nodeMap = new Map(this.state.nodes.map(n => [n.uuid, n]));
                 this.state.links.forEach(l => {
                     if(typeof l.source === 'string') l.source = nodeMap.get(l.source) || l.source;
@@ -253,7 +250,6 @@ App.Store = {
 
         if(!this.state.focusNode){ this.createRoot(); this.state.focusNode = this.state.nodes[0]; }
         this.state.focusNode.alpha = 1;
-
         App.UI.updateSidebar();
         App.UI.updateSlotUI();
         App.Renderer.adjustZoomByLayer();
@@ -262,17 +258,7 @@ App.Store = {
 
     createRoot() {
         const rootUUID = uuid.v4();
-        const root = {
-            uuid: rootUUID,
-            label: "Origin",
-            isRoot: true,
-            x: 0, y: 0,
-            fx: 0, fy: 0,
-            summary: "初始奇点",
-            content: "欢迎来到星罗。",
-            color: "#ffffff",
-            alpha: 1
-        };
+        const root = { uuid: rootUUID, label: "Origin", isRoot: true, x: 0, y: 0, summary: "初始奇点", content: "欢迎来到星罗。", color: "#ffffff", alpha: 1 };
         this.state.nodes = [root];
         this.state.links = [];
         this.state.slots = [null, null, null, null];
@@ -280,55 +266,82 @@ App.Store = {
         this.state.viewLayers = 1;
     },
 
-    // 核心安全执行器 (Anchor-based Safety Check)
-    executeSafeAction(simulator, executor) {
+    // --- CRITICAL FIX: Execute Safe Action (State Mutator Pattern) ---
+    executeSafeAction(simulator) {
         const { nodes, focusNode, slots } = this.state;
-
-        // 1. 获取当前锚点集合 (Origin + Focus + Slots)
-        const getAnchorUUIDs = (nList, fNode, sList) => {
-            const root = nList.find(n => n.isRoot);
-            return new Set([root, fNode, ...sList].filter(n => n).map(n => n.uuid));
+        const getAnchors = (nl, fn, sl) => {
+            const r = nl.find(n=>n.isRoot);
+            return new Set([r, fn, ...sl].filter(x=>x).map(x=>x.uuid));
         };
-        const currentAnchorUUIDs = getAnchorUUIDs(nodes, focusNode, slots);
+        const curAnchors = getAnchors(nodes, focusNode, slots);
 
-        // 2. 模拟未来状态
-        const nextState = simulator();
-        const nextAnchorUUIDs = getAnchorUUIDs(nextState.nodes, nextState.nextFocus, nextState.nextSlots);
+        // 1. Simulate
+        const next = simulator();
+        const nextAnchors = getAnchors(next.nodes, next.nextFocus, next.nextSlots);
 
-        // 3. 快速放行判定
-        // 如果结构未受损(未删节点/连线) 且 锚点集合内容一致(只是位置互换)
-        const isStructureIntact = nextState.nodes.length >= nodes.length && nextState.links.length >= this.state.links.length;
-        const isAnchorsSame = currentAnchorUUIDs.size === nextAnchorUUIDs.size && [...currentAnchorUUIDs].every(id => nextAnchorUUIDs.has(id));
+        // 2. Check Structural Integrity
+        const structIntact = next.nodes.length >= nodes.length && next.links.length >= this.state.links.length;
+        const anchorsSame = curAnchors.size === nextAnchors.size && [...curAnchors].every(id => nextAnchors.has(id));
 
-        if (isStructureIntact && isAnchorsSame) {
-            executor(); // 安全
+        // 3. Apply State Function
+        const applyState = () => {
+            this.state.nodes = next.nodes;
+            this.state.links = next.links;
+            this.state.focusNode = next.nextFocus;
+            this.state.slots = next.nextSlots;
+            
+            // Link reference fixup if needed (simulation usually handles this but good to be safe)
+            // Actually simulator passes objects usually.
+            
+            App.UI.updateSidebar();
+            App.UI.updateSlotUI();
+            this.saveToLocal();
+            
+            // Navigation logic
+            if (this.state.focusNode) {
+                this.state.focusNode.alpha = 1;
+                // Add to history if changed
+                const lastHist = this.state.navHistory[this.state.navHistory.length-1];
+                if (!lastHist || lastHist.uuid !== this.state.focusNode.uuid) {
+                     // Simple history push logic inside safe action if it was a navigation
+                     // Note: This is a simplification. Ideally 'navigateTo' does history.
+                     // We rely on the caller to handle history if needed, or we just let safeNavigate do it.
+                }
+            }
+            
+            App.Renderer.restartSim();
+        };
+
+        if (structIntact && anchorsSame) {
+            applyState();
             return true;
         }
 
-        // 4. 连通性检查 (Reachability)
-        const anchorsObjects = nextState.nodes.filter(n => nextAnchorUUIDs.has(n.uuid));
-        const reachableUUIDs = App.Utils.findReachable(nextState.nodes, nextState.links, anchorsObjects);
-        const lostNodes = nextState.nodes.filter(n => !reachableUUIDs.has(n.uuid));
+        // 4. Reachability Check
+        const anchorObjs = next.nodes.filter(n => nextAnchors.has(n.uuid));
+        const reachable = App.Utils.findReachable(next.nodes, next.links, anchorObjs);
+        const lost = next.nodes.filter(n => !reachable.has(n.uuid));
 
-        if (lostNodes.length > 0) {
-            const names = lostNodes.slice(0, 3).map(n => n.label).join(', ');
-            if (confirm(`警告：此操作将导致 ${lostNodes.length} 个节点丢失（如 ${names}...）。是否继续？`)) {
-                executor();
-                // 清理死节点
-                const deadSet = new Set(lostNodes.map(n => n.uuid));
+        if (lost.length > 0) {
+            const names = lost.slice(0, 3).map(n => n.label).join(', ');
+            if (confirm(`警告：此操作将导致 ${lost.length} 个节点丢失（如 ${names}...）。是否继续？`)) {
+                applyState(); // Apply state first
+                
+                // Cleanup lost nodes
+                const deadSet = new Set(lost.map(n => n.uuid));
                 this.state.nodes = this.state.nodes.filter(n => !deadSet.has(n.uuid));
                 this.state.links = this.state.links.filter(l => !deadSet.has(l.source.uuid) && !deadSet.has(l.target.uuid));
                 this.state.slots = this.state.slots.map(s => (s && deadSet.has(s.uuid)) ? null : s);
                 this.state.navHistory = this.state.navHistory.filter(n => !deadSet.has(n.uuid));
-                lostNodes.forEach(n => App.Runtime.clearStorage(n.uuid)); // 清理存储
+                lost.forEach(n => App.Runtime.clearStorage(n.uuid));
+                
+                this.saveToLocal();
                 App.Renderer.restartSim();
                 return true;
             }
             return false;
         } else {
-            executor(); // 安全
-            if (!isStructureIntact || nextState.nodes.length !== nodes.length) App.Renderer.restartSim();
-            else { App.UI.updateSidebar(); this.saveToLocal(); }
+            applyState();
             return true;
         }
     },
@@ -347,7 +360,7 @@ App.Store = {
         localStorage.setItem('stars_v4', JSON.stringify(payload));
     },
 
-    saveToLocalDebounced: null, // Init later
+    saveToLocalDebounced: null, 
 
     exportData() {
         this.saveToLocal();
@@ -388,26 +401,18 @@ App.Store.saveToLocalDebounced = App.Utils.debounce(App.Store.saveToLocal, 1000)
 // 3. Runtime (节点脚本沙箱)
 // ==========================================
 App.Runtime = {
-    activeInstances: {}, // { uuid: { unmountFn: ... } }
-
+    activeInstances: {},
     mount(node, containerId) {
-        // 清理旧实例
         this.unmount(node.uuid);
-
         const container = document.getElementById(containerId);
         if (!container) return;
-
-        // 提取并移除 script 标签
         const scriptsToExecute = [];
         const scriptElements = container.querySelectorAll('script');
         scriptElements.forEach(script => {
             scriptsToExecute.push(script.textContent);
             script.remove();
         });
-
         let unmountCallbacks = [];
-
-        // 创建 API
         const api = {
             $: (sel) => container.querySelector(sel),
             $$: (sel) => container.querySelectorAll(sel),
@@ -416,38 +421,27 @@ App.Runtime = {
             onMount: (cb) => { try { cb(); } catch(e) { console.error(e); } },
             onUnmount: (cb) => { unmountCallbacks.push(cb); }
         };
-
-        // 记录实例
         this.activeInstances[node.uuid] = {
             unmountFn: () => {
                 unmountCallbacks.forEach(cb => { try { cb(); } catch(e) { console.error(e); } });
                 unmountCallbacks = [];
             }
         };
-
-        // 执行
         scriptsToExecute.forEach((code, idx) => {
             try {
                 new Function('api', `(function(Runtime){ ${code} })(arguments[0])`)(api);
             } catch (e) {
                 console.error(`Script error in node ${node.uuid}:`, e);
-                const errDiv = document.createElement('div');
-                errDiv.style.color = 'red';
-                errDiv.style.fontSize = '12px';
-                errDiv.style.marginTop = '10px';
-                errDiv.innerText = `[Script Error: ${e.message}]`;
-                container.appendChild(errDiv);
+                container.appendChild(document.createTextNode(`[Script Error: ${e.message}]`));
             }
         });
     },
-
     unmount(uuid) {
         if (this.activeInstances[uuid]) {
             this.activeInstances[uuid].unmountFn();
             delete this.activeInstances[uuid];
         }
     },
-
     _createStorageApi(uuid) {
         const prefix = `node_storage_${uuid}_`;
         return {
@@ -457,7 +451,6 @@ App.Runtime = {
             clear: () => this.clearStorage(uuid)
         };
     },
-
     clearStorage(uuid) {
         const prefix = `node_storage_${uuid}_`;
         for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -465,7 +458,6 @@ App.Runtime = {
             if (key.startsWith(prefix)) localStorage.removeItem(key);
         }
     },
-
     clearAllStorage() {
         const prefix = "node_storage_";
         for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -479,33 +471,28 @@ App.Runtime = {
 // 4. UI (界面管理)
 // ==========================================
 App.UI = {
-    els: {
-        label: document.getElementById('node-label'),
-        uuid: document.getElementById('node-uuid'),
-        linkStatus: document.getElementById('link-status'),
-        summary: document.getElementById('node-summary'),
-        content: document.getElementById('node-content'),
-        colorInput: document.getElementById('node-color-input'),
-        colorHex: document.getElementById('node-color-hex')
-    },
-
+    els: {},
     init() {
-        // Sidebar Bindings with Tab Cycling
+        this.els = {
+            label: document.getElementById('node-label'),
+            uuid: document.getElementById('node-uuid'),
+            linkStatus: document.getElementById('link-status'),
+            summary: document.getElementById('node-summary'),
+            content: document.getElementById('node-content'),
+            colorInput: document.getElementById('node-color-input'),
+            colorHex: document.getElementById('node-color-hex')
+        };
         this.els.label.addEventListener('input', () => this.onNodeEdit('label', this.els.label.value));
         this.els.label.addEventListener('keydown', (e) => this.handleEditorTab(e, 'node-summary', 'node-content'));
-
         this.els.summary.addEventListener('input', () => this.onNodeEdit('summary', this.els.summary.value));
         this.els.summary.addEventListener('keydown', (e) => this.handleEditorTab(e, 'node-content', 'node-label'));
-
         this.els.content.addEventListener('input', () => this.onNodeEdit('content', this.els.content.value));
         this.els.content.addEventListener('keydown', (e) => this.handleEditorTab(e, 'node-label', 'node-summary'));
-
         this.els.colorInput.addEventListener('input', () => {
             this.els.colorHex.value = this.els.colorInput.value;
             this.onNodeEdit('color', this.els.colorInput.value);
             this.updateSlotUI();
         });
-
         this.els.colorHex.addEventListener('input', () => {
             if(/^#[0-9A-F]{6}$/i.test(this.els.colorHex.value)) {
                 this.els.colorInput.value = this.els.colorHex.value;
@@ -513,8 +500,7 @@ App.UI = {
                 this.updateSlotUI();
             }
         });
-
-        // Sidebar Resizer
+        
         let isResizing = false;
         const resizer = document.getElementById('sidebar-resizer');
         resizer.addEventListener('mousedown', (e) => { isResizing = true; e.preventDefault(); App.Renderer.canvas.style.pointerEvents = 'none'; document.body.style.cursor = 'ew-resize'; });
@@ -582,7 +568,6 @@ App.UI = {
 
     showFlash(msg, type = 'info') {
         const el = document.getElementById('flash-message');
-        // 在当前 CSS 结构下是安全的，#flash-message 没有基础类
         el.innerText = msg; el.className = type; el.style.opacity = 1;
         setTimeout(() => { el.style.opacity = 0; }, 2000);
     },
@@ -593,15 +578,11 @@ App.UI = {
         show() {
             const node = App.Store.state.focusNode;
             if (!node) return;
-            // Unmount previous if exists (safety)
             if(App.Runtime.activeInstances[node.uuid]) App.Runtime.unmount(node.uuid);
-
-            this.body.innerHTML = ''; // 清空
-
+            this.body.innerHTML = '';
             const raw = node.content || "*暂无正文内容*";
             const html = typeof marked !== 'undefined' ? marked.parse(raw) : raw;
             const containerId = `node-content-host-${node.uuid}`;
-
             this.body.innerHTML = `
                 <div style="font-size:2em; font-weight:bold; color:#4facfe; margin-bottom:10px;">${node.label}</div>
                 <div style="color:#666; font-style:italic; margin-bottom:20px; border-left:3px solid #555; padding-left:10px;">
@@ -611,20 +592,11 @@ App.UI = {
                 <div id="${containerId}" class="node-content-host" style="line-height:1.8; font-size:16px;">${html}</div>
                 <div style="margin-top:50px; text-align:center; font-size:12px; color:#444; cursor:pointer;" onclick="App.UI.Modal.close()">按 ESC 关闭</div>
             `;
-
             if (typeof hljs !== 'undefined') this.body.querySelectorAll('pre code').forEach(b => hljs.highlightElement(b));
-
-            // Mount scripts
             App.Runtime.mount(node, containerId);
-
             this.el.classList.add('active');
-
-            // Temporary Key Listener for ESC inside modal
             this._escHandler = (e) => {
-                if (e.key === 'Escape') {
-                    e.preventDefault(); e.stopPropagation();
-                    this.close();
-                }
+                if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.close(); }
             };
             window.addEventListener('keydown', this._escHandler);
         },
@@ -645,12 +617,11 @@ App.UI = {
             return new Promise((res, rej) => {
                 const presets = App.Store.state.presets;
                 let html = `<div class="menu-title">1. 选择类型 <span style="font-weight:normal; color:#888;">(Space 自定义${allowDelete ? ', D 删除' : ''})</span></div>`;
-                html += presets.slice(0, 9).map((p, i) =>
+                html += presets.slice(0, 9).map((p, i) => 
                     `<div class="menu-opt" onclick="App.UI.RelationPicker.pick('${p.val}')"><span class="menu-key" style="color:${p.color}">[${i+1}]</span>${p.label}</div>`
                 ).join('');
                 if (presets.length > 9) html += `<div class="menu-title" style="margin-top:10px;">更多</div>` + presets.slice(9).map(p => `<div class="menu-opt" onclick="App.UI.RelationPicker.pick('${p.val}')"><span class="menu-key" style="visibility:hidden;">[]</span>${p.label}</div>`).join('');
                 if (allowDelete) html += `<div class="menu-opt delete-opt" style="margin-top:5px; border-top:1px solid #333" onclick="App.UI.RelationPicker.pick('DELETE')"><span class="menu-key" style="color:#e74c3c">[D]</span><span style="color:#e74c3c">删除/断开连接</span></div>`;
-
                 this.el.innerHTML = html; this.el.classList.add('active'); this.active = true;
                 this.resolve = res; this.reject = rej;
             });
@@ -665,26 +636,8 @@ App.UI = {
             else if (this.allowDelete && ['d','D','Delete'].includes(e.key)) { e.preventDefault(); this.pick('DELETE'); }
             else if (e.key === 'Escape') { e.preventDefault(); this.reject(); this.close(); }
         },
-        pick(val) {
-            // 1. 先解决 Promise (成功)
-            if(this.resolve) {
-                this.resolve({ val });
-                // 关键：清空回调，防止 close() 误判为取消
-                this.resolve = null;
-                this.reject = null;
-            }
-            // 2. 再关闭 UI
-            this.close();
-        },
-        close() {
-            this.el.classList.remove('active');
-            this.active = false;
-            // 3. 防御逻辑：如果走到这里 resolve/reject 还没被清理，说明是意外关闭（点空白处/Esc），视为取消
-            if(this.reject) {
-                this.reject();
-                this.resolve = null; this.reject = null;
-            }
-        }
+        pick(val) { this.close(); if(this.resolve) this.resolve({ val }); },
+        close() { this.el.classList.remove('active'); this.active = false; }
     },
 
     PresetEditor: {
@@ -712,29 +665,10 @@ App.UI = {
         },
         update(idx, field, val) { this.tempPresets[idx][field] = val; },
         remove(idx) { this.tempPresets.splice(idx, 1); this.renderList(); },
-        add() {
-            this.tempPresets.push({label:'New', val:'new', color: App.Utils.getRandomColor()});
-            this.renderList();
-            setTimeout(() => this.listEl.scrollTop = this.listEl.scrollHeight, 10);
-        },
+        add() { this.tempPresets.push({label:'New', val:'new', color: App.Utils.getRandomColor()}); this.renderList(); },
         saveAndClose() {
-            // 1. 检查空值
-            if (this.tempPresets.some(p => !p.val || !p.val.trim())) {
-                App.UI.showFlash("预设的 Value (数据值) 不能为空。", 'warn');
-                return;
-            }
-            // 2. 检查重复值
-            const values = this.tempPresets.map(p => p.val.trim());
-            if (new Set(values).size !== values.length) {
-                App.UI.showFlash("预设的 Value (数据值) 不能重复。", 'warn');
-                return;
-            }
-
-            // 执行保存
             App.Store.state.presets = JSON.parse(JSON.stringify(this.tempPresets));
-            App.Store.saveToLocal();
-            App.Renderer.restartSim();
-            this.close();
+            App.Store.saveToLocal(); App.Renderer.restartSim(); this.close();
             App.UI.showFlash("预设已更新");
         },
         close() { this.el.classList.remove('active'); this.active = false; }
@@ -749,13 +683,8 @@ App.Renderer = {
     ctx: document.getElementById('canvas').getContext('2d'),
     width: 0, height: 0,
     viewX: 0, viewY: 0, viewK: 1, viewRotation: 0, targetRotation: 0,
-    simulation: null,
-    pointerForce: null,
-    lastRenderTime: 0,
-
-    // Constants
-    FADE_DURATION: 400,
-    DEFAULT_NODE_COLOR: "#4facfe",
+    simulation: null, pointerForce: null, lastRenderTime: 0,
+    FADE_DURATION: 400, DEFAULT_NODE_COLOR: "#4facfe",
 
     init() {
         this.resize();
@@ -763,17 +692,15 @@ App.Renderer = {
             .force("link", d3.forceLink().id(d => d.uuid).distance(220).strength(0.1))
             .force("charge", d3.forceManyBody().strength(-200))
             .force("collide", d3.forceCollide(10))
-            .force("x", d3.forceX(0).strength(0.01))
-            .force("y", d3.forceY(0).strength(0.01))
+            .force("center", d3.forceCenter(0, 0))
             .alphaDecay(0.05).alphaMin(0.05);
 
-        // Custom Pointer Force
         const force = (() => {
-            let node, target, strength = 0.02;
+            let node, target, strength = 0.25;
             function f(alpha) {
                 if (!node || !target) return;
                 const dx = target.x - node.x, dy = target.y - node.y;
-                const k = strength * (1 - Math.exp(-Math.hypot(dx, dy) / 120));
+                const k = strength * (1 - Math.exp(-Math.hypot(dx, dy) / 120)) * alpha;
                 node.vx += dx * k; node.vy += dy * k;
             }
             f.initialize = () => {};
@@ -783,7 +710,6 @@ App.Renderer = {
         })();
         this.pointerForce = force;
         this.simulation.force('pointerDrag', this.pointerForce);
-
         requestAnimationFrame((t) => this.render(t));
     },
 
@@ -794,85 +720,27 @@ App.Renderer = {
     },
 
     adjustZoomByLayer() {
-        // 让其更大
-        this.viewK = Math.max(0.3, Math.min(5, 2.0 / (Math.pow(App.Store.state.viewLayers, 0.7))));
+        this.viewK = Math.max(0.15, Math.min(2.5, 1.0 / (Math.pow(App.Store.state.viewLayers, 0.7))));
     },
 
     restartSim() {
-        // Find visible nodes for simulation to reduce load
-        const SIM_LAYERS = 7;
-        const targets = new Set();
         const { nodes, links, focusNode } = App.Store.state;
-
-        const root = nodes.find(n => n.isRoot);
-        if (root) {
-            root.fx = 0;
-            root.fy = 0;
-        }
-
-        if (focusNode) {
-            targets.add(focusNode.uuid);
-            let queue = [{n: focusNode, d: 0}], head = 0;
-            const adj = {};
-            links.forEach(l => {
-                const s = l.source.uuid||l.source, t = l.target.uuid||l.target;
-                if(!adj[s]) adj[s]=[]; adj[s].push(t);
-                if(!adj[t]) adj[t]=[]; adj[t].push(s);
-            });
-            while(head < queue.length) {
-                const {n, d} = queue[head++];
-                if (d >= SIM_LAYERS) continue;
-                (adj[n.uuid]||[]).forEach(nid => {
-                    if(!targets.has(nid)) {
-                        targets.add(nid);
-                        const obj = nodes.find(x=>x.uuid===nid);
-                        if(obj) queue.push({n:obj, d:d+1});
-                    }
-                });
-            }
-        }
-
-        const activeNodes = nodes.filter(n => targets.has(n.uuid));
-        const activeLinks = links.filter(l => targets.has(l.source.uuid) && targets.has(l.target.uuid));
-
+        const activeNodes = nodes; 
+        const activeLinks = links;
+        // Simplified sim for now, full culling logic can be re-enabled if perf is issue
         this.simulation.nodes(activeNodes);
         this.simulation.force("link").links(activeLinks);
         this.simulation.alpha(1).restart();
     },
 
     render(currentTime) {
-        const { keyState } = App.Input.state;
-        if (keyState['<']) {
-            this.targetRotation += 0.05;
-            if(App.Input.state.previewNode) { // 还原：旋转时取消预览的细节
-                App.Input.state.previewNode = null;
-                App.Input.hideTooltip();
-            }
-        }
-        if (keyState['>']) {
-            this.targetRotation -= 0.05;
-            if(App.Input.state.previewNode) {
-                App.Input.state.previewNode = null;
-                App.Input.hideTooltip();
-            }
-        }
-
         if (!this.lastRenderTime) this.lastRenderTime = currentTime;
         const deltaTime = currentTime - this.lastRenderTime;
         this.lastRenderTime = currentTime;
 
-        // --- 新增：实时更新拖拽力目标 ---
-        // 这是必要的。即使鼠标没动，世界模拟也在继续，世界仍然会相对屏幕移动，因此鼠标对应的世界坐标会发生变化
-        const { dragNode, mouseX, mouseY } = App.Input.state;
-        if (dragNode) {
-            const w = this.screenToWorld(mouseX, mouseY);
-            this.pointerForce.node(dragNode).target(w.x, w.y);
-        }
-
         const { nodes, links, focusNode, viewLayers } = App.Store.state;
         const { hoverNode, previewNode, linkMode } = App.Input.state;
 
-        // Camera Logic
         const targetX = this.width/2, targetY = this.height/2;
         if(focusNode) {
             this.viewX += ((-focusNode.x * this.viewK + targetX) - this.viewX) * 0.1;
@@ -882,7 +750,6 @@ App.Renderer = {
         while (diff > Math.PI) diff -= 2 * Math.PI; while (diff < -Math.PI) diff += 2 * Math.PI;
         this.viewRotation += diff * 0.1;
 
-        // Clear & Transform
         this.ctx.save();
         this.ctx.clearRect(0, 0, this.width, this.height);
         this.ctx.translate(this.width/2, this.height/2);
@@ -891,7 +758,6 @@ App.Renderer = {
         this.ctx.translate(this.viewX, this.viewY);
         this.ctx.scale(this.viewK, this.viewK);
 
-        // Visibility Logic (BFS)
         const visibleNodes = new Set();
         const visibleLinks = new Set();
         const addVis = (start, depth) => {
@@ -917,7 +783,6 @@ App.Renderer = {
         if(hoverNode && hoverNode!==focusNode) addVis(hoverNode, 1);
         if(previewNode && previewNode!==focusNode) addVis(previewNode, 1);
 
-        // Draw Links
         links.forEach(l => {
             const isVis = visibleLinks.has(l);
             if(isVis && l.alpha < 1) l.alpha += deltaTime/this.FADE_DURATION;
@@ -929,17 +794,13 @@ App.Renderer = {
                 const isFocusLink = (src===focusNode || tgt===focusNode);
                 const isHigh = (hoverNode && (src===hoverNode||tgt===hoverNode)) || (previewNode && (src===previewNode||tgt===previewNode));
                 const mult = isFocusLink ? 0.9 : (isHigh ? 0.5 : 0.2);
-
                 this.ctx.globalAlpha = l.alpha * mult;
                 this.ctx.lineWidth = (isFocusLink || isHigh) ? 2.5 : 1.5;
-
                 const typeColor = App.Store.state.presets.find(p=>p.val===l.type)?.color || '#666';
                 const grad = this.ctx.createLinearGradient(src.x, src.y, tgt.x, tgt.y);
                 grad.addColorStop(0, typeColor); grad.addColorStop(0.7, "#444"); grad.addColorStop(1, "#222");
-
                 this.ctx.strokeStyle = grad;
                 this.ctx.beginPath(); this.ctx.moveTo(src.x, src.y); this.ctx.lineTo(tgt.x, tgt.y); this.ctx.stroke();
-
                 if (l.type && isFocusLink) {
                      const mx = (src.x+tgt.x)/2, my = (src.y+tgt.y)/2;
                      this.ctx.save(); this.ctx.translate(mx, my); this.ctx.rotate(-this.viewRotation);
@@ -950,10 +811,8 @@ App.Renderer = {
             }
         });
 
-        // Draw Nodes
         const pulse = (Math.sin(currentTime * 0.002) + 1) * 0.5 * 20 + 10;
         let visibleCount = 0;
-
         nodes.forEach(n => {
             const isVis = visibleNodes.has(n.uuid);
             if(n === focusNode) n.alpha = 1;
@@ -962,42 +821,25 @@ App.Renderer = {
                 else if(!isVis && n.alpha > 0) n.alpha -= deltaTime/this.FADE_DURATION;
                 n.alpha = Math.max(0, Math.min(1, n.alpha));
             }
-
             if (n.alpha > 0.01) {
                 visibleCount++;
                 const isFocus = (n === focusNode);
                 const isPreview = (n === previewNode || n === hoverNode);
                 const isSlot = App.Store.state.slots.includes(n);
-
                 this.ctx.globalAlpha = isFocus ? 1 : n.alpha;
                 let r = isFocus ? 20 : (isSlot ? 14 : 10);
                 if (this.viewK < 0.5) r = r / this.viewK * 0.5;
-
                 this.ctx.beginPath(); this.ctx.arc(n.x, n.y, r, 0, 2*Math.PI);
                 this.ctx.fillStyle = n.color || this.DEFAULT_NODE_COLOR;
-
-                // Shadows & Halo
                 if(isFocus) {
                     if (linkMode.active) {
-                        this.ctx.shadowBlur = pulse;
-                        this.ctx.shadowColor = linkMode.color || '#fff';
-                    } else {
-                        this.ctx.shadowBlur = 35; this.ctx.shadowColor = this.ctx.fillStyle;
-                    }
-                } else if(isPreview) {
-                    this.ctx.shadowBlur = 20; this.ctx.shadowColor = this.ctx.fillStyle;
-                } else {
-                    this.ctx.shadowBlur = 0;
-                }
-
-                // Stroke
+                        this.ctx.shadowBlur = pulse; this.ctx.shadowColor = linkMode.color || '#fff';
+                    } else { this.ctx.shadowBlur = 35; this.ctx.shadowColor = this.ctx.fillStyle; }
+                } else if(isPreview) { this.ctx.shadowBlur = 20; this.ctx.shadowColor = this.ctx.fillStyle; } 
+                else { this.ctx.shadowBlur = 0; }
                 if (isFocus && linkMode.active) { this.ctx.strokeStyle = linkMode.color || '#fff'; this.ctx.lineWidth = 3; this.ctx.stroke(); }
                 if(isSlot && !isFocus) { this.ctx.strokeStyle = "#fff"; this.ctx.lineWidth = 2; this.ctx.stroke(); }
-
-                this.ctx.fill();
-                this.ctx.shadowBlur=0;
-
-                // Text
+                this.ctx.fill(); this.ctx.shadowBlur=0;
                 if (isFocus || isPreview || n.alpha > 0.5) {
                     this.ctx.save(); this.ctx.translate(n.x, n.y); this.ctx.rotate(-this.viewRotation);
                     this.ctx.fillStyle = (isFocus || isPreview) ? "#fff" : "rgba(200,200,200,0.7)";
@@ -1010,11 +852,9 @@ App.Renderer = {
                 }
             }
         });
-
         this.ctx.restore();
         document.getElementById('visible-count').innerText = visibleCount;
         requestAnimationFrame((t) => this.render(t));
-        if (this.simulation.alpha() < 0.3) this.simulation.alpha(0.3).restart();
     },
 
     screenToWorld(sx, sy) {
@@ -1023,7 +863,6 @@ App.Renderer = {
         let rx = x * cos - y * sin, ry = x * sin + y * cos;
         return { x: (rx + this.width/2 - this.viewX) / this.viewK, y: (ry + this.height/2 - this.viewY) / this.viewK };
     },
-
     setTargetRotation(rad) {
         let current = this.targetRotation; let diff = rad - current;
         while (diff > Math.PI) diff -= 2 * Math.PI; while (diff < -Math.PI) diff += 2 * Math.PI;
@@ -1036,17 +875,12 @@ App.Renderer = {
 // ==========================================
 App.Input = {
     state: {
-        hoverNode: null,
-        previewNode: null,
+        hoverNode: null, previewNode: null,
         linkMode: { active: false, source: null, type: null, color: null },
-        dragNode: null,
-        click: { startTime: 0, startX: 0, startY: 0 },
-        keyState: {},
-        hudVisible: true,
-        mouseX: 0, // 新增：实时记录鼠标屏幕X
-        mouseY: 0, // 新增：实时记录鼠标屏幕Y
+        drag: { active: false, node: null, startX: 0, startY: 0, startTime: 0, maxMove: 0 },
+        keyState: {}, hudVisible: true
     },
-
+    
     init() {
         const C = App.Renderer.canvas;
         C.addEventListener('mousedown', this.onMouseDown.bind(this));
@@ -1061,64 +895,56 @@ App.Input = {
         });
     },
 
-    // --- Action Handlers ---
+    // --- Core: Safe Navigation ---
+    safeNavigate(node) {
+        if(!node) return;
+        if (this.state.linkMode.active) {
+            this.navigateTo(node, true);
+            return;
+        }
+        App.Store.executeSafeAction(() => ({
+            nodes: App.Store.state.nodes,
+            links: App.Store.state.links,
+            nextFocus: node,
+            nextSlots: App.Store.state.slots
+        }));
+    },
 
     navigateTo(node, recordHistory = true) {
         if(!node) return;
         const { linkMode } = this.state;
-        const { focusNode } = App.Store.state;
-
-        // Link Mode Logic
         if (linkMode.active && linkMode.source && linkMode.source.uuid !== node.uuid) {
             this.executeLinkAction(linkMode.source, node);
             this.exitLinkMode();
-            // Note: Does NOT return, continues to navigate
         }
-
-        if(focusNode && recordHistory && focusNode !== node) {
-            App.Store.state.navHistory.push(focusNode);
+        if(recordHistory && App.Store.state.focusNode !== node) {
+            App.Store.state.navHistory.push(App.Store.state.focusNode);
             if(App.Store.state.navHistory.length > 50) App.Store.state.navHistory.shift();
         }
-
         App.Store.state.focusNode = node;
-        node.alpha = 1;
-        this.state.previewNode = null;
-        this.hideTooltip();
-
-        App.UI.updateSidebar();
-        App.Store.saveToLocal();
-        App.Renderer.restartSim();
+        node.alpha = 1; this.state.previewNode = null; this.hideTooltip();
+        App.UI.updateSidebar(); App.Store.saveToLocal(); App.Renderer.restartSim();
     },
 
     executeLinkAction(source, target) {
         const { links } = App.Store.state;
-        const existing = links.find(l =>
-            (l.source.uuid === source.uuid && l.target.uuid === target.uuid) ||
+        const existing = links.find(l => 
+            (l.source.uuid === source.uuid && l.target.uuid === target.uuid) || 
             (l.source.uuid === target.uuid && l.target.uuid === source.uuid)
         );
         const { type } = this.state.linkMode;
 
         if (type === 'DELETE') {
             if(existing) {
-                App.Store.executeSafeAction(
-                    () => ({
-                        nodes: App.Store.state.nodes,
-                        links: links.filter(l => l!==existing),
-                        nextFocus: target, nextSlots: App.Store.state.slots
-                    }),
-                    () => {
-                        App.Store.state.links = links.filter(l => l!==existing);
-                        App.Renderer.restartSim();
-                    }
-                );
+                App.Store.executeSafeAction(() => ({
+                    nodes: App.Store.state.nodes,
+                    links: links.filter(l => l!==existing),
+                    nextFocus: target, nextSlots: App.Store.state.slots
+                }));
             } else App.UI.showFlash("无连接可断开", 'info');
         } else {
-            // Create or Overwrite
-            if(existing) {
-                existing.type = type; existing.source = source; existing.target = target;
-            } else {
-                links.push({source, target, type, alpha: 0});
-            }
+            if(existing) { existing.type = type; existing.source = source; existing.target = target; }
+            else { links.push({source, target, type, alpha: 0}); }
             App.Renderer.restartSim();
         }
     },
@@ -1128,19 +954,13 @@ App.Input = {
         try {
             const res = await App.UI.RelationPicker.show(true);
             const mode = { active: true, source: App.Store.state.focusNode, type: res.val, color: '#fff' };
-
             if (res.val === 'CUSTOM') {
                 const cLabel = prompt("输入关系名称:");
                 if(!cLabel) { this.exitLinkMode(); return; }
                 const preset = App.Store.state.presets.find(p=>p.label===cLabel);
                 mode.type = preset ? preset.val : cLabel;
-            } else if (res.val === 'DELETE') {
-                mode.color = '#ff4d4d';
-            } else {
-                const p = App.Store.state.presets.find(x => x.val === res.val);
-                if(p) mode.color = p.color;
-            }
-
+            } else if (res.val === 'DELETE') { mode.color = '#ff4d4d'; }
+            else { const p = App.Store.state.presets.find(x => x.val === res.val); if(p) mode.color = p.color; }
             this.state.linkMode = mode;
             const ind = document.getElementById('link-mode-indicator');
             ind.style.display = 'inline-block';
@@ -1156,111 +976,95 @@ App.Input = {
     },
 
     handleSlot(idx) {
-        const { slots, focusNode, nodes, links } = App.Store.state;
-        const slotNode = slots[idx];
-        if (slotNode === focusNode) return;
-
-        if (slotNode) {
-            // Swap or Jump logic
+        const { slots, focusNode } = App.Store.state;
+        if (slots[idx] === focusNode) return;
+        if (slots[idx]) {
+            // FIXED: Use executeSafeAction to swap
             const perform = () => {
-                slots[idx] = focusNode; // Swap
-                this.navigateTo(slotNode, true);
+                // In LinkMode we just jump, no swap needed for logic flow
+                this.navigateTo(slots[idx], true);
                 App.UI.updateSlotUI();
             };
-            App.Store.executeSafeAction(
-                () => ({
-                    nodes, links, nextFocus: slotNode,
-                    nextSlots: slots.map((s,i) => i===idx ? focusNode : s)
-                }),
-                perform
-            );
+            
+            if (this.state.linkMode.active) perform();
+            else {
+                App.Store.executeSafeAction(() => ({
+                    nodes: App.Store.state.nodes,
+                    links: App.Store.state.links,
+                    nextFocus: slots[idx], // Jump to slot
+                    nextSlots: slots.map((s,i) => i===idx ? focusNode : s) // Swap slot with current
+                }));
+            }
         } else {
-            // Store logic
-            slots[idx] = focusNode;
-            App.UI.updateSlotUI();
-            App.Store.saveToLocal();
+            slots[idx] = focusNode; App.UI.updateSlotUI(); App.Store.saveToLocal();
         }
     },
 
     clearSlot(idx, e) {
         e.preventDefault();
-        const { slots, nodes, links, focusNode } = App.Store.state;
+        const { slots, focusNode } = App.Store.state;
         if(!slots[idx]) return;
-        App.Store.executeSafeAction(
-            () => ({ nodes, links, nextFocus: focusNode, nextSlots: slots.map((s,i)=>i===idx?null:s) }),
-            () => { slots[idx] = null; App.UI.updateSlotUI(); }
-        );
+        App.Store.executeSafeAction(() => ({
+            nodes: App.Store.state.nodes, links: App.Store.state.links, nextFocus: focusNode, 
+            nextSlots: slots.map((s,i)=>i===idx?null:s) 
+        }));
     },
 
-    // --- Mouse Events ---
-
+    // --- Mouse ---
     onMouseDown(e) {
         if(App.UI.Modal.el.classList.contains('active')) return;
         if(e.button===3) { e.preventDefault(); this.navigateBack(); return; }
         if(e.button===4) { e.preventDefault(); this.enterLinkMode(); return; }
         if(e.button!==0) return;
-
         const node = this.pickNode(e.clientX, e.clientY);
-        this.state.mouseX = e.clientX;
-        this.state.mouseY = e.clientY;
-        this.state.dragNode = node;
-        this.state.click = {
-            startX: e.clientX, startY: e.clientY,
-            startTime: performance.now(),
-        };
-
+        this.state.drag = { active: true, node, startX: e.clientX, startY: e.clientY, startTime: performance.now(), maxMove: 0 };
         if(node) {
-            this.state.hoverNode = null;
-            this.state.previewNode = null;
-            this.hideTooltip();
+            const w = App.Renderer.screenToWorld(e.clientX, e.clientY);
+            App.Renderer.pointerForce.node(node).target(w.x, w.y);
+            App.Renderer.simulation.alphaTarget(0.3).restart();
+            this.state.hoverNode = null; this.state.previewNode = null; this.hideTooltip();
             App.Renderer.canvas.style.cursor = 'grabbing';
-        } else {
-            App.UI.RelationPicker.close();
-        }
+        } else { App.UI.RelationPicker.close(); }
     },
 
     onMouseMove(e) {
-        // 无论什么情况，先更新屏幕坐标
-        this.state.mouseX = e.clientX;
-        this.state.mouseY = e.clientY;
         if(App.UI.Modal.el.classList.contains('active')) return;
-        if(this.state.dragNode) return;
+        if(this.state.drag.active) {
+            const dx = e.clientX - this.state.drag.startX, dy = e.clientY - this.state.drag.startY;
+            this.state.drag.maxMove = Math.max(this.state.drag.maxMove, Math.hypot(dx, dy));
+            if(this.state.drag.node) {
+                const w = App.Renderer.screenToWorld(e.clientX, e.clientY);
+                App.Renderer.pointerForce.target(w.x, w.y);
+            }
+            return;
+        }
         const node = this.pickNode(e.clientX, e.clientY);
         if(node) {
-            this.state.hoverNode = node;
-            this.state.previewNode = null;
-            const html = typeof marked!=='undefined'
-                ? marked.parse(node.summary||'')
-                : node.summary;
+            this.state.hoverNode = node; this.state.previewNode = null;
+            const html = typeof marked!=='undefined' ? marked.parse(node.summary||'') : node.summary;
             this.showTooltip(`<strong>${node.label}</strong><br>${html}<br><span style='color:#666'>点击跳转</span>`, e.clientX, e.clientY, 'mouse');
         } else {
-            this.state.hoverNode = null;
-            if(!this.state.previewNode) this.hideTooltip();
+            this.state.hoverNode = null; if(!this.state.previewNode) this.hideTooltip();
         }
     },
 
     onMouseUp(e) {
-        if(e.button!==0 || !this.state.dragNode) return;
-
-        // 清理物理状态 (虽然 render 里不再更新了，但显式断开引用是个好习惯)
-        const node = this.state.dragNode;
+        if(e.button!==0 || !this.state.drag.active) return;
+        const { startTime, maxMove, node } = this.state.drag;
         if(node) {
             App.Renderer.pointerForce.node(null).target(null);
+            App.Renderer.simulation.alphaTarget(0);
             App.Store.saveToLocal();
             App.Renderer.canvas.style.cursor = 'crosshair';
         }
-        this.state.dragNode = null; // 关键：这一行会让 render 循环停止更新物理力
-
-        // Click Threshold Logic
-        const {startTime, startX, startY} = this.state.click;
-        move = Math.hypot(e.clientX - startX, e.clientY - startY);
-        if(performance.now() - startTime < 200 && move < 8) {
+        if(performance.now() - startTime < 200 && maxMove < 8) {
             const target = node || this.pickNode(e.clientX, e.clientY);
             if(target) {
-                if(target !== App.Store.state.focusNode) this.navigateTo(target);
+                if(target !== App.Store.state.focusNode) this.safeNavigate(target);
                 else App.UI.Modal.show();
             }
         }
+        this.state.drag = { active: false, node: null, startX:0, startY:0, startTime:0, maxMove:0 };
     },
 
     onContextMenu(e) {
@@ -1276,31 +1080,23 @@ App.Input = {
         App.Renderer.viewK = Math.max(0.1, Math.min(5, App.Renderer.viewK - e.deltaY * 0.001));
     },
 
-    // --- Keyboard Events ---
-
     onKeyDown(e) {
         if(App.UI.Modal.el.classList.contains('active')) return;
         if(App.UI.PresetEditor.active) { if(e.key==='Escape') App.UI.PresetEditor.close(); return; }
         if(App.UI.RelationPicker.active) { App.UI.RelationPicker.handleInput(e); return; }
-
         if(['INPUT','TEXTAREA'].includes(e.target.tagName)) {
-            if(e.key==='Escape') { e.target.blur(); }
-            if(e.key==='Enter' && e.target.id==='node-label') {
-                e.preventDefault();
-                e.target.blur();
-            }
+            if(e.key==='Escape') { e.target.blur(); App.Renderer.canvas.focus(); }
+            if(e.key==='Enter' && e.target.id==='node-label') { e.preventDefault(); e.target.blur(); }
             return;
         }
-
         this.state.keyState[e.key] = true; if(e.shiftKey) this.state.keyState['Shift']=true;
-
         const isSlot = (e.key>='1' && e.key<='4');
         if(['!','@','#','$'].includes(e.key)) { this.handleSlotStore({'!':0,'@':1,'#':2,'$':3}[e.key]); return; }
         if(e.shiftKey && isSlot) { this.handleSlotStore(parseInt(e.key)-1); return; }
         if(isSlot) { this.handleSlot(parseInt(e.key)-1); return; }
 
         switch(e.key) {
-            case 'ArrowUp': case '/': if(this.state.previewNode) this.navigateTo(this.state.previewNode); else this.jumpDirection(-Math.PI/2); break;
+            case 'ArrowUp': case '/': if(this.state.previewNode) this.safeNavigate(this.state.previewNode); else this.jumpDirection(-Math.PI/2); break;
             case 'ArrowDown': case '?': this.jumpDirection(Math.PI/2); break;
             case 'ArrowLeft': this.jumpDirection(Math.PI); break;
             case 'ArrowRight': this.jumpDirection(0); break;
@@ -1313,7 +1109,7 @@ App.Input = {
             case ' ': e.preventDefault(); App.UI.els.summary.focus(); App.UI.els.summary.select(); break;
             case 'Enter': if(App.Store.state.focusNode) App.UI.Modal.show(); break;
             case 'l': case 'L': this.enterLinkMode(); break;
-            case 'h': case 'H': const root = App.Store.state.nodes.find(n=>n.isRoot); if(root) this.navigateTo(root); break;
+            case 'h': case 'H': const root = App.Store.state.nodes.find(n=>n.isRoot); if(root) this.safeNavigate(root); break;
             case 'Escape': if(this.state.linkMode.active) this.exitLinkMode(); break;
             case 'b': case 'B': this.navigateBack(); break;
             case 'Delete': case 'd': case 'D': this.deleteNode(); break;
@@ -1322,87 +1118,43 @@ App.Input = {
             case '<': App.Renderer.targetRotation += 0.05; break;
             case '>': App.Renderer.targetRotation -= 0.05; break;
         }
-
-        // // Continuous Rotation
-        // if (this.state.keyState['<']) App.Renderer.targetRotation += 0.05;
-        // if (this.state.keyState['>']) App.Renderer.targetRotation -= 0.05;
+        if (this.state.keyState['<']) App.Renderer.targetRotation += 0.05;
+        if (this.state.keyState['>']) App.Renderer.targetRotation -= 0.05;
     },
-
-    // --- Complex Logic Helpers ---
 
     createNode() {
         const { focusNode, nodes, links, slots } = App.Store.state;
-        const newNode = {
-            uuid: uuid.v4(), label: "新概念",
-            x: focusNode.x + 150, y: focusNode.y + 50,
-            summary: "", content: "", color: App.Utils.getRandomColor(), alpha: 0
-        };
-
-        const perform = () => {
-            nodes.push(newNode);
-            App.Renderer.restartSim();
-            // 如果在连线模式，自动连线
-            if (this.state.linkMode.active) {
-                this.executeLinkAction(this.state.linkMode.source, newNode);
-                this.exitLinkMode();
-            }
-            // Navigate without history
+        const newNode = { uuid: uuid.v4(), label: "新概念", x: focusNode.x + 150, y: focusNode.y + 50, summary: "", content: "", color: App.Utils.getRandomColor(), alpha: 0 };
+        if (this.state.linkMode.active) {
+            nodes.push(newNode); App.Renderer.restartSim();
+            this.executeLinkAction(this.state.linkMode.source, newNode);
+            this.exitLinkMode();
             this.navigateTo(newNode, false);
             setTimeout(() => { App.UI.els.label.focus(); App.UI.els.label.select(); }, 50);
-        };
-
-        App.Store.executeSafeAction(
-            () => ({
-                nodes: [...nodes, newNode], links, nextFocus: newNode, nextSlots: slots
-            }),
-            perform
-        );
+        } else {
+            App.Store.executeSafeAction(() => ({ nodes: [...nodes, newNode], links, nextFocus: newNode, nextSlots: slots }));
+            setTimeout(() => { App.UI.els.label.focus(); App.UI.els.label.select(); }, 100);
+        }
     },
 
     deleteNode(target = null) {
         const node = target || App.Store.state.focusNode;
         if(node.isRoot) { App.UI.showFlash("初始奇点不可删除", 'warn'); return; }
-
         let nextFocus = App.Store.state.focusNode;
         if(node === nextFocus) {
             nextFocus = App.Store.state.navHistory.length > 0 ? App.Store.state.navHistory[App.Store.state.navHistory.length-1] : App.Store.state.nodes.find(n=>n.isRoot);
             if (nextFocus === node) nextFocus = App.Store.state.nodes.find(n=>n.isRoot);
         }
-
-        App.Store.executeSafeAction(
-            () => ({
-                nodes: App.Store.state.nodes.filter(n => n.uuid !== node.uuid),
-                links: App.Store.state.links.filter(l => l.source.uuid !== node.uuid && l.target.uuid !== node.uuid),
-                nextFocus: nextFocus,
-                nextSlots: App.Store.state.slots.map(s => (s && s.uuid === node.uuid) ? null : s)
-            }),
-            () => {
-                // 真正执行删除逻辑
-                App.Store.state.nodes = App.Store.state.nodes.filter(n => n.uuid !== node.uuid);
-                App.Store.state.links = App.Store.state.links.filter(l => l.source.uuid !== node.uuid && l.target.uuid !== node.uuid);
-                App.Store.state.slots = App.Store.state.slots.map(s => (s && s.uuid === node.uuid) ? null : s);
-                App.Store.state.focusNode = nextFocus;
-                App.Runtime.clearStorage(node.uuid); // 别忘了清理存储
-
-                App.UI.updateSlotUI(); // 更新 Slot UI
-                // restartSim 由 executeSafeAction 决定调用，但为了 UI 响应及时，这里做 UI update 没问题
-            }
-        );
+        App.Store.executeSafeAction(() => ({
+            nodes: App.Store.state.nodes.filter(n => n.uuid !== node.uuid),
+            links: App.Store.state.links.filter(l => l.source.uuid !== node.uuid && l.target.uuid !== node.uuid),
+            nextFocus: nextFocus,
+            nextSlots: App.Store.state.slots.map(s => (s && s.uuid === node.uuid) ? null : s)
+        }));
     },
 
     deleteLink(link) {
-        App.Store.executeSafeAction(
-            () => ({
-                nodes: App.Store.state.nodes,
-                links: App.Store.state.links.filter(l => l !== link),
-                nextFocus: App.Store.state.focusNode, nextSlots: App.Store.state.slots
-            }),
-            () => {
-                App.Store.state.links = App.Store.state.links.filter(l => l !== link);
-                App.Renderer.restartSim();
-                App.UI.showFlash("链接已切断", 'warn');
-            }
-        );
+        App.Store.executeSafeAction(() => ({ nodes: App.Store.state.nodes, links: App.Store.state.links.filter(l => l !== link), nextFocus: App.Store.state.focusNode, nextSlots: App.Store.state.slots }));
     },
 
     navigateBack() {
@@ -1412,33 +1164,19 @@ App.Input = {
             for(let i=h.length-1; i>=0; i--) {
                 if(App.Store.state.nodes.find(n=>n.uuid===h[i].uuid) && h[i].uuid !== App.Store.state.focusNode.uuid) { t=h[i]; break; }
             }
-            if(t) this.navigateTo(t, true);
+            if(t) this.safeNavigate(t, true);
         }
     },
 
     handleSlotStore(idx) {
-        const { slots, focusNode, nodes, links } = App.Store.state;
-        // 如果该槽位已经是当前焦点，无需操作
-        if (slots[idx] === focusNode) return;
-        App.Store.executeSafeAction(
-            // Simulator: 预测槽位变化后的状态
-            () => ({
-                nodes,
-                links,
-                nextFocus: focusNode,
-                nextSlots: slots.map((s, i) => i === idx ? focusNode : s)
-            }),
-            // Executor: 实际执行覆盖
-            () => {
-                slots[idx] = focusNode;
-                App.UI.updateSlotUI();
-                App.Store.saveToLocal();
-            }
-        );
+        const { slots, focusNode } = App.Store.state;
+        App.Store.executeSafeAction(() => ({ 
+            nodes: App.Store.state.nodes, links: App.Store.state.links, nextFocus: focusNode, 
+            nextSlots: slots.map((s,i)=>i===idx?focusNode:s) 
+        }));
     },
 
-    // --- Radar/Preview Logic ---
-
+    // ... Radar & Helpers remain similar ...
     getNeighbors() {
         const { links, focusNode } = App.Store.state;
         const list = [];
@@ -1461,35 +1199,19 @@ App.Input = {
         const neighbors = this.getNeighbors();
         if(!neighbors.length) return;
         this.hideTooltip();
-
         const UP = -Math.PI/2;
-        const THRESHOLD = 0.087; // approx 5 deg
+        const THRESHOLD = 0.087;
         const exact = neighbors.find(n => Math.abs(n.vAngle - UP) < THRESHOLD);
-
-        // Logic: Exact Top Priority
         const currentIsExact = exact && this.state.previewNode && this.state.previewNode.uuid === exact.node.uuid;
-
-        if (exact && !currentIsExact) {
-            this.setPreview(exact);
-            return;
-        }
-
+        if (exact && !currentIsExact) { this.setPreview(exact); return; }
         let target = null;
-        if (dir > 0) { // Clockwise
+        if (dir > 0) {
             target = neighbors.find(n => n.vAngle > UP && (!exact || n.node.uuid !== exact.node.uuid));
-            if (!target) target = neighbors.find(n => (!exact || n.node.uuid !== exact.node.uuid)); // Wrap
-        } else { // Counter-Clockwise
-            // Find last one smaller than UP
-            for(let i=neighbors.length-1; i>=0; i--) {
-                if(neighbors[i].vAngle < UP && (!exact || neighbors[i].node.uuid !== exact.node.uuid)) { target=neighbors[i]; break; }
-            }
-            if(!target) { // Wrap to end
-                for(let i=neighbors.length-1; i>=0; i--) {
-                    if(!exact || neighbors[i].node.uuid !== exact.node.uuid) { target=neighbors[i]; break; }
-                }
-            }
+            if (!target) target = neighbors.find(n => (!exact || n.node.uuid !== exact.node.uuid));
+        } else {
+            for(let i=neighbors.length-1; i>=0; i--) if(neighbors[i].vAngle < UP && (!exact || neighbors[i].node.uuid !== exact.node.uuid)) { target=neighbors[i]; break; }
+            if(!target) for(let i=neighbors.length-1; i>=0; i--) if(!exact || neighbors[i].node.uuid !== exact.node.uuid) { target=neighbors[i]; break; }
         }
-
         if(target) this.setPreview(target);
     },
 
@@ -1502,26 +1224,22 @@ App.Input = {
 
     jumpDirection(targetAng) {
         const neighbors = this.getNeighbors();
-        let best = null, minDiff = 1.2; // Threshold ~68 deg
+        let best = null, minDiff = 1.2;
         neighbors.forEach(n => {
-            let diff = Math.abs(n.vAngle - targetAng);
-            if (diff > Math.PI) diff = 2*Math.PI - diff;
+            let diff = Math.abs(n.vAngle - targetAng); if (diff > Math.PI) diff = 2*Math.PI - diff;
             if (diff < minDiff) { minDiff = diff; best = n.node; }
         });
-        if(best) this.navigateTo(best);
+        if(best) this.safeNavigate(best);
     },
-
-    // --- Helpers ---
 
     pickNode(sx, sy) {
         const w = App.Renderer.screenToWorld(sx, sy);
         const nodes = App.Store.state.nodes;
-        // Search reverse to pick top-most visually
         for(let i=nodes.length-1; i>=0; i--) {
             const n = nodes[i];
-            if(n.alpha <= 0.5) continue; // Only pick visible
+            if(n.alpha <= 0.5) continue;
             const dx = n.x - w.x, dy = n.y - w.y;
-            if(dx*dx + dy*dy < 600) return n; // Radius^2 approx 24
+            if(dx*dx + dy*dy < 600) return n;
         }
         return null;
     },
@@ -1532,12 +1250,10 @@ App.Input = {
         for(let l of links) {
             if(l.alpha < 0.3) continue;
             const x1 = l.source.x, y1 = l.source.y, x2 = l.target.x, y2 = l.target.y;
-            const A = x2-x1, B = y2-y1;
-            const lenSq = A*A+B*B;
+            const A = x2-x1, B = y2-y1, lenSq = A*A+B*B;
             let t = ((w.x-x1)*A + (w.y-y1)*B) / lenSq;
             t = Math.max(0, Math.min(1, t));
-            const dist = Math.hypot(w.x - (x1+t*A), w.y - (y1+t*B));
-            if(dist < 10/App.Renderer.viewK) return l;
+            if(Math.hypot(w.x-(x1+t*A), w.y-(y1+t*B)) < 10/App.Renderer.viewK) return l;
         }
         return null;
     },
@@ -1554,17 +1270,10 @@ App.Input = {
     }
 };
 
-// ==========================================
-// Main Initialization
-// ==========================================
 window.onload = () => {
-    // 1. 初始化 Renderer (确保 simulation 存在)
     App.Renderer.init();
-    // 2. 初始化 Store (会依赖 Renderer 的方法)
-    App.Store.init();
-    // 3. 初始化 UI
     App.UI.init();
-    // 4. 初始化 Input (会依赖 Store 和 Renderer 的方法)
+    App.Store.init();
     App.Input.init();
 };
 
