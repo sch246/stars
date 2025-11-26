@@ -670,7 +670,7 @@ App.UI = {
                 const presets = App.Store.state.presets;
                 let html = `<div class="menu-title">1. 选择类型 <span style="font-weight:normal; color:#888;">(Space 自定义${allowDelete ? ', D 删除' : ''})</span></div>`;
                 html += presets.slice(0, 9).map((p, i) =>
-                    `<div class="menu-opt" onclick="App.UI.RelationPicker.pick('${p.val}')"><span class="menu-key" style="color:${p.color}">[${i+1}]</span>${p.label}</div>`
+                    `<div class="menu-opt" onclick="App.UI.RelationPicker.pick('${p.val}')"><span class="menu-key" style="color:${p.color}">[${i+1}]</span>${p.label || p.val}</div>`
                 ).join('');
                 if (presets.length > 9) html += `<div class="menu-title" style="margin-top:10px;">更多</div>` + presets.slice(9).map(p => `<div class="menu-opt" onclick="App.UI.RelationPicker.pick('${p.val}')"><span class="menu-key" style="visibility:hidden;">[]</span>${p.label}</div>`).join('');
                 if (allowDelete) html += `<div class="menu-opt delete-opt" style="margin-top:5px; border-top:1px solid #333" onclick="App.UI.RelationPicker.pick('DELETE')"><span class="menu-key" style="color:#e74c3c">[D]</span><span style="color:#e74c3c">删除/断开连接</span></div>`;
@@ -1415,9 +1415,8 @@ App.Input = {
                 nextSlots: slots
             }),  () => {
                 App.Store.pushHistory(focusNode);
+                setTimeout(() => { App.UI.els.label.focus(); App.UI.els.label.select(); }, 50);
             });
-            // Auto-focus label after safe action applies
-            setTimeout(() => { App.UI.els.label.focus(); App.UI.els.label.select(); }, 100);
         }
     },
 
@@ -1532,7 +1531,7 @@ App.Input = {
     setPreview(targetWrapper) {
         this.state.previewNode = targetWrapper.node;
         App.Renderer.setTargetRotation(-Math.PI/2 - targetWrapper.rawAngle);
-        const html = typeof marked!=='undefined' ? marked.parse(this.state.previewNode.summary||'') : '';
+        const html = typeof marked!=='undefined' ? marked.parse(this.state.previewNode.summary||'') : wrapper.node.summary || '';
         this.showTooltip(`<strong>预览: ${this.state.previewNode.label}</strong><br>${html}<br><span style='color:#af4cae'>按 <span class="key">↑</span> <span class="key">/</span> 跳转</span>`, 0, 0, 'fixed');
     },
 

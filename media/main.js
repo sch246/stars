@@ -361,7 +361,7 @@ App.UI = {
                 let html = `<div class="menu-title">${App.Utils.t('preset.title', {delStr})}</div>`;
 
                 html += presets.slice(0, 9).map((p, i) =>
-                    `<div class="menu-opt" data-val="${p.val}"><span class="menu-key" style="color:${p.color}">[${i+1}]</span>${p.label}</div>`
+                    `<div class="menu-opt" data-val="${p.val}"><span class="menu-key" style="color:${p.color}">[${i+1}]</span>${p.label || p.val}</div>`
                 ).join('');
 
                 if (presets.length > 9) {
@@ -1163,9 +1163,8 @@ App.Input = {
                 nextSlots: slots
             }),  () => {
                 App.Store.pushHistory(focusNode);
+                setTimeout(() => { App.UI.els.label.focus(); App.UI.els.label.select(); }, 50);
             });
-            // Auto-focus label after safe action applies
-            setTimeout(() => { App.UI.els.label.focus(); App.UI.els.label.select(); }, 100);
         }
     },
 
@@ -1369,7 +1368,7 @@ App.Input = {
     setPreview(wrapper) {
         this.state.previewNode = wrapper.node;
         App.Renderer.setTargetRotation(-Math.PI/2 - wrapper.rawAngle);
-        const html = typeof marked!=='undefined' ? marked.parse(wrapper.node.summary||'') : '';
+        const html = typeof marked!=='undefined' ? marked.parse(wrapper.node.summary||'') : wrapper.node.summary || ''; // 确保summary为空时不会报错
         this.showTooltip(App.Utils.t('tooltip.preview', {label: wrapper.node.label, summary: html}), 0, 0, 'fixed');
     },
 
