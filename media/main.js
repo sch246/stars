@@ -457,6 +457,15 @@ App.UI = {
 App.Store = {
     state: { nodes: [], links: [], slots: [null,null,null,null], focusNode: null, viewLayers: 1, navHistory: [], presets: [] },
 
+    pushHistory(node) {
+        if(node) {
+            this.state.navHistory.push(node);
+            if(this.state.navHistory.length > 50) {
+                this.state.navHistory.shift();
+            }
+        }
+    },
+
     loadFromExtension(payload) {
         App.Runtime.clearAllStorage();
         if (!payload || !payload.data || !payload.data.nodes) {
@@ -536,7 +545,7 @@ App.Store = {
 
     // --- Critical Fix: Execute Safe Action ---
     // Now correctly applies changes regardless of unsafe/safe path
-    async executeSafeAction(simulator) {
+    async executeSafeAction(simulator, onApplied = null) {
         const { nodes, focusNode, slots } = this.state;
         const getAnchors = (nl, fn, sl) => {
             const r = nl.find(n=>n.isRoot);
@@ -557,6 +566,9 @@ App.Store = {
             this.state.links = next.links;
             this.state.focusNode = next.nextFocus;
             this.state.slots = next.nextSlots;
+            if (typeof onApplied === 'function') {
+                onApplied();
+            }
             App.UI.updateSidebar(); 
             App.UI.updateSlotUI();
             this.save();
@@ -588,7 +600,10 @@ App.Store = {
                 this.state.slots = this.state.slots.map(s => (s && deadSet.has(s.uuid)) ? null : s);
                 this.state.navHistory = this.state.navHistory.filter(n => !deadSet.has(n.uuid));
                 lost.forEach(n => App.Runtime.clearStorage(n.uuid));
-                
+
+                // 删除历史中的无效节点
+                this.state.navHistory = this.state.navHistory.filter(n => !deadSet.has(n.uuid));
+
                 // Re-save and Re-sim after cleanup
                 this.save();
                 App.Renderer.restartSim();
@@ -944,25 +959,10 @@ App.Input = {
         const { slots, focusNode } = App.Store.state;
         if (slots[idx] === focusNode) return;
         if (slots[idx]) {
-            // Swap Logic (Fixed in ExecuteSafeAction)
-            const perform = () => {}; // Logic is now inside executeSafeAction state applicator
-            
-            if(this.state.linkMode.active) {
-                // In Link Mode, we just Jump
-                this.safeNavigate(slots[idx]); 
-                this.handleSlot(idx); // Recursive call to swap after jump? No, just update slot UI
-                App.Store.state.slots[idx] = focusNode; // Swap manually for link mode simplicity?
-                // Actually, let's keep it simple: LinkMode doesn't support Swap-Jump easily.
-                // Just Jump.
-            }
-            else {
-                App.Store.executeSafeAction(() => ({ 
-                    nodes: App.Store.state.nodes, 
-                    links: App.Store.state.links, 
-                    nextFocus: slots[idx], 
-                    nextSlots: slots.map((s,i)=>i===idx?focusNode:s) 
-                }));
-            }
+            const targetNode = slots[idx];
+            slots[idx] = focusNode;
+            App.UI.updateSlotUI();
+            this.navigateTo(targetNode, true);
         } else {
             slots[idx] = focusNode; App.UI.updateSlotUI(); App.Store.save();
         }
@@ -994,17 +994,43 @@ App.Input = {
     // Replaces simple navigateTo to ensure orphan checking
     safeNavigate(node, recordHistory = true) {
         if (!node) return;
+        if (this.state.linkMode.active && this.state.linkMode.type === 'DELETE') {
+            const { focusNode, nodes, links } = App.Store.state;
+            const linkIndex = links.findIndex(l =>
+                (l.source.uuid===focusNode.uuid && l.target.uuid===node.uuid) ||
+                (l.source.uuid===node.uuid && l.target.uuid===focusNode.uuid)
+            );
+            if (linkIndex !== -1) {
+                App.Store.executeSafeAction(() => ({
+                    nodes: nodes,
+                    links: links.filter(l => l !== links[linkIndex]),
+                    nextFocus: node,
+                    nextSlots: App.Store.state.slots
+                }), () => {
+                    if (recordHistory) App.Store.pushHistory(focusNode);
+                    this.exitLinkMode();
+                });
+                return;
+            } else {
+                this.exitLinkMode();
+            }
+        }
         if (this.state.linkMode.active) {
             this.navigateTo(node, recordHistory);
             return;
         }
         // Wrap in Safe Action
+        const { focusNode } = App.Store.state;
         App.Store.executeSafeAction(() => ({
             nodes: App.Store.state.nodes,
             links: App.Store.state.links,
             nextFocus: node,
             nextSlots: App.Store.state.slots
-        }));
+        }), () => {
+            if (recordHistory) {
+                App.Store.pushHistory(focusNode);
+            }
+        });
         // Note: executeSafeAction will call navigateTo if safe via its applyState
     },
 
@@ -1018,9 +1044,8 @@ App.Input = {
             this.exitLinkMode();
         }
         const { focusNode } = App.Store.state;
-        if(focusNode && recordHistory && focusNode !== node) {
-            App.Store.state.navHistory.push(focusNode);
-            if(App.Store.state.navHistory.length > 50) App.Store.state.navHistory.shift();
+        if(recordHistory) {
+            App.Store.pushHistory(focusNode);
         }
         App.Store.state.focusNode = node;
         node.alpha = 1;
@@ -1092,21 +1117,24 @@ App.Input = {
         };
         
         // If LinkMode, we skip safe check because we create a link immediately
-        if (this.state.linkMode.active) {
+        if (this.state.linkMode.active && this.state.linkMode.type !== 'DELETE') {
             nodes.push(newNode); 
             App.Renderer.restartSim();
             this.executeLinkAction(this.state.linkMode.source, newNode);
             this.exitLinkMode();
-            this.navigateTo(newNode, false);
+            this.navigateTo(newNode, true);
             setTimeout(() => { App.UI.els.label.focus(); App.UI.els.label.select(); }, 50);
         } else {
             // Safe Create
+            const { focusNode } = App.Store.state;
             App.Store.executeSafeAction(() => ({ 
                 nodes: [...nodes, newNode], 
                 links, 
                 nextFocus: newNode, 
                 nextSlots: slots 
-            }));
+            }),  () => {
+                App.Store.pushHistory(focusNode);
+            });
             // Auto-focus label after safe action applies
             setTimeout(() => { App.UI.els.label.focus(); App.UI.els.label.select(); }, 100);
         }
@@ -1125,7 +1153,9 @@ App.Input = {
             links: App.Store.state.links.filter(l=>l.source.uuid!==node.uuid && l.target.uuid!==node.uuid),
             nextFocus: next,
             nextSlots: App.Store.state.slots.map(s=>(s&&s.uuid===node.uuid)?null:s)
-        }));
+        }), () => {
+            App.Store.state.navHistory = App.Store.state.navHistory.filter(n => n.uuid !== node.uuid);
+        });
     },
 
     deleteLink(link) {
@@ -1139,13 +1169,21 @@ App.Input = {
 
     navigateBack() {
         const h = App.Store.state.navHistory;
-        if(h.length) {
-            let t = null;
-            for(let i=h.length-1; i>=0; i--) {
-                if(App.Store.state.nodes.find(n=>n.uuid===h[i].uuid) && h[i].uuid !== App.Store.state.focusNode.uuid) { t=h[i]; break; }
+        
+        // Loop and Pop until we find a valid previous node
+        while (h.length > 0) {
+            const prev = h.pop(); // Remove from stack so we don't go back to it again
+            const exists = App.Store.state.nodes.find(n => n.uuid === prev.uuid);
+            
+            // Ensure node exists and we aren't just reloading the current node
+            if (exists && exists.uuid !== App.Store.state.focusNode.uuid) {
+                // Move to it, but DO NOT record history (recordHistory = false)
+                this.safeNavigate(exists, false);
+                return;
             }
-            if(t) this.safeNavigate(t, true);
         }
+        // Optional feedback
+        App.UI.showFlash(App.Utils.t('flash.noHistory') || "No History", 'info');
     },
 
     importData(inp) {
