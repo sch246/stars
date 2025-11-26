@@ -601,9 +601,6 @@ App.Store = {
                 this.state.navHistory = this.state.navHistory.filter(n => !deadSet.has(n.uuid));
                 lost.forEach(n => App.Runtime.clearStorage(n.uuid));
 
-                // 删除历史中的无效节点
-                this.state.navHistory = this.state.navHistory.filter(n => !deadSet.has(n.uuid));
-
                 // Re-save and Re-sim after cleanup
                 this.save();
                 App.Renderer.restartSim();
