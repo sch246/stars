@@ -227,6 +227,15 @@ App.Store = {
         ]
     },
 
+    pushHistory(node) {
+        if(node) {
+            this.state.navHistory.push(node);
+            if(this.state.navHistory.length > 50) {
+                this.state.navHistory.shift();
+            }
+        }
+    },
+
     // 初始化系统
     init() {
         const saved = localStorage.getItem('stars_v4');
@@ -281,7 +290,7 @@ App.Store = {
     },
 
     // 核心安全执行器 (Anchor-based Safety Check)
-    executeSafeAction(simulator, executor) {
+    executeSafeAction(simulator, onApplied = null) {
         const { nodes, focusNode, slots } = this.state;
 
         // 1. 获取当前锚点集合 (Origin + Focus + Slots)
@@ -300,8 +309,22 @@ App.Store = {
         const isStructureIntact = nextState.nodes.length >= nodes.length && nextState.links.length >= this.state.links.length;
         const isAnchorsSame = currentAnchorUUIDs.size === nextAnchorUUIDs.size && [...currentAnchorUUIDs].every(id => nextAnchorUUIDs.has(id));
 
+        const applyState = () => {
+            this.state.nodes = nextState.nodes;
+            this.state.links = nextState.links;
+            this.state.focusNode = nextState.nextFocus;
+            this.state.slots = nextState.nextSlots;
+            if (typeof onApplied === 'function') {
+                onApplied();
+            }
+            App.UI.updateSidebar();
+            App.UI.updateSlotUI();
+            this.saveToLocal();
+            App.Renderer.restartSim();
+        };
+
         if (isStructureIntact && isAnchorsSame) {
-            executor(); // 安全
+            applyState();
             return true;
         }
 
@@ -313,22 +336,24 @@ App.Store = {
         if (lostNodes.length > 0) {
             const names = lostNodes.slice(0, 3).map(n => n.label).join(', ');
             if (confirm(`警告：此操作将导致 ${lostNodes.length} 个节点丢失（如 ${names}...）。是否继续？`)) {
-                executor();
-                // 清理死节点
+                // Apply the simulated state first
+                applyState();
+
+                // Then clean up lost nodes
                 const deadSet = new Set(lostNodes.map(n => n.uuid));
                 this.state.nodes = this.state.nodes.filter(n => !deadSet.has(n.uuid));
                 this.state.links = this.state.links.filter(l => !deadSet.has(l.source.uuid) && !deadSet.has(l.target.uuid));
                 this.state.slots = this.state.slots.map(s => (s && deadSet.has(s.uuid)) ? null : s);
                 this.state.navHistory = this.state.navHistory.filter(n => !deadSet.has(n.uuid));
-                lostNodes.forEach(n => App.Runtime.clearStorage(n.uuid)); // 清理存储
+                lostNodes.forEach(n => App.Runtime.clearStorage(n.uuid));
+
+                this.saveToLocal();
                 App.Renderer.restartSim();
                 return true;
             }
             return false;
         } else {
-            executor(); // 安全
-            if (!isStructureIntact || nextState.nodes.length !== nodes.length) App.Renderer.restartSim();
-            else { App.UI.updateSidebar(); this.saveToLocal(); }
+            applyState();
             return true;
         }
     },
@@ -347,7 +372,7 @@ App.Store = {
         localStorage.setItem('stars_v4', JSON.stringify(payload));
     },
 
-    saveToLocalDebounced: null, // Init later
+    saveToLocalDebounced: null,
 
     exportData() {
         this.saveToLocal();
@@ -582,7 +607,6 @@ App.UI = {
 
     showFlash(msg, type = 'info') {
         const el = document.getElementById('flash-message');
-        // 在当前 CSS 结构下是安全的，#flash-message 没有基础类
         el.innerText = msg; el.className = type; el.style.opacity = 1;
         setTimeout(() => { el.style.opacity = 0; }, 2000);
     },
@@ -1063,11 +1087,51 @@ App.Input = {
 
     // --- Action Handlers ---
 
+    safeNavigate(node, recordHistory = true) {
+        if (!node) return;
+        if (this.state.linkMode.active && this.state.linkMode.type === 'DELETE') {
+            const { focusNode, nodes, links } = App.Store.state;
+            const linkIndex = links.findIndex(l =>
+                (l.source.uuid===focusNode.uuid && l.target.uuid===node.uuid) ||
+                (l.source.uuid===node.uuid && l.target.uuid===focusNode.uuid)
+            );
+            if (linkIndex !== -1) {
+                App.Store.executeSafeAction(() => ({
+                    nodes: nodes,
+                    links: links.filter(l => l !== links[linkIndex]),
+                    nextFocus: node,
+                    nextSlots: App.Store.state.slots
+                }), () => {
+                    if (recordHistory) App.Store.pushHistory(focusNode);
+                    this.exitLinkMode();
+                });
+                return;
+            } else {
+                this.exitLinkMode();
+            }
+        }
+        if (this.state.linkMode.active) {
+            this.navigateTo(node, recordHistory);
+            return;
+        }
+        // Wrap in Safe Action
+        const { focusNode } = App.Store.state;
+        App.Store.executeSafeAction(() => ({
+            nodes: App.Store.state.nodes,
+            links: App.Store.state.links,
+            nextFocus: node,
+            nextSlots: App.Store.state.slots
+        }), () => {
+            if (recordHistory) {
+                App.Store.pushHistory(focusNode);
+            }
+        });
+        // Note: executeSafeAction will call navigateTo if safe via its applyState
+    },
+
     navigateTo(node, recordHistory = true) {
         if(!node) return;
         const { linkMode } = this.state;
-        const { focusNode } = App.Store.state;
-
         // Link Mode Logic
         if (linkMode.active && linkMode.source && linkMode.source.uuid !== node.uuid) {
             this.executeLinkAction(linkMode.source, node);
@@ -1075,9 +1139,9 @@ App.Input = {
             // Note: Does NOT return, continues to navigate
         }
 
-        if(focusNode && recordHistory && focusNode !== node) {
-            App.Store.state.navHistory.push(focusNode);
-            if(App.Store.state.navHistory.length > 50) App.Store.state.navHistory.shift();
+        const { focusNode } = App.Store.state;
+        if(recordHistory) {
+            App.Store.pushHistory(focusNode);
         }
 
         App.Store.state.focusNode = node;
@@ -1100,25 +1164,16 @@ App.Input = {
 
         if (type === 'DELETE') {
             if(existing) {
-                App.Store.executeSafeAction(
-                    () => ({
-                        nodes: App.Store.state.nodes,
-                        links: links.filter(l => l!==existing),
-                        nextFocus: target, nextSlots: App.Store.state.slots
-                    }),
-                    () => {
-                        App.Store.state.links = links.filter(l => l!==existing);
-                        App.Renderer.restartSim();
-                    }
-                );
+                App.Store.executeSafeAction(() => ({
+                    nodes: App.Store.state.nodes,
+                    links: links.filter(l => l!==existing),
+                    nextFocus: target,
+                    nextSlots: App.Store.state.slots
+                }));
             } else App.UI.showFlash("无连接可断开", 'info');
         } else {
-            // Create or Overwrite
-            if(existing) {
-                existing.type = type; existing.source = source; existing.target = target;
-            } else {
-                links.push({source, target, type, alpha: 0});
-            }
+            if(existing) { existing.type = type; existing.source = source; existing.target = target; }
+            else { links.push({source, target, type, alpha: 0}); }
             App.Renderer.restartSim();
         }
     },
@@ -1156,24 +1211,14 @@ App.Input = {
     },
 
     handleSlot(idx) {
-        const { slots, focusNode, nodes, links } = App.Store.state;
+        const { slots, focusNode } = App.Store.state;
         const slotNode = slots[idx];
         if (slotNode === focusNode) return;
 
         if (slotNode) {
-            // Swap or Jump logic
-            const perform = () => {
-                slots[idx] = focusNode; // Swap
-                this.navigateTo(slotNode, true);
-                App.UI.updateSlotUI();
-            };
-            App.Store.executeSafeAction(
-                () => ({
-                    nodes, links, nextFocus: slotNode,
-                    nextSlots: slots.map((s,i) => i===idx ? focusNode : s)
-                }),
-                perform
-            );
+            slots[idx] = focusNode;
+            App.UI.updateSlotUI();
+            this.navigateTo(slotNode, true);
         } else {
             // Store logic
             slots[idx] = focusNode;
@@ -1186,10 +1231,23 @@ App.Input = {
         e.preventDefault();
         const { slots, nodes, links, focusNode } = App.Store.state;
         if(!slots[idx]) return;
-        App.Store.executeSafeAction(
-            () => ({ nodes, links, nextFocus: focusNode, nextSlots: slots.map((s,i)=>i===idx?null:s) }),
-            () => { slots[idx] = null; App.UI.updateSlotUI(); }
-        );
+        App.Store.executeSafeAction(() => ({
+            nodes,
+            links,
+            nextFocus: focusNode,
+            nextSlots: slots.map((s,i)=>i===idx?null:s)
+        }));
+    },
+
+    handleSlotStore(idx) {
+        const { slots, focusNode, nodes, links } = App.Store.state;
+        if(slots[idx]===focusNode) return;
+        App.Store.executeSafeAction(() => ({
+            nodes,
+            links,
+            nextFocus: focusNode,
+            nextSlots: slots.map((s,i)=>i===idx?focusNode:s)
+        }));
     },
 
     // --- Mouse Events ---
@@ -1257,7 +1315,7 @@ App.Input = {
         if(performance.now() - startTime < 200 && move < 8) {
             const target = node || this.pickNode(e.clientX, e.clientY);
             if(target) {
-                if(target !== App.Store.state.focusNode) this.navigateTo(target);
+                if(target !== App.Store.state.focusNode) this.safeNavigate(target);
                 else App.UI.Modal.show();
             }
         }
@@ -1300,7 +1358,8 @@ App.Input = {
         if(isSlot) { this.handleSlot(parseInt(e.key)-1); return; }
 
         switch(e.key) {
-            case 'ArrowUp': case '/': if(this.state.previewNode) this.navigateTo(this.state.previewNode); else this.jumpDirection(-Math.PI/2); break;
+            // FIX: Use safeNavigate
+            case 'ArrowUp': case '/': if(this.state.previewNode) this.safeNavigate(this.state.previewNode); else this.jumpDirection(-Math.PI/2); break;
             case 'ArrowDown': case '?': this.jumpDirection(Math.PI/2); break;
             case 'ArrowLeft': this.jumpDirection(Math.PI); break;
             case 'ArrowRight': this.jumpDirection(0); break;
@@ -1313,7 +1372,7 @@ App.Input = {
             case ' ': e.preventDefault(); App.UI.els.summary.focus(); App.UI.els.summary.select(); break;
             case 'Enter': if(App.Store.state.focusNode) App.UI.Modal.show(); break;
             case 'l': case 'L': this.enterLinkMode(); break;
-            case 'h': case 'H': const root = App.Store.state.nodes.find(n=>n.isRoot); if(root) this.navigateTo(root); break;
+            case 'h': case 'H': const root = App.Store.state.nodes.find(n=>n.isRoot); if(root) this.safeNavigate(root); break;
             case 'Escape': if(this.state.linkMode.active) this.exitLinkMode(); break;
             case 'b': case 'B': this.navigateBack(); break;
             case 'Delete': case 'd': case 'D': this.deleteNode(); break;
@@ -1338,103 +1397,80 @@ App.Input = {
             summary: "", content: "", color: App.Utils.getRandomColor(), alpha: 0
         };
 
-        const perform = () => {
+        // If LinkMode, we skip safe check because we create a link immediately
+        if (this.state.linkMode.active && this.state.linkMode.type !== 'DELETE') {
             nodes.push(newNode);
             App.Renderer.restartSim();
-            // 如果在连线模式，自动连线
-            if (this.state.linkMode.active) {
-                this.executeLinkAction(this.state.linkMode.source, newNode);
-                this.exitLinkMode();
-            }
-            // Navigate without history
-            this.navigateTo(newNode, false);
+            this.executeLinkAction(this.state.linkMode.source, newNode);
+            this.exitLinkMode();
+            this.navigateTo(newNode, true);
             setTimeout(() => { App.UI.els.label.focus(); App.UI.els.label.select(); }, 50);
-        };
-
-        App.Store.executeSafeAction(
-            () => ({
-                nodes: [...nodes, newNode], links, nextFocus: newNode, nextSlots: slots
-            }),
-            perform
-        );
+        } else {
+            // Safe Create
+            const { focusNode } = App.Store.state;
+            App.Store.executeSafeAction(() => ({
+                nodes: [...nodes, newNode],
+                links,
+                nextFocus: newNode,
+                nextSlots: slots
+            }),  () => {
+                App.Store.pushHistory(focusNode);
+            });
+            // Auto-focus label after safe action applies
+            setTimeout(() => { App.UI.els.label.focus(); App.UI.els.label.select(); }, 100);
+        }
     },
 
     deleteNode(target = null) {
         const node = target || App.Store.state.focusNode;
         if(node.isRoot) { App.UI.showFlash("初始奇点不可删除", 'warn'); return; }
 
+        const { navHistory, nodes, links, slots } = App.Store.state
         let nextFocus = App.Store.state.focusNode;
         if(node === nextFocus) {
-            nextFocus = App.Store.state.navHistory.length > 0 ? App.Store.state.navHistory[App.Store.state.navHistory.length-1] : App.Store.state.nodes.find(n=>n.isRoot);
-            if (nextFocus === node) nextFocus = App.Store.state.nodes.find(n=>n.isRoot);
+            nextFocus = navHistory.length > 0 ? navHistory[navHistory.length-1] : nodes.find(n=>n.isRoot);
+            if (nextFocus === node) nextFocus = nodes.find(n=>n.isRoot);
         }
 
         App.Store.executeSafeAction(
             () => ({
-                nodes: App.Store.state.nodes.filter(n => n.uuid !== node.uuid),
-                links: App.Store.state.links.filter(l => l.source.uuid !== node.uuid && l.target.uuid !== node.uuid),
+                nodes: nodes.filter(n => n.uuid !== node.uuid),
+                links: links.filter(l => l.source.uuid !== node.uuid && l.target.uuid !== node.uuid),
                 nextFocus: nextFocus,
-                nextSlots: App.Store.state.slots.map(s => (s && s.uuid === node.uuid) ? null : s)
+                nextSlots: slots.map(s => (s && s.uuid === node.uuid) ? null : s)
             }),
             () => {
-                // 真正执行删除逻辑
-                App.Store.state.nodes = App.Store.state.nodes.filter(n => n.uuid !== node.uuid);
-                App.Store.state.links = App.Store.state.links.filter(l => l.source.uuid !== node.uuid && l.target.uuid !== node.uuid);
-                App.Store.state.slots = App.Store.state.slots.map(s => (s && s.uuid === node.uuid) ? null : s);
-                App.Store.state.focusNode = nextFocus;
-                App.Runtime.clearStorage(node.uuid); // 别忘了清理存储
-
-                App.UI.updateSlotUI(); // 更新 Slot UI
-                // restartSim 由 executeSafeAction 决定调用，但为了 UI 响应及时，这里做 UI update 没问题
+                App.Store.state.navHistory = App.Store.state.navHistory.filter(n => n.uuid !== node.uuid);
             }
         );
     },
 
     deleteLink(link) {
-        App.Store.executeSafeAction(
-            () => ({
-                nodes: App.Store.state.nodes,
-                links: App.Store.state.links.filter(l => l !== link),
-                nextFocus: App.Store.state.focusNode, nextSlots: App.Store.state.slots
-            }),
-            () => {
-                App.Store.state.links = App.Store.state.links.filter(l => l !== link);
-                App.Renderer.restartSim();
-                App.UI.showFlash("链接已切断", 'warn');
-            }
-        );
+        App.Store.executeSafeAction(() => ({
+            nodes: App.Store.state.nodes,
+            links: App.Store.state.links.filter(l=>l!==link),
+            nextFocus: App.Store.state.focusNode,
+            nextSlots: App.Store.state.slots
+        }));
     },
 
     navigateBack() {
         const h = App.Store.state.navHistory;
-        if(h.length) {
-            let t = null;
-            for(let i=h.length-1; i>=0; i--) {
-                if(App.Store.state.nodes.find(n=>n.uuid===h[i].uuid) && h[i].uuid !== App.Store.state.focusNode.uuid) { t=h[i]; break; }
-            }
-            if(t) this.navigateTo(t, true);
-        }
-    },
 
-    handleSlotStore(idx) {
-        const { slots, focusNode, nodes, links } = App.Store.state;
-        // 如果该槽位已经是当前焦点，无需操作
-        if (slots[idx] === focusNode) return;
-        App.Store.executeSafeAction(
-            // Simulator: 预测槽位变化后的状态
-            () => ({
-                nodes,
-                links,
-                nextFocus: focusNode,
-                nextSlots: slots.map((s, i) => i === idx ? focusNode : s)
-            }),
-            // Executor: 实际执行覆盖
-            () => {
-                slots[idx] = focusNode;
-                App.UI.updateSlotUI();
-                App.Store.saveToLocal();
+        // Loop and Pop until we find a valid previous node
+        while (h.length > 0) {
+            const prev = h.pop(); // Remove from stack so we don't go back to it again
+            const exists = App.Store.state.nodes.find(n => n.uuid === prev.uuid);
+
+            // Ensure node exists and we aren't just reloading the current node
+            if (exists && exists.uuid !== App.Store.state.focusNode.uuid) {
+                // Move to it, but DO NOT record history (recordHistory = false)
+                this.safeNavigate(exists, false);
+                return;
             }
-        );
+        }
+        // Optional feedback
+        App.UI.showFlash("没有更早的访问历史了", 'info');
     },
 
     // --- Radar/Preview Logic ---
@@ -1508,7 +1544,7 @@ App.Input = {
             if (diff > Math.PI) diff = 2*Math.PI - diff;
             if (diff < minDiff) { minDiff = diff; best = n.node; }
         });
-        if(best) this.navigateTo(best);
+        if(best) this.safeNavigate(best); // FIX: safeNavigate
     },
 
     // --- Helpers ---
