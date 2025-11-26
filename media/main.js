@@ -17,7 +17,7 @@ App.Utils = {
         Object.keys(params).forEach(k => { str = str.replace(new RegExp(`{${k}}`, 'g'), params[k]); });
         return str;
     },
-    
+
     debounce(func, wait) {
         let timeout;
         return function(...args) {
@@ -98,13 +98,13 @@ App.UI = {
         // Sidebar Inputs
         this.els.label.addEventListener('input', () => this.onNodeEdit('label', this.els.label.value));
         this.els.label.addEventListener('keydown', (e) => this.handleEditorTab(e, 'node-summary', 'node-content'));
-        
+
         this.els.summary.addEventListener('input', () => this.onNodeEdit('summary', this.els.summary.value));
         this.els.summary.addEventListener('keydown', (e) => this.handleEditorTab(e, 'node-content', 'node-label'));
-        
+
         this.els.content.addEventListener('input', () => this.onNodeEdit('content', this.els.content.value));
         this.els.content.addEventListener('keydown', (e) => this.handleEditorTab(e, 'node-label', 'node-summary'));
-        
+
         this.els.colorInput.addEventListener('input', () => {
             this.els.colorHex.value = this.els.colorInput.value;
             this.onNodeEdit('color', this.els.colorInput.value);
@@ -227,7 +227,7 @@ App.UI = {
                 this.inputEl.style.display = needsInput ? 'block' : 'none';
                 this.inputEl.value = '';
                 this.inputEl.placeholder = placeholder;
-                
+
                 this.btnConfirm.innerText = App.Utils.t('dialog.confirm');
                 this.btnCancel.innerText = App.Utils.t('dialog.cancel');
 
@@ -242,7 +242,7 @@ App.UI = {
                     this.inputEl.onkeydown = null;
                     this.btnConfirm.removeEventListener('keydown', handleBtnKey);
                     this.btnCancel.removeEventListener('keydown', handleBtnKey);
-                    
+
                     this.overlay.classList.remove('active');
                     this.isActive = false;
                     App.Renderer.canvas.focus();
@@ -255,7 +255,7 @@ App.UI = {
 
                 this.btnConfirm.onclick = (e) => { const val = this.inputEl.value; cleanup(e); resolve(needsInput ? val : true); };
                 this.btnCancel.onclick = (e) => { cleanup(e); resolve(needsInput ? null : false); };
-                
+
                 this.inputEl.onkeydown = (e) => {
                     if(e.key === 'Enter') { e.preventDefault(); this.btnConfirm.click(); }
                     if(e.key === 'Escape') { e.preventDefault(); this.btnCancel.click(); }
@@ -309,13 +309,13 @@ App.UI = {
             const node = App.Store.state.focusNode;
             if (!node) return;
             if(App.Runtime.activeInstances[node.uuid]) App.Runtime.unmount(node.uuid);
-            
+
             this.body.innerHTML = '';
-            
+
             const raw = node.content || App.Utils.t('modal.noContent');
             const html = typeof marked !== 'undefined' ? marked.parse(raw) : raw;
             const containerId = `node-content-host-${node.uuid}`;
-            
+
             this.body.innerHTML = `
                 <div style="font-size:2em; font-weight:bold; color:#4facfe; margin-bottom:10px;">${node.label}</div>
                 <div style="color:#666; font-style:italic; margin-bottom:20px; border-left:3px solid #555; padding-left:10px;">
@@ -327,15 +327,15 @@ App.UI = {
                     ${App.Utils.t('modal.close')} (Esc)
                 </div>
             `;
-            
+
             // CSP Safe Binding
             document.getElementById('modal-close-btn').addEventListener('click', () => App.UI.Modal.close());
 
             if (typeof hljs !== 'undefined') this.body.querySelectorAll('pre code').forEach(b => hljs.highlightElement(b));
             App.Runtime.mount(node, containerId);
-            
+
             this.el.classList.add('active');
-            
+
             this._escHandler = (e) => {
                 if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.close(); }
             };
@@ -359,22 +359,22 @@ App.UI = {
                 const presets = App.Store.state.presets;
                 const delStr = allowDelete ? App.Utils.t('preset.delete') : '';
                 let html = `<div class="menu-title">${App.Utils.t('preset.title', {delStr})}</div>`;
-                
-                html += presets.slice(0, 9).map((p, i) => 
+
+                html += presets.slice(0, 9).map((p, i) =>
                     `<div class="menu-opt" data-val="${p.val}"><span class="menu-key" style="color:${p.color}">[${i+1}]</span>${p.label}</div>`
                 ).join('');
-                
+
                 if (presets.length > 9) {
-                    html += `<div class="menu-title" style="margin-top:10px;">${App.Utils.t('preset.more')}</div>` + 
+                    html += `<div class="menu-title" style="margin-top:10px;">${App.Utils.t('preset.more')}</div>` +
                     presets.slice(9).map(p => `<div class="menu-opt" data-val="${p.val}"><span class="menu-key" style="visibility:hidden;">[]</span>${p.label}</div>`).join('');
                 }
-                
+
                 if (allowDelete) {
                     html += `<div class="menu-opt delete-opt" data-val="DELETE" style="margin-top:5px; border-top:1px solid #333">
                     <span class="menu-key" style="color:#e74c3c">[D]</span>${App.Utils.t('linkMode.deleteLabel')}</div>`;
                 }
-                
-                this.el.innerHTML = html; 
+
+                this.el.innerHTML = html;
                 this.el.classList.add('active'); this.active = true;
                 this.resolve = res; this.reject = rej;
 
@@ -433,10 +433,10 @@ App.UI = {
         handleListKey: function(e) { if (e.key === 'Enter') { e.preventDefault(); this.saveAndClose(); } },
         update(idx, field, val) { this.tempPresets[idx][field] = val; },
         remove(idx) { this.tempPresets.splice(idx, 1); this.renderList(); },
-        add() { 
+        add() {
             if (this.tempPresets.length >= 20) { App.UI.showFlash(App.Utils.t('alert.presetExceedMax'), 'warn'); return; }
-            this.tempPresets.push({label: App.Utils.t('fallback.newNode'), val:'new', color: App.Utils.getRandomColor()}); 
-            this.renderList(); setTimeout(() => this.listEl.scrollTop = this.listEl.scrollHeight, 10); 
+            this.tempPresets.push({label: App.Utils.t('fallback.newNode'), val:'new', color: App.Utils.getRandomColor()});
+            this.renderList(); setTimeout(() => this.listEl.scrollTop = this.listEl.scrollHeight, 10);
         },
         saveAndClose() {
             if (this.tempPresets.some(p => !p.val || !p.val.trim())) { App.UI.showFlash(App.Utils.t('alert.presetValueEmpty'), 'warn'); return; }
@@ -498,7 +498,7 @@ App.Store = {
             this.state.nodes.forEach(n => {
                 if(n.x==null || isNaN(n.x)) n.x = (Math.random()-0.5)*50;
                 if(n.y==null || isNaN(n.y)) n.y = (Math.random()-0.5)*50;
-                n.alpha = 0; n.vx = 0; n.vy = 0; n.fx = null; n.fy = null; 
+                n.alpha = 0; n.vx = 0; n.vy = 0; n.fx = null; n.fy = null;
                 if(n.isRoot) { n.fx=0; n.fy=0; }
             });
 
@@ -552,11 +552,11 @@ App.Store = {
             return new Set([r, fn, ...sl].filter(x=>x).map(x=>x.uuid));
         };
         const curAnchors = getAnchors(nodes, focusNode, slots);
-        
+
         // 1. Simulate Next State
         const next = simulator();
         const nextAnchors = getAnchors(next.nodes, next.nextFocus, next.nextSlots);
-        
+
         // 2. Check Structural Integrity
         const structIntact = next.nodes.length >= nodes.length && next.links.length >= this.state.links.length;
         const anchorsSame = curAnchors.size === nextAnchors.size && [...curAnchors].every(id => nextAnchors.has(id));
@@ -569,7 +569,7 @@ App.Store = {
             if (typeof onApplied === 'function') {
                 onApplied();
             }
-            App.UI.updateSidebar(); 
+            App.UI.updateSidebar();
             App.UI.updateSlotUI();
             this.save();
             App.Renderer.restartSim();
@@ -588,11 +588,11 @@ App.Store = {
         if (lost.length > 0) {
             const label = lost[0].label;
             const msg = App.Utils.t('alert.deleteConfirm', { n: lost.length, label: label });
-            
+
             if (await App.UI.Dialog.confirm(msg)) {
                 // Apply simulation result first
-                applyState(); 
-                
+                applyState();
+
                 // Then cleanup lost nodes
                 const deadSet = new Set(lost.map(n => n.uuid));
                 this.state.nodes = this.state.nodes.filter(n => !deadSet.has(n.uuid));
@@ -622,7 +622,9 @@ App.Store = {
                     summary: n.summary, content: n.content, color: n.color
                 })),
                 links: this.state.links.map(l => ({
-                    source: l.source.uuid, target: l.target.uuid, type: l.type
+                    source: (typeof l.source === 'object') ? l.source.uuid : l.source,
+                    target: (typeof l.target === 'object') ? l.target.uuid : l.target,
+                    type: l.type
                 }))
             },
             focusNodeUuid: this.state.focusNode ? this.state.focusNode.uuid : null,
@@ -633,6 +635,36 @@ App.Store = {
         vscode.postMessage({ command: 'saveData', data: payload });
     },
     saveDebounced: null,
+
+    exportData() {
+        // 不要读 localStorage，直接获取内存数据
+        const data = this.save();
+
+        const b = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(b);
+        a.download = 'stars_data.json';
+        a.click();
+    },
+
+    importData(inp) {
+        const f = inp.files[0];
+        if(f) {
+            const r = new FileReader();
+            r.onload = e => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (data && data.data && Array.isArray(data.data.nodes)) {
+                        vscode.postMessage({ command: 'saveData', data: data });
+                        App.Store.loadFromExtension(data);
+                        App.UI.showFlash(App.Utils.t('alert.importSuccess'));
+                    } else App.UI.showFlash(App.Utils.t('alert.importFail'), 'warn');
+                } catch(e) { App.UI.showFlash(App.Utils.t('alert.parseFail'), 'warn'); }
+            };
+            r.readAsText(f);
+            inp.value = '';
+        }
+    },
 
     async resetSystem() {
         if(await App.UI.Dialog.confirm(App.Utils.t('alert.resetConfirm'))) {
@@ -940,7 +972,7 @@ App.Input = {
         document.getElementById('export-btn').addEventListener('click', () => App.Store.exportData()); 
         document.getElementById('reset-system-btn').addEventListener('click', () => App.Store.resetSystem());
         document.getElementById('import-btn').addEventListener('click', () => document.getElementById('importFile').click());
-        document.getElementById('importFile').addEventListener('change', (e) => this.importData(e.target));
+        document.getElementById('importFile').addEventListener('change', (e) => App.Store.importData(e.target));
         document.getElementById('manage-presets-btn').addEventListener('click', () => App.UI.PresetEditor.open());
         document.getElementById('preset-editor-close-btn').addEventListener('click', () => App.UI.PresetEditor.close());
         document.getElementById('add-preset-btn').addEventListener('click', () => App.UI.PresetEditor.add());
@@ -966,24 +998,24 @@ App.Input = {
     },
 
     handleSlotStore(idx) {
-        const { slots, focusNode } = App.Store.state;
+        const { slots, focusNode, nodes, links } = App.Store.state;
         if (slots[idx] === focusNode) return;
-        App.Store.executeSafeAction(() => ({ 
-            nodes: App.Store.state.nodes, 
-            links: App.Store.state.links, 
-            nextFocus: focusNode, 
-            nextSlots: slots.map((s,i)=>i===idx?focusNode:s) 
+        App.Store.executeSafeAction(() => ({
+            nodes,
+            links,
+            nextFocus: focusNode,
+            nextSlots: slots.map((s,i)=>i===idx?focusNode:s)
         }));
     },
 
     clearSlot(idx) {
-        const { slots, focusNode } = App.Store.state;
+        const { slots, focusNode, nodes, links } = App.Store.state;
         if(!slots[idx]) return;
-        App.Store.executeSafeAction(() => ({ 
-            nodes: App.Store.state.nodes, 
-            links: App.Store.state.links, 
-            nextFocus: focusNode, 
-            nextSlots: slots.map((s,i)=>i===idx?null:s) 
+        App.Store.executeSafeAction(() => ({
+            nodes,
+            links,
+            nextFocus: focusNode,
+            nextSlots: slots.map((s,i)=>i===idx?null:s)
         }));
     },
 
@@ -1054,7 +1086,7 @@ App.Input = {
         if(this.state.linkMode.active) return;
         try {
             const res = await App.UI.RelationPicker.show(true);
-            if(!App.UI.RelationPicker.active && !res) return; 
+            if(!App.UI.RelationPicker.active && !res) return;
             const mode = { active: true, source: App.Store.state.focusNode, type: res.val, color: '#fff' };
             if (res.val === 'CUSTOM') {
                 const cLabel = await App.UI.Dialog.prompt(App.Utils.t('linkMode.prompt'), App.Utils.t('linkMode.promptPlaceholder'));
@@ -1091,11 +1123,11 @@ App.Input = {
 
         if (type === 'DELETE') {
             if(existing) {
-                App.Store.executeSafeAction(() => ({ 
-                    nodes: App.Store.state.nodes, 
-                    links: links.filter(l=>l!==existing), 
-                    nextFocus: target, 
-                    nextSlots: App.Store.state.slots 
+                App.Store.executeSafeAction(() => ({
+                    nodes: App.Store.state.nodes,
+                    links: links.filter(l=>l!==existing),
+                    nextFocus: target,
+                    nextSlots: App.Store.state.slots
                 }));
             } else App.UI.showFlash(App.Utils.t('alert.noLinkToBreak'), 'info');
         } else {
@@ -1112,10 +1144,10 @@ App.Input = {
             x: focusNode.x + 150, y: focusNode.y + 50,
             summary: "", content: "", color: App.Utils.getRandomColor(), alpha: 0
         };
-        
+
         // If LinkMode, we skip safe check because we create a link immediately
         if (this.state.linkMode.active && this.state.linkMode.type !== 'DELETE') {
-            nodes.push(newNode); 
+            nodes.push(newNode);
             App.Renderer.restartSim();
             this.executeLinkAction(this.state.linkMode.source, newNode);
             this.exitLinkMode();
@@ -1124,11 +1156,11 @@ App.Input = {
         } else {
             // Safe Create
             const { focusNode } = App.Store.state;
-            App.Store.executeSafeAction(() => ({ 
-                nodes: [...nodes, newNode], 
-                links, 
-                nextFocus: newNode, 
-                nextSlots: slots 
+            App.Store.executeSafeAction(() => ({
+                nodes: [...nodes, newNode],
+                links,
+                nextFocus: newNode,
+                nextSlots: slots
             }),  () => {
                 App.Store.pushHistory(focusNode);
             });
@@ -1140,38 +1172,39 @@ App.Input = {
     deleteNode(target = null) {
         const node = target || App.Store.state.focusNode;
         if(node.isRoot) { App.UI.showFlash(App.Utils.t('alert.rootCannotDelete'), 'warn'); return; }
+        const { navHistory, nodes, links, slots } = App.Store.state
         let next = App.Store.state.focusNode;
         if(node === next) {
-            next = App.Store.state.navHistory.length > 0 ? App.Store.state.navHistory[App.Store.state.navHistory.length-1] : App.Store.state.nodes.find(n=>n.isRoot);
-            if (next === node) next = App.Store.state.nodes.find(n=>n.isRoot);
+            next = navHistory.length > 0 ? navHistory[navHistory.length-1] : nodes.find(n=>n.isRoot);
+            if (next === node) next = nodes.find(n=>n.isRoot);
         }
         App.Store.executeSafeAction(() => ({
-            nodes: App.Store.state.nodes.filter(n=>n.uuid!==node.uuid),
-            links: App.Store.state.links.filter(l=>l.source.uuid!==node.uuid && l.target.uuid!==node.uuid),
+            nodes: nodes.filter(n=>n.uuid!==node.uuid),
+            links: links.filter(l=>l.source.uuid!==node.uuid && l.target.uuid!==node.uuid),
             nextFocus: next,
-            nextSlots: App.Store.state.slots.map(s=>(s&&s.uuid===node.uuid)?null:s)
+            nextSlots: slots.map(s=>(s&&s.uuid===node.uuid)?null:s)
         }), () => {
             App.Store.state.navHistory = App.Store.state.navHistory.filter(n => n.uuid !== node.uuid);
         });
     },
 
     deleteLink(link) {
-        App.Store.executeSafeAction(() => ({ 
-            nodes: App.Store.state.nodes, 
-            links: App.Store.state.links.filter(l=>l!==link), 
-            nextFocus: App.Store.state.focusNode, 
-            nextSlots: App.Store.state.slots 
+        App.Store.executeSafeAction(() => ({
+            nodes: App.Store.state.nodes,
+            links: App.Store.state.links.filter(l=>l!==link),
+            nextFocus: App.Store.state.focusNode,
+            nextSlots: App.Store.state.slots
         }));
     },
 
     navigateBack() {
         const h = App.Store.state.navHistory;
-        
+
         // Loop and Pop until we find a valid previous node
         while (h.length > 0) {
             const prev = h.pop(); // Remove from stack so we don't go back to it again
             const exists = App.Store.state.nodes.find(n => n.uuid === prev.uuid);
-            
+
             // Ensure node exists and we aren't just reloading the current node
             if (exists && exists.uuid !== App.Store.state.focusNode.uuid) {
                 // Move to it, but DO NOT record history (recordHistory = false)
@@ -1181,25 +1214,6 @@ App.Input = {
         }
         // Optional feedback
         App.UI.showFlash(App.Utils.t('flash.noHistory') || "No History", 'info');
-    },
-
-    importData(inp) {
-        const f = inp.files[0];
-        if(f) {
-            const r = new FileReader();
-            r.onload = e => {
-                try {
-                    const data = JSON.parse(e.target.result);
-                    if (data && data.data && Array.isArray(data.data.nodes)) {
-                        vscode.postMessage({ command: 'saveData', data: data });
-                        App.Store.loadFromExtension(data);
-                        App.UI.showFlash(App.Utils.t('alert.importSuccess'));
-                    } else App.UI.showFlash(App.Utils.t('alert.importFail'), 'warn');
-                } catch(e) { App.UI.showFlash(App.Utils.t('alert.parseFail'), 'warn'); }
-            };
-            r.readAsText(f);
-            inp.value = '';
-        }
     },
 
     // --- Mouse ---
@@ -1224,7 +1238,7 @@ App.Input = {
         this.state.mouseX = e.clientX; this.state.mouseY = e.clientY;
         if(App.UI.Modal.el.classList.contains('active') || App.UI.Dialog.isActive) return;
         if(this.state.dragNode) return;
-        
+
         const node = this.pickNode(e.clientX, e.clientY);
         if(node) {
             this.state.hoverNode = node; this.state.previewNode = null;
@@ -1275,7 +1289,7 @@ App.Input = {
         if(App.UI.Modal.el.classList.contains('active')) return;
         if(App.UI.PresetEditor.active) { if(e.key==='Escape') App.UI.PresetEditor.close(); return; }
         if(App.UI.RelationPicker.active) { App.UI.RelationPicker.handleInput(e); return; }
-        
+
         if(['INPUT','TEXTAREA'].includes(e.target.tagName)) {
             if(e.key==='Escape') e.target.blur();
             if(e.key==='Enter' && e.target.id==='node-label') { e.preventDefault(); e.target.blur(); }
@@ -1283,7 +1297,7 @@ App.Input = {
         }
 
         this.state.keyState[e.key] = true; if(e.shiftKey) this.state.keyState['Shift']=true;
-        
+
         const isSlot = (e.key>='1' && e.key<='4');
         if(['!','@','#','$'].includes(e.key)) { this.handleSlotStore({'!':0,'@':1,'#':2,'$':3}[e.key]); return; }
         if(!e.shiftKey && isSlot) { this.handleSlot(parseInt(e.key)-1); return; }
