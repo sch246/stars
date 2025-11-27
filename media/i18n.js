@@ -25,6 +25,7 @@ const translations = {
         "btn.export": "Export",
         "btn.reset": "Reset System",
         "btn.import": "Import",
+        "btn.language": "🌐 English",
         "btn.presets": "Manage Presets",
         "sidebar.placeholder.label": "Concept Name",
         "sidebar.placeholder.summary": "Short summary (Markdown/HTML)...",
@@ -67,6 +68,7 @@ const translations = {
         "fallback.summary": "Workspace Root",
         "fallback.content": "Welcome to Stars in VSCode. Start exploring!",
         "fallback.newNode": "New Concept",
+        "fallback.newRelationship": "New Relationship",
         "dialog.confirm": "Confirm",
         "dialog.cancel": "Cancel",
         "tooltip.preview": "<strong>Preview: {label}</strong><br>{summary}<br><span style='color:#af4cae'>Press <span class=\"key\">↑</span> <span class=\"key\">/</span> to Jump</span>",
@@ -96,6 +98,7 @@ const translations = {
         "btn.export": "导出",
         "btn.reset": "重置系统",
         "btn.import": "导入",
+        "btn.language": "🌐 中文",
         "btn.presets": "预设管理",
         "sidebar.placeholder.label": "概念名称",
         "sidebar.placeholder.summary": "简短摘要 (Markdown/HTML)...",
@@ -138,6 +141,7 @@ const translations = {
         "fallback.summary": "工作区根节点",
         "fallback.content": "欢迎使用 VSCode 中的星罗系统。",
         "fallback.newNode": "新概念",
+        "fallback.newRelationship": "新关系",
         "dialog.confirm": "确定",
         "dialog.cancel": "取消",
         "tooltip.preview": "<strong>预览: {label}</strong><br>{summary}<br><span style='color:#af4cae'>按 <span class=\"key\">↑</span> <span class=\"key\">/</span> 跳转</span>",
@@ -165,6 +169,14 @@ function setLanguage(langCode) {
 }
 
 /**
+ * 获取当前语言。
+ * @returns {string} langCode VS Code 返回的语言代码，例如 'en-US', 'zh-cn'。
+ */
+function getLanguage() {
+    return currentLang;
+}
+
+/**
  * 获取指定键的翻译文本。
  * @param {string} key 翻译字典中的键。
  * @param {Object} [params={}] 替换占位符的参数对象。例如 {n: 5, label: "Test"} 会替换 {n} 和 {label}。
@@ -184,3 +196,4 @@ function t(key, params = {}) {
 // 确保在 main.js 中可以使用这些函数
 window.t = t;
 window.setLanguage = setLanguage;
+window.getLanguage = getLanguage;

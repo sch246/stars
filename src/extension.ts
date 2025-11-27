@@ -258,7 +258,7 @@ class StarsPanel {
       </head>
       <body>
           <div id="hud">
-              <h1><span id="txt-hud-title">Stars</span> <span style="font-size:10px; opacity:0.5">v5.0 Refactored</span></h1>
+              <h1><span id="app-title">Stars</span> <span style="font-size:10px; opacity:0.5">v5.0 Refactored</span></h1>
               <div id="slot-bar">
                   <!-- 移除 onclick/oncontextmenu，保留 id 和 class -->
                   <div class="slot" id="slot-1" data-index="0"><div class="slot-circle"><span class="slot-num">1</span></div><span class="slot-name">-</span></div>
@@ -280,24 +280,25 @@ class StarsPanel {
           <div id="relation-picker" class="overlay-menu"></div>
 
           <div id="preset-editor">
-              <div class="menu-title"><span id="txt-preset-editor-title">预设关系编辑器</span> <span id="preset-editor-close-btn" style="float:right; cursor:pointer">✕</span></div>
-              <div class="controls" style="margin-bottom:10px; color:#666;" id="txt-preset-editor-desc">定义常用的连接类型。按 Enter 保存。</div>
+              <div class="menu-title"><span id="pe-title">预设关系编辑器</span> <span id="preset-editor-close-btn" style="float:right; cursor:pointer">✕</span></div>
+              <div class="controls" style="margin-bottom:10px; color:#666;" id="pe-desc">定义常用的连接类型。按 Enter 保存。</div>
               <div class="preset-list" id="preset-list-container"></div>
               <div class="preset-actions">
-                  <button id="add-preset-btn">+ 新增预设</button>
-                  <button class="btn-primary" id="save-presets-btn">保存并应用</button>
+                  <button id="pe-btn-add">+ 新增预设</button>
+                  <button class="btn-primary" id="pe-btn-save">保存并应用</button>
               </div>
           </div>
 
           <div id="content-modal"><div id="modal-body"></div></div>
 
           <div id="io-controls">
-              <button id="save-btn">保存</button>
-              <button id="export-btn">导出</button>
-              <button id="reset-system-btn">重置系统</button>
+              <button id="btn-save">保存</button>
+              <button id="btn-export">导出</button>
+              <button id="btn-reset">重置系统</button>
               <input type="file" id="importFile" style="display:none">
-              <button id="import-btn">导入</button>
-              <button id="manage-presets-btn">预设管理</button>
+              <button id="btn-import">导入</button>
+              <button id="btn-lang">🌐 中文</button> 
+              <button id="btn-preset">预设管理</button>
           </div>
 
           <div id="sidebar">

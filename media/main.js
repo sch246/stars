@@ -269,33 +269,52 @@ App.UI = {
     },
 
     I18n: {
+        getLanguage() {
+            const langCode = localStorage.getItem('stars_lang')
+            if (langCode) return langCode;
+            else if (typeof getLanguage !== 'undefined') return getLanguage();
+            else return 'en';
+        },
+
+        toggle() {
+            // 切换状态
+            if (typeof getLanguage !== 'undefined' && typeof setLanguage !== undefined) {
+                const currentLang = this.getLanguage();
+                let nextLang = currentLang === 'zh-cn' ? 'en' : 'zh-cn';
+                setLanguage(nextLang);
+                localStorage.setItem('stars_lang', nextLang);
+                this.apply();
+                App.UI.showFlash((nextLang === 'zh-cn' ? "语言: 中文" : "Language: English"))
+            }
+        },
+
         apply() {
             const setText = (id, key) => { const el = document.getElementById(id); if(el) el.innerHTML = App.Utils.t(key); };
             const setPh = (id, key) => { const el = document.getElementById(id); if(el) el.placeholder = App.Utils.t(key); };
 
-            setText('txt-hud-title', 'hud.title');
+            setText('app-title', 'hud.title');
             setText('txt-view-range', 'hud.viewLayers');
             setText('txt-layers', 'hud.layers');
             setText('txt-adjust', 'hud.adjust');
             setText('txt-visible', 'hud.visible');
             setText('txt-nodes', 'hud.nodes');
-            const ctrlDiv = document.getElementById('key-controls');
-            if(ctrlDiv) ctrlDiv.innerHTML = App.Utils.t('hud.controls');
+            setText('key-controls', 'hud.controls');
 
-            setText('save-btn', 'btn.save');
-            setText('export-btn', 'btn.export');
-            setText('reset-system-btn', 'btn.reset');
-            setText('import-btn', 'btn.import');
-            setText('manage-presets-btn', 'btn.presets');
+            setText('btn-save', 'btn.save');
+            setText('btn-export', 'btn.export');
+            setText('btn-reset', 'btn.reset');
+            setText('btn-import', 'btn.import');
+            setText('btn-lang', 'btn.language');
+            setText('btn-preset', 'btn.presets');
 
             setPh('node-label', 'sidebar.placeholder.label');
             setPh('node-summary', 'sidebar.placeholder.summary');
             setPh('node-content', 'sidebar.placeholder.content');
 
-            setText('txt-preset-editor-title', 'preset.menuTitle');
-            setText('txt-preset-editor-desc', 'preset.menuDesc');
-            setText('add-preset-btn', 'preset.btnAdd');
-            setText('save-presets-btn', 'preset.btnSave');
+            setText('pe-title', 'preset.menuTitle');
+            setText('pe-desc', 'preset.menuDesc');
+            setText('pe-btn-add', 'preset.btnAdd');
+            setText('pe-btn-save', 'preset.btnSave');
 
             App.Input.updateLinkModeIndicator();
         }
@@ -435,7 +454,7 @@ App.UI = {
         remove(idx) { this.tempPresets.splice(idx, 1); this.renderList(); },
         add() {
             if (this.tempPresets.length >= 20) { App.UI.showFlash(App.Utils.t('alert.presetExceedMax'), 'warn'); return; }
-            this.tempPresets.push({label: App.Utils.t('fallback.newNode'), val:'new', color: App.Utils.getRandomColor()});
+            this.tempPresets.push({label: App.Utils.t('fallback.newRelationship'), val:'new', color: App.Utils.getRandomColor()});
             this.renderList(); setTimeout(() => this.listEl.scrollTop = this.listEl.scrollHeight, 10);
         },
         saveAndClose() {
@@ -455,7 +474,24 @@ App.UI = {
 // 2. Store (Fixed: ExecuteSafeAction Logic)
 // ==========================================
 App.Store = {
-    state: { nodes: [], links: [], slots: [null,null,null,null], focusNode: null, viewLayers: 1, navHistory: [], presets: [] },
+    state: {
+        nodes: [],
+        links: [],
+        slots: [null,null,null,null],
+        focusNode: null,
+        viewLayers: 1,
+        navHistory: [],
+        presets: []
+    },
+
+    DEFAULT_PRESETS: [
+        { label: App.Utils.t('preset.default.includes'), val: 'comp', color: '#0062ff' },
+        { label: App.Utils.t('preset.default.definedAs'), val: 'def', color: '#00ff00' },
+        { label: App.Utils.t('preset.default.intuitive'), val: 'ins', color: '#33ffff' },
+        { label: App.Utils.t('preset.default.calculates'), val: 'calc', color: '#ffaa00' },
+        { label: App.Utils.t('preset.default.implies'), val: 'impl', color: '#bd00ff' },
+        { label: App.Utils.t('preset.default.orthogonalTo'), val: 'orth', color: '#ff0055' },
+    ],
 
     pushHistory(node) {
         if(node) {
@@ -466,87 +502,126 @@ App.Store = {
         }
     },
 
-    loadFromExtension(payload) {
+    loadState(payload, shouldSave = false) {
+        // 1. 清理旧状态
         App.Runtime.clearAllStorage();
+        this.state.navHistory = [];
+        // 2. 处理空数据情况 (回退到创建根节点)
         if (!payload || !payload.data || !payload.data.nodes) {
             this.createRoot();
-        } else {
-            this.state.nodes = []; this.state.links = []; this.state.navHistory = [];
-            this.state.viewLayers = payload.viewLayers || 1;
-            const DEFAULT_PRESETS = [
-                { label: App.Utils.t('preset.default.includes'), val: 'comp', color: '#0062ff' },
-                { label: App.Utils.t('preset.default.definedAs'), val: 'def', color: '#00ff00' },
-                { label: App.Utils.t('preset.default.intuitive'), val: 'ins', color: '#33ffff' },
-                { label: App.Utils.t('preset.default.calculates'), val: 'calc', color: '#ffaa00' },
-                { label: App.Utils.t('preset.default.implies'), val: 'impl', color: '#bd00ff' },
-                { label: App.Utils.t('preset.default.orthogonalTo'), val: 'orth', color: '#ff0055' },
-            ];
-            this.state.presets = (payload.presets && Array.isArray(payload.presets)) ? payload.presets : DEFAULT_PRESETS;
-
-            const nodeMap = new Map(payload.data.nodes.map(n => [n.uuid, { ...n }]));
-            this.state.nodes = Array.from(nodeMap.values());
-            this.state.links = payload.data.links.map(l => ({
-                source: nodeMap.get(l.source) || l.source,
-                target: nodeMap.get(l.target) || l.target,
-                type: l.type,
-                alpha: 0
-            })).filter(l => l.source && l.target);
-
-            this.state.focusNode = payload.focusNodeUuid ? nodeMap.get(payload.focusNodeUuid) : (this.state.nodes.find(n => n.isRoot) || this.state.nodes[0]);
-            if (!this.state.focusNode) this.createRoot();
-
-            this.state.nodes.forEach(n => {
-                if(n.x==null || isNaN(n.x)) n.x = (Math.random()-0.5)*50;
-                if(n.y==null || isNaN(n.y)) n.y = (Math.random()-0.5)*50;
-                n.alpha = 0; n.vx = 0; n.vy = 0; n.fx = null; n.fy = null;
-                if(n.isRoot) { n.fx=0; n.fy=0; }
-            });
-
-            if (this.state.focusNode) {
-                this.state.focusNode.alpha = 1;
-                const initVis = new Set([this.state.focusNode.uuid]);
-                const q = [{n:this.state.focusNode, d:0}]; let h=0;
-                while(h < q.length) {
-                    const {n, d} = q[h++];
-                    if(d >= this.state.viewLayers) continue;
-                    this.state.links.forEach(l => {
-                        const sId = l.source.uuid||l.source, tId = l.target.uuid||l.target;
-                        if(sId === n.uuid && !initVis.has(tId)) {
-                            const t = this.state.nodes.find(x=>x.uuid===tId);
-                            if(t) { initVis.add(tId); t.alpha=1; q.push({n:t, d:d+1}); }
-                        } else if(tId === n.uuid && !initVis.has(sId)) {
-                            const s = this.state.nodes.find(x=>x.uuid===sId);
-                            if(s) { initVis.add(sId); s.alpha=1; q.push({n:s, d:d+1}); }
-                        }
-                    });
-                }
-                if(App.Renderer.width > 0) {
-                    App.Renderer.viewX = -this.state.focusNode.x * App.Renderer.viewK + App.Renderer.width/2;
-                    App.Renderer.viewY = -this.state.focusNode.y * App.Renderer.viewK + App.Renderer.height/2;
-                }
-            }
-            this.state.slots = (payload.slots || [null,null,null,null]).map(uuid => uuid ? nodeMap.get(uuid) : null);
+            if (shouldSave) this.save();
+            return;
         }
+        // 3. 解析基础数据
+        // 兼容两种 presets 写法
+        this.state.presets = (payload.presets && Array.isArray(payload.presets))
+            ? payload.presets
+            : this.DEFAULT_PRESETS;
+        this.state.viewLayers = payload.viewLayers || 1;
+        // 4. 重建对象引用 (核心逻辑)
+        // 无论数据源是对象还是字符串，这里都统一处理
+        // 使用 Map 确保 O(1) 查找
+        const nodeMap = new Map(payload.data.nodes.map(n => [n.uuid, { ...n }])); // 浅拷贝防止污染源数据
+        // 初始化节点物理状态
+        nodeMap.forEach(n => {
+            if (n.x == null || isNaN(n.x)) n.x = (Math.random() - 0.5) * 50;
+            if (n.y == null || isNaN(n.y)) n.y = (Math.random() - 0.5) * 50;
+            n.alpha = 0; n.vx = 0; n.vy = 0; n.fx = null; n.fy = null;
+            if (n.isRoot) { n.fx = 0; n.fy = 0; }
+        });
+        this.state.nodes = Array.from(nodeMap.values());
+        // 恢复连线引用
+        this.state.links = (payload.data.links || []).map(l => ({
+            source: nodeMap.get(typeof l.source === 'object' ? l.source.uuid : l.source) || l.source,
+            target: nodeMap.get(typeof l.target === 'object' ? l.target.uuid : l.target) || l.target,
+            type: l.type,
+            alpha: 0
+        })).filter(l => l.source && l.target && typeof l.source !== 'string' && typeof l.target !== 'string');
+        // 恢复插槽引用
+        this.state.slots = (payload.slots || [null, null, null, null])
+            .map(uuid => uuid ? nodeMap.get(uuid) : null);
+        // 5. 设置焦点节点 (Focus Node)
+        this.state.focusNode = payload.focusNodeUuid
+            ? nodeMap.get(payload.focusNodeUuid)
+            : (this.state.nodes.find(n => n.isRoot) || this.state.nodes[0]);
+        // 兜底：如果没有焦点节点，创建一个
+        if (!this.state.focusNode) {
+            this.createRoot();
+        } else {
+            this.state.focusNode.alpha = 1;
+        }
+        // 6. 计算初始可见性 (BFS)
+        // 这一步是为了让首屏渲染不至于全黑，且不需要等物理模拟跑太久
+        if (this.state.focusNode) {
+            const initVis = new Set([this.state.focusNode.uuid]);
+            const q = [{n: this.state.focusNode, d: 0}];
+            let h = 0;
+
+            // 建立临时邻接表加速查找
+            const adj = {};
+            this.state.links.forEach(l => {
+                const s = l.source.uuid, t = l.target.uuid;
+                if(!adj[s]) adj[s] = []; adj[s].push(t);
+                if(!adj[t]) adj[t] = []; adj[t].push(s);
+            });
+            while(h < q.length) {
+                const {n, d} = q[h++];
+                if(d >= this.state.viewLayers) continue;
+                (adj[n.uuid] || []).forEach(neighborUuid => {
+                    if (!initVis.has(neighborUuid)) {
+                        initVis.add(neighborUuid);
+                        const neighborNode = nodeMap.get(neighborUuid);
+                        if (neighborNode) {
+                            neighborNode.alpha = 1;
+                            q.push({n: neighborNode, d: d+1});
+                        }
+                    }
+                });
+            }
+        }
+        // 7. 重置视图位置 (Camera)
+        if (App.Renderer.width > 0 && this.state.focusNode) {
+            App.Renderer.viewX = -this.state.focusNode.x * App.Renderer.viewK + App.Renderer.width/2;
+            App.Renderer.viewY = -this.state.focusNode.y * App.Renderer.viewK + App.Renderer.height/2;
+        }
+        // 8. 刷新 UI 和 模拟器
         App.UI.updateSidebar();
         App.UI.updateSlotUI();
+        App.Renderer.adjustZoomByLayer(); // 确保缩放级别正确
         App.Renderer.restartSim();
+
+        // 预热模拟 (让节点稍微散开一点)
         for(let i=0; i<30; i++) App.Renderer.simulation.tick();
+        this.save();
     },
 
     createRoot() {
         const rootUUID = uuid.v4();
-        const root = { uuid: rootUUID, label: App.Utils.t('fallback.origin'), isRoot: true, x: 0, y: 0, fx: 0, fy: 0, summary: App.Utils.t('fallback.summary'), content: App.Utils.t('fallback.content'), color: "#ffffff", alpha: 1 };
+        const root = {
+            uuid: rootUUID,
+            label: App.Utils.t('fallback.origin'),
+            isRoot: true,
+            x: 0, y: 0,
+            fx: 0, fy: 0,
+            summary: App.Utils.t('fallback.summary'),
+            content: App.Utils.t('fallback.content'),
+            color: "#ffffff",
+            alpha: 1
+        };
         this.state.nodes = [root];
         this.state.links = [];
         this.state.slots = [null,null,null,null];
         this.state.focusNode = root;
         this.state.viewLayers = 1;
+        this.state.navHistory = []; // 新建根节点时清空历史记录
+        this.state.presets = this.DEFAULT_PRESETS; // 新建根节点时重置预设
     },
 
-    // --- Critical Fix: Execute Safe Action ---
-    // Now correctly applies changes regardless of unsafe/safe path
+    // 核心安全执行器 (Anchor-based Safety Check)
     async executeSafeAction(simulator, onApplied = null) {
         const { nodes, focusNode, slots } = this.state;
+
+        // 1. 获取当前锚点集合 (Origin + Focus + Slots)
         const getAnchors = (nl, fn, sl) => {
             const r = nl.find(n=>n.isRoot);
             return new Set([r, fn, ...sl].filter(x=>x).map(x=>x.uuid));
@@ -657,10 +732,13 @@ App.Store = {
                     const data = JSON.parse(e.target.result);
                     if (data && data.data && Array.isArray(data.data.nodes)) {
                         vscode.postMessage({ command: 'saveData', data: data });
-                        App.Store.loadFromExtension(data);
+                        App.Store.loadState(data, true);
                         App.UI.showFlash(App.Utils.t('alert.importSuccess'));
                     } else App.UI.showFlash(App.Utils.t('alert.importFail'), 'warn');
-                } catch(e) { App.UI.showFlash(App.Utils.t('alert.parseFail'), 'warn'); }
+                } catch(e) {
+                    console.error("解析错误:", e);
+                    App.UI.showFlash("解析错误: " + e.message, 'warn');
+                };
             };
             r.readAsText(f);
             inp.value = '';
@@ -750,7 +828,7 @@ App.Renderer = {
             .force("x", d3.forceX(0).strength(0.01))
             .force("y", d3.forceY(0).strength(0.01))
             .alphaDecay(0.05).alphaMin(0.05);
-        
+
         this.pointerForce = (() => {
             let node, target, strength=0.02;
             function f(alpha) {
@@ -930,6 +1008,7 @@ App.Renderer = {
             }
         });
         this.ctx.restore();
+        document.getElementById('layer-indicator').innerText=App.Store.state.viewLayers;
         document.getElementById('visible-count').innerText = vCount;
         if (this.simulation.alpha() < 0.3) this.simulation.alpha(0.3).restart();
         requestAnimationFrame(now => this.render(now));
@@ -969,15 +1048,16 @@ App.Input = {
             if(e.key==='Shift') this.state.keyState['Shift'] = false;
         });
 
-        document.getElementById('save-btn').addEventListener('click', () => App.Store.save());
-        document.getElementById('export-btn').addEventListener('click', () => App.Store.exportData()); 
-        document.getElementById('reset-system-btn').addEventListener('click', () => App.Store.resetSystem());
-        document.getElementById('import-btn').addEventListener('click', () => document.getElementById('importFile').click());
+        document.getElementById('btn-save').addEventListener('click', () => App.Store.save());
+        document.getElementById('btn-export').addEventListener('click', () => App.Store.exportData());
+        document.getElementById('btn-reset').addEventListener('click', () => App.Store.resetSystem());
+        document.getElementById('btn-import').addEventListener('click', () => document.getElementById('importFile').click());
         document.getElementById('importFile').addEventListener('change', (e) => App.Store.importData(e.target));
-        document.getElementById('manage-presets-btn').addEventListener('click', () => App.UI.PresetEditor.open());
+        document.getElementById('btn-lang').addEventListener('click', () => App.UI.I18n.toggle());
+        document.getElementById('btn-preset').addEventListener('click', () => App.UI.PresetEditor.open());
         document.getElementById('preset-editor-close-btn').addEventListener('click', () => App.UI.PresetEditor.close());
-        document.getElementById('add-preset-btn').addEventListener('click', () => App.UI.PresetEditor.add());
-        document.getElementById('save-presets-btn').addEventListener('click', () => App.UI.PresetEditor.saveAndClose());
+        document.getElementById('pe-btn-add').addEventListener('click', () => App.UI.PresetEditor.add());
+        document.getElementById('pe-btn-save').addEventListener('click', () => App.UI.PresetEditor.saveAndClose());
     },
 
     handleSlotClick(idx, isShift) {
@@ -1213,7 +1293,7 @@ App.Input = {
             }
         }
         // Optional feedback
-        App.UI.showFlash(App.Utils.t('flash.noHistory') || "No History", 'info');
+        App.UI.showFlash(App.Utils.t('flash.noHistory'), 'info');
     },
 
     // --- Mouse ---
@@ -1309,8 +1389,8 @@ App.Input = {
             case 'ArrowRight': this.jumpDirection(0); break;
             case '.': this.cyclePreview(1); break;
             case ',': this.cyclePreview(-1); break;
-            case '=': case '+': App.Store.state.viewLayers = Math.max(1, App.Store.state.viewLayers-1); App.Renderer.adjustZoomByLayer(); document.getElementById('layer-indicator').innerText=App.Store.state.viewLayers; break;
-            case '-': case '_': App.Store.state.viewLayers = Math.min(7, App.Store.state.viewLayers+1); App.Renderer.adjustZoomByLayer(); document.getElementById('layer-indicator').innerText=App.Store.state.viewLayers; break;
+            case '=': case '+': App.Store.state.viewLayers = Math.max(1, App.Store.state.viewLayers-1); App.Renderer.adjustZoomByLayer(); break;
+            case '-': case '_': App.Store.state.viewLayers = Math.min(7, App.Store.state.viewLayers+1); App.Renderer.adjustZoomByLayer(); break;
             case 'Tab': case 'n': case 'N': e.preventDefault(); this.createNode(); break;
             case 'F2': e.preventDefault(); App.UI.els.label.focus(); App.UI.els.label.select(); break;
             case ' ': e.preventDefault(); App.UI.els.summary.focus(); App.UI.els.summary.select(); break;
@@ -1369,7 +1449,7 @@ App.Input = {
     setPreview(wrapper) {
         this.state.previewNode = wrapper.node;
         App.Renderer.setTargetRotation(-Math.PI/2 - wrapper.rawAngle);
-        const html = typeof marked!=='undefined' ? marked.parse(wrapper.node.summary||'') : wrapper.node.summary || ''; // 确保summary为空时不会报错
+        const html = (typeof marked!=='undefined' ? marked.parse(wrapper.node.summary||'') : wrapper.node.summary) || '';
         this.showTooltip(App.Utils.t('tooltip.preview', {label: wrapper.node.label, summary: html}), 0, 0, 'fixed');
     },
 
@@ -1429,7 +1509,7 @@ window.addEventListener('message', event => {
         case 'loadData':
             console.log("Stars: Data received.");
             if(!App.Renderer.simulation) { App.Renderer.init(); App.UI.init(); App.Input.init(); }
-            App.Store.loadFromExtension(msg.data);
+            App.Store.loadState(msg.data, false);
             break;
     }
 });
