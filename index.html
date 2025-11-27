@@ -9,7 +9,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/atom-one-dark.min.css">
     <style>
-        /* --- 样式保持完全一致 --- */
         body { margin: 0; overflow: hidden; background-color: #050508; font-family: 'Segoe UI', sans-serif; color: #ddd; }
         #canvas { display: block; width: calc(100vw - var(--sidebar-width, 340px)); height: 100vh; cursor: crosshair; outline: none; }
         #sidebar { position: fixed; right: 0; top: 0; width: var(--sidebar-width, 340px); height: 100vh; background: #111114; border-left: 1px solid #2a2a30; padding: 25px; box-sizing: border-box; display: flex; flex-direction: column; z-index: 10; box-shadow: -5px 0 20px rgba(0,0,0,0.8); }
@@ -88,48 +87,52 @@
 <body>
 
 <div id="hud">
-    <h1>星罗 <span style="font-size:10px; opacity:0.5">v5.0 Refactored</span></h1>
+    <h1 id="app-title">星罗 <span style="font-size:10px; opacity:0.5">v5.0</span></h1>
     <div id="slot-bar">
         <div class="slot" id="slot-1" onclick="App.Input.handleSlot(0)" oncontextmenu="App.Input.clearSlot(0, event)"><div class="slot-circle"><span class="slot-num">1</span></div><span class="slot-name">-</span></div>
         <div class="slot" id="slot-2" onclick="App.Input.handleSlot(1)" oncontextmenu="App.Input.clearSlot(1, event)"><div class="slot-circle"><span class="slot-num">2</span></div><span class="slot-name">-</span></div>
         <div class="slot" id="slot-3" onclick="App.Input.handleSlot(2)" oncontextmenu="App.Input.clearSlot(2, event)"><div class="slot-circle"><span class="slot-num">3</span></div><span class="slot-name">-</span></div>
         <div class="slot" id="slot-4" onclick="App.Input.handleSlot(3)" oncontextmenu="App.Input.clearSlot(3, event)"><div class="slot-circle"><span class="slot-num">4</span></div><span class="slot-name">-</span></div>
     </div>
-    <div id="view-controls">视野范围: <span id="layer-indicator">1</span> 层 (按 +/- 调整)<br>当前可见: <span id="visible-count">0</span> 节点</div>
-    <div id="link-mode-indicator">🔗 连线模式: 跳转以连接/Esc 取消</div>
-    <div id="key-controls" class="controls">
-        <span class="key">L</span> <span class="key">前侧键</span> 新建关系 <span class="key">Tab</span> <span class="key">N</span> 新建节点<br>
-        <span class="key">Del</span> <span class="key">D</span> <span class="key">右键</span> 删除关系/节点<br>
-        <span class="key">↑↓←→ /?</span> <span class="key">左键</span> 移动 <br>
-        <span class="key">F2</span> 改名 <span class="key">Space</span> 编辑 <span class="key">Enter</span> <span class="key">左键焦点</span> 查看<br>
-        <span class="key">(Shift)1-4</span> (存入)交换 <span class="key">H</span> 回家 <span class="key">B</span> <span class="key">后侧键</span> 后退<br>
-        <span class="key">, .</span> 预览邻居 <span class="key">< ></span> 自由旋转<br>
-        <span class="key">`</span> 关系预设 <span class="key">I</span> 隐藏此提示
+
+    <div id="view-controls">
+        <span id="txt-view-range">视野范围:</span> <span id="layer-indicator">1</span> <span id="txt-layers">层</span>
+        <span id="txt-adjust">(按 +/- 调整)</span><br>
+        <span id="txt-visible">当前可见:</span> <span id="visible-count">0</span> <span id="txt-nodes">节点</span>
     </div>
+
+    <div id="link-mode-indicator">...</div> <!-- 内容会在JS里初始化 -->
+
+    <!-- 按键帮助：内容会被 JS 的 apply() 覆盖，这里可以留空 -->
+    <div id="key-controls" class="controls"></div>
 </div>
 
 <div id="flash-message"></div>
 <div id="relation-picker" class="overlay-menu"></div>
 
 <div id="preset-editor">
-    <div class="menu-title">预设关系编辑器 <span style="float:right; cursor:pointer" onclick="App.UI.PresetEditor.close()">✕</span></div>
-    <div class="controls" style="margin-bottom:10px; color:#666;">定义常用的连接类型。按 Enter 保存。</div>
+    <div class="menu-title">
+        <span id="pe-title">预设关系编辑器</span>
+        <span style="float:right; cursor:pointer" onclick="App.UI.PresetEditor.close()">✕</span>
+    </div>
+    <div class="controls" id="pe-desc" style="margin-bottom:10px; color:#666;">...</div>
     <div class="preset-list" id="preset-list-container"></div>
     <div class="preset-actions">
-        <button onclick="App.UI.PresetEditor.add()">+ 新增预设</button>
-        <button class="btn-primary" onclick="App.UI.PresetEditor.saveAndClose()">保存并应用</button>
+        <button id="pe-btn-add" onclick="App.UI.PresetEditor.add()">+ 新增</button>
+        <button id="pe-btn-save" class="btn-primary" onclick="App.UI.PresetEditor.saveAndClose()">保存</button>
     </div>
 </div>
 
 <div id="content-modal" onclick="App.UI.Modal.close()"><div id="modal-body" onclick="event.stopPropagation()"></div></div>
 
 <div id="io-controls">
-    <button onclick="App.Store.saveToLocal()">保存</button>
-    <button onclick="App.Store.exportData()">导出</button>
-    <button onclick="App.Store.resetSystem()">重置系统</button>
+    <button id="btn-save" onclick="App.Store.saveToLocal()">保存</button>
+    <button id="btn-export" onclick="App.Store.exportData()">导出</button>
+    <button id="btn-reset" onclick="App.Store.resetSystem()">重置</button>
     <input type="file" id="importFile" style="display:none" onchange="App.Store.importData(this)">
-    <button onclick="document.getElementById('importFile').click()">导入</button>
-    <button onclick="App.UI.PresetEditor.open()">预设管理</button>
+    <button id="btn-import" onclick="document.getElementById('importFile').click()">导入</button>
+    <button id="btn-lang" onclick="App.I18n.toggle()">🌐 English</button>
+    <button id="btn-preset" onclick="App.UI.PresetEditor.open()">预设</button>
 </div>
 
 <div id="sidebar">
@@ -153,6 +156,230 @@
  * Single File Modular Architecture
  */
 const App = {};
+
+// ==========================================
+// 0. I18n (国际化)
+// ==========================================
+App.I18n = {
+    lang: 'en', // 默认
+    data: {
+        "en": {
+            "hud.title": "Stars <span style='font-size:10px; opacity:0.5'>v5.0</span>", // 特殊处理带HTML的标题
+            "hud.viewLayers": "View Range:",
+            "hud.layers": "Layers",
+            "hud.adjust": "(+/- to adjust)",
+            "hud.visible": "Visible:",
+            "hud.nodes": "nodes",
+            "hud.linkMode": "🔗 Link Mode: Jump to connect / Esc to cancel",
+            "hud.controls": `
+                <span class="key">L</span> <span class="key">Front Key</span> New Link <span class="key">Tab</span> <span class="key">N</span> New Node<br>
+                <span class="key">Del</span> <span class="key">D</span> <span class="key">Right Click</span> Delete Link/Node<br>
+                <span class="key">↑↓←→ /?</span> <span class="key">L-Click</span> Move <br>
+                <span class="key">F2</span> Rename <span class="key">Space</span> Edit <span class="key">Enter</span> <span class="key">Focus</span> View<br>
+                <span class="key">(Shift)1-4</span> Swap(Store) <span class="key">H</span> Home <span class="key">B</span> <span class="key">Back Key</span> Back<br>
+                <span class="key">, .</span> Preview Neighbors <span class="key">< ></span> Rotate<br>
+                <span class="key">\`</span> Presets <span class="key">I</span> Hide Help
+            `,
+            "btn.save": "Save",
+            "btn.export": "Export",
+            "btn.reset": "Reset System",
+            "btn.import": "Import",
+            "btn.language": "🌐 English",
+            "btn.presets": "Manage Presets",
+            "sidebar.placeholder.label": "Concept Name",
+            "sidebar.placeholder.summary": "Short summary (Markdown/HTML)...",
+            "sidebar.placeholder.content": "Detailed notes (Markdown supported)...",
+            "modal.noContent": "*No content available*",
+            "modal.close": "Press ESC to close",
+            "alert.resetConfirm": "Resetting the system will clear all data. Are you sure?",
+            "alert.deleteConfirm": "Warning: This action will cause {n} nodes to be lost (e.g., {label}...). Continue?",
+            "alert.importSuccess": "Data imported successfully",
+            "alert.importFail": "Invalid import file format",
+            "alert.parseFail": "Failed to parse imported file.",
+            "alert.presetValueEmpty": "Preset 'Value' cannot be empty.",
+            "alert.presetValueDuplicate": "Preset 'Value' cannot be duplicated.",
+            "alert.presetExceedMax": "Maximum number of presets reached.",
+            "alert.noLinkToBreak": "No link to break.",
+            "alert.rootCannotDelete": "The root node cannot be deleted.",
+            "flash.presetUpdated": "Presets updated.",
+            "flash.linkCut": "Link cut.",
+            "flash.noHistory": "No more history to navigate back to.",
+            "linkMode.prompt": "Enter link relationship name or val:",
+            "linkMode.promptPlaceholder": "e.g., contains, defined as...",
+            "linkMode.typeIndicator": "🔗 <span style='color:{color};'>Link Mode: {type} (Jump to connect / Esc to cancel)</span>",
+            "linkMode.deleteLabel": "Delete/Break Link",
+            "preset.title": "1. Select Type <span style='font-weight:normal; color:#888;'>(Space Custom{deleteFragment})</span>",
+            "preset.menuTitle": "Preset Relationship Editor",
+            "preset.menuDesc": "Define common connection types. Press Enter to save.",
+            "preset.btnAdd": "+ Add Preset",
+            "preset.btnSave": "Save & Apply",
+            "preset.input.label": "Display Name (Label)",
+            "preset.input.value": "Data Value (Value)",
+            "preset.delete": ", D Delete",
+            "preset.more": "More",
+            "preset.default.includes": "Includes...",
+            "preset.default.definedAs": "Defined as...",
+            "preset.default.intuitive": "Intuitive understanding",
+            "preset.default.calculates": "Calculates...",
+            "preset.default.implies": "Implies...",
+            "preset.default.orthogonalTo": "Orthogonal to...",
+            "fallback.origin": "Origin",
+            "fallback.summary": "Workspace Root",
+            "fallback.content": "Welcome to Stars in VSCode. Start exploring!",
+            "fallback.newNode": "New Concept",
+            "fallback.newRelationship": "New Relationship",
+            "dialog.confirm": "Confirm",
+            "dialog.cancel": "Cancel",
+            "tooltip.preview": "<strong>Preview: {label}</strong><br>{summary}<br><span style='color:#af4cae'>Press <span class=\"key\">↑</span> <span class=\"key\">/</span> to Jump</span>",
+            "tooltip.click": "<span style='color:#666'>Click to Jump</span>",
+            "tooltip.nodeHover": "<strong>{label}</strong><br>{summary}<br><span style='color:#666'>Click to Jump</span>",
+            "status.saved": "Stars: Saved.",
+            "status.noWorkspace": "Stars: Please open a folder to save data."
+        },
+        "zh-cn": {
+            "hud.title": "星罗 <span style='font-size:10px; opacity:0.5'>v5.0</span>",
+            "hud.viewLayers": "视野范围:",
+            "hud.layers": "层",
+            "hud.adjust": "(按 +/- 调整)",
+            "hud.visible": "当前可见:",
+            "hud.nodes": "节点",
+            "hud.linkMode": "🔗 连线模式: 跳转以连接/Esc 取消",
+            "hud.controls": `
+                <span class="key">L</span> <span class="key">前侧键</span> 新建关系 <span class="key">Tab</span> <span class="key">N</span> 新建节点<br>
+                <span class="key">Del</span> <span class="key">D</span> <span class="key">右键</span> 删除关系/节点<br>
+                <span class="key">↑↓←→ /?</span> <span class="key">左键</span> 移动 <br>
+                <span class="key">F2</span> 改名 <span class="key">Space</span> 编辑 <span class="key">Enter</span> <span class="key">左键焦点</span> 查看<br>
+                <span class="key">(Shift)1-4</span> (存入)交换 <span class="key">H</span> 回家 <span class="key">B</span> <span class="key">后侧键</span> 后退<br>
+                <span class="key">, .</span> 预览邻居 <span class="key">< ></span> 自由旋转<br>
+                <span class="key">\`</span> 关系预设 <span class="key">I</span> 隐藏此提示
+            `,
+            "btn.save": "保存",
+            "btn.export": "导出",
+            "btn.reset": "重置系统",
+            "btn.import": "导入",
+            "btn.language": "🌐 中文",
+            "btn.presets": "预设管理",
+            "sidebar.placeholder.label": "概念名称",
+            "sidebar.placeholder.summary": "简短摘要 (Markdown/HTML)...",
+            "sidebar.placeholder.content": "详细笔记 (Markdown支持)...",
+            "modal.noContent": "*暂无正文内容*",
+            "modal.close": "按 ESC 关闭",
+            "alert.resetConfirm": "重置系统将清空所有数据，确定吗？",
+            "alert.deleteConfirm": "警告：此操作将导致 {n} 个节点丢失（如 {label}...）。是否继续？",
+            "alert.importSuccess": "数据导入成功",
+            "alert.importFail": "导入文件格式不正确",
+            "alert.parseFail": "解析导入文件失败。",
+            "alert.presetValueEmpty": "预设的“数据值”不能为空。",
+            "alert.presetValueDuplicate": "预设的“数据值”不能重复。",
+            "alert.presetExceedMax": "预设数量已达上限。",
+            "alert.noLinkToBreak": "无连接可断开。",
+            "alert.rootCannotDelete": "初始奇点不可删除。",
+            "flash.presetUpdated": "预设已更新。",
+            "flash.linkCut": "链接已切断。",
+            "flash.noHistory": "没有更多历史记录可回退。",
+            "linkMode.prompt": "请输入链接关系名称或数据值:",
+            "linkMode.promptPlaceholder": "例如: 包含, 定义为...",
+            "linkMode.typeIndicator": "🔗 <span style='color:{color};'>连线模式: {type} (跳转以连接/Esc 取消)</span>",
+            "linkMode.deleteLabel": "删除/断开连接",
+            "preset.title": "1. 选择类型 <span style='font-weight:normal; color:#888;'>(Space 自定义{deleteFragment})</span>",
+            "preset.menuTitle": "预设关系编辑器",
+            "preset.menuDesc": "定义常用的连接类型。按 Enter 保存。",
+            "preset.btnAdd": "+ 新增预设",
+            "preset.btnSave": "保存并应用",
+            "preset.input.label": "显示名称 (Label)",
+            "preset.input.value": "数据值 (Value)",
+            "preset.delete": ", D 删除",
+            "preset.more": "更多",
+            "preset.default.includes": "包含...",
+            "preset.default.definedAs": "定义为...",
+            "preset.default.intuitive": "直观理解",
+            "preset.default.calculates": "计算...",
+            "preset.default.implies": "意味着...",
+            "preset.default.orthogonalTo": "与...正交",
+            "fallback.origin": "起源",
+            "fallback.summary": "工作区根节点",
+            "fallback.content": "欢迎使用 VSCode 中的星罗系统。",
+            "fallback.newNode": "新概念",
+            "fallback.newRelationship": "新关系",
+            "dialog.confirm": "确定",
+            "dialog.cancel": "取消",
+            "tooltip.preview": "<strong>预览: {label}</strong><br>{summary}<br><span style='color:#af4cae'>按 <span class=\"key\">↑</span> <span class=\"key\">/</span> 跳转</span>",
+            "tooltip.click": "<span style='color:#666'>点击跳转</span>",
+            "tooltip.nodeHover": "<strong>{label}</strong><br>{summary}<br><span style='color:#666'>点击跳转</span>",
+            "status.saved": "星罗: 已保存。",
+            "status.noWorkspace": "星罗: 请先打开一个文件夹以保存数据。"
+        }
+    },
+    init() {
+        const savedLang = localStorage.getItem('stars_lang');
+
+        if (savedLang) {
+            this.lang = savedLang;
+        } else {
+            // 2. 如果没有存档，再检测浏览器
+            const navLang = (navigator.language || navigator.userLanguage).toLowerCase();
+            if (navLang.startsWith('zh')) this.lang = 'zh-cn';
+            else this.lang = 'en';
+        }
+
+        console.log("Stars I18n Initialized:", this.lang);
+        this.apply();
+    },
+    toggle() {
+        // 切换状态
+        this.lang = (this.lang === 'zh-cn') ? 'en' : 'zh-cn';
+
+        // 保存到本地存储
+        localStorage.setItem('stars_lang', this.lang);
+
+        // 应用更改
+        this.apply();
+
+        // 可选：弹出提示
+        App.UI.showFlash((this.lang === 'zh-cn' ? "语言: 中文" : "Language: English"));
+    },
+    t(key, params = {}) {
+        const dict = this.data[this.lang] || this.data['en'];
+        let str = dict[key] || key;
+        Object.keys(params).forEach(k => {
+            str = str.replace(new RegExp(`{${k}}`, 'g'), params[k]);
+        });
+        return str;
+    },
+    apply() {
+        const setText = (id, key) => { const el = document.getElementById(id); if(el) el.innerHTML = this.t(key); };
+        const setPh = (id, key) => { const el = document.getElementById(id); if(el) el.placeholder = this.t(key); };
+        // 替换 HTML 中的静态文本
+        setText('app-title', 'hud.title');
+        setText('txt-view-range', 'hud.viewLayers');
+        setText('txt-layers', 'hud.layers');
+        setText('txt-adjust', 'hud.adjust');
+        setText('txt-visible', 'hud.visible');
+        setText('txt-nodes', 'hud.nodes');
+        setText('key-controls', 'hud.controls');
+
+        setText('btn-save', 'btn.save');
+        setText('btn-export', 'btn.export');
+        setText('btn-reset', 'btn.reset');
+        setText('btn-import', 'btn.import');
+        setText('btn-lang', 'btn.language');
+        setText('btn-preset', 'btn.presets');
+
+        setPh('node-label', 'sidebar.placeholder.label');
+        setPh('node-summary', 'sidebar.placeholder.summary');
+        setPh('node-content', 'sidebar.placeholder.content');
+
+        // 预设编辑器
+        setText('pe-title', 'preset.menuTitle');
+        setText('pe-desc', 'preset.menuDesc');
+        setText('pe-btn-add', 'preset.btnAdd');
+        setText('pe-btn-save', 'preset.btnSave');
+
+        App.Input.updateLinkModeIndicator(); // 刷新连线模式提示
+    }
+};
+// 快捷方式，方便调用
+const t = (k, p) => App.I18n.t(k, p);
 
 // ==========================================
 // 1. Utils (工具函数)
@@ -217,14 +444,18 @@ App.Store = {
         focusNode: null,
         viewLayers: 1,
         navHistory: [],
-        presets: [
-            { label: '包含...', val: 'comp', color: '#0062ff' },
-            { label: '定义为...', val: 'def', color: '#00ff00' },
-            { label: '直观理解', val: 'ins', color: '#33ffff' },
-            { label: '计算...', val: 'calc', color: '#ffaa00' },
-            { label: '意味着...', val: 'impl', color: '#bd00ff' },
-            { label: '与...正交', val: 'orth', color: '#ff0055' },
-        ]
+        presets: []
+    },
+
+    get DEFAULT_PRESETS () {
+        return [
+            { label: t('preset.default.includes'), val: 'comp', color: '#0062ff' },
+            { label: t('preset.default.definedAs'), val: 'def', color: '#00ff00' },
+            { label: t('preset.default.intuitive'), val: 'ins', color: '#33ffff' },
+            { label: t('preset.default.calculates'), val: 'calc', color: '#ffaa00' },
+            { label: t('preset.default.implies'), val: 'impl', color: '#bd00ff' },
+            { label: t('preset.default.orthogonalTo'), val: 'orth', color: '#ff0055' },
+        ];
     },
 
     pushHistory(node) {
@@ -236,27 +467,106 @@ App.Store = {
         }
     },
 
+    loadState(payload, shouldSave = false) {
+        // 1. 清理旧状态
+        App.Runtime.clearAllStorage();
+        this.state.navHistory = [];
+        // 2. 处理空数据情况 (回退到创建根节点)
+        if (!payload || !payload.data || !payload.data.nodes) {
+            this.createRoot();
+            if (shouldSave) this.saveToLocal();
+            return;
+        }
+        // 3. 解析基础数据
+        // 兼容两种 presets 写法
+        this.state.presets = (payload.presets && Array.isArray(payload.presets))
+            ? payload.presets
+            : this.DEFAULT_PRESETS;
+        this.state.viewLayers = payload.viewLayers || 1;
+        // 4. 重建对象引用 (核心逻辑)
+        // 无论数据源是对象还是字符串，这里都统一处理
+        // 使用 Map 确保 O(1) 查找
+        const nodeMap = new Map(payload.data.nodes.map(n => [n.uuid, { ...n }])); // 浅拷贝防止污染源数据
+        // 初始化节点物理状态
+        nodeMap.forEach(n => {
+            if (n.x == null || isNaN(n.x)) n.x = (Math.random() - 0.5) * 50;
+            if (n.y == null || isNaN(n.y)) n.y = (Math.random() - 0.5) * 50;
+            n.alpha = 0; n.vx = 0; n.vy = 0; n.fx = null; n.fy = null;
+            if (n.isRoot) { n.fx = 0; n.fy = 0; }
+        });
+        this.state.nodes = Array.from(nodeMap.values());
+        // 恢复连线引用
+        this.state.links = (payload.data.links || []).map(l => ({
+            source: nodeMap.get(typeof l.source === 'object' ? l.source.uuid : l.source) || l.source,
+            target: nodeMap.get(typeof l.target === 'object' ? l.target.uuid : l.target) || l.target,
+            type: l.type,
+            alpha: 0
+        })).filter(l => l.source && l.target && typeof l.source !== 'string' && typeof l.target !== 'string');
+        // 恢复插槽引用
+        this.state.slots = (payload.slots || [null, null, null, null])
+            .map(uuid => uuid ? nodeMap.get(uuid) : null);
+        // 5. 设置焦点节点 (Focus Node)
+        this.state.focusNode = payload.focusNodeUuid
+            ? nodeMap.get(payload.focusNodeUuid)
+            : (this.state.nodes.find(n => n.isRoot) || this.state.nodes[0]);
+        // 兜底：如果没有焦点节点，创建一个
+        if (!this.state.focusNode) {
+            this.createRoot();
+        } else {
+            this.state.focusNode.alpha = 1;
+        }
+        // 6. 计算初始可见性 (BFS)
+        // 这一步是为了让首屏渲染不至于全黑，且不需要等物理模拟跑太久
+        if (this.state.focusNode) {
+            const initVis = new Set([this.state.focusNode.uuid]);
+            const q = [{n: this.state.focusNode, d: 0}];
+            let h = 0;
+
+            // 建立临时邻接表加速查找
+            const adj = {};
+            this.state.links.forEach(l => {
+                const s = l.source.uuid, t = l.target.uuid;
+                if(!adj[s]) adj[s] = []; adj[s].push(t);
+                if(!adj[t]) adj[t] = []; adj[t].push(s);
+            });
+            while(h < q.length) {
+                const {n, d} = q[h++];
+                if(d >= this.state.viewLayers) continue;
+                (adj[n.uuid] || []).forEach(neighborUuid => {
+                    if (!initVis.has(neighborUuid)) {
+                        initVis.add(neighborUuid);
+                        const neighborNode = nodeMap.get(neighborUuid);
+                        if (neighborNode) {
+                            neighborNode.alpha = 1;
+                            q.push({n: neighborNode, d: d+1});
+                        }
+                    }
+                });
+            }
+        }
+        // 7. 重置视图位置 (Camera)
+        if (App.Renderer.width > 0 && this.state.focusNode) {
+            App.Renderer.viewX = -this.state.focusNode.x * App.Renderer.viewK + App.Renderer.width/2;
+            App.Renderer.viewY = -this.state.focusNode.y * App.Renderer.viewK + App.Renderer.height/2;
+        }
+        // 8. 刷新 UI 和 模拟器
+        App.UI.updateSidebar();
+        App.UI.updateSlotUI();
+        App.Renderer.adjustZoomByLayer(); // 确保缩放级别正确
+        App.Renderer.restartSim();
+
+        // 预热模拟 (让节点稍微散开一点)
+        for(let i=0; i<30; i++) App.Renderer.simulation.tick();
+        this.saveToLocal();
+    },
+
     // 初始化系统
     init() {
         const saved = localStorage.getItem('stars_v5');
         if (saved) {
             try {
                 const raw = JSON.parse(saved);
-                this.state.nodes = raw.data.nodes;
-                this.state.links = raw.data.links;
-                if (raw.presets && Array.isArray(raw.presets)) this.state.presets = raw.presets;
-
-                // 引用恢复
-                const nodeMap = new Map(this.state.nodes.map(n => [n.uuid, n]));
-                this.state.links.forEach(l => {
-                    if(typeof l.source === 'string') l.source = nodeMap.get(l.source) || l.source;
-                    if(typeof l.target === 'string') l.target = nodeMap.get(l.target) || l.target;
-                    l.alpha = 0;
-                });
-                this.state.nodes.forEach(n => { n.alpha = 0; });
-                this.state.slots = raw.slots ? raw.slots.map(uuid => uuid ? nodeMap.get(uuid) : null) : [null, null, null, null];
-                this.state.viewLayers = raw.viewLayers || 1;
-                this.state.focusNode = raw.focusNodeUuid ? nodeMap.get(raw.focusNodeUuid) : (this.state.nodes.find(n => n.isRoot) || this.state.nodes[0]);
+                this.loadState(raw, true); // 抽象出加载逻辑
             } catch(e) { console.error("Load error:", e); this.createRoot(); }
         } else { this.createRoot(); }
 
@@ -273,12 +583,12 @@ App.Store = {
         const rootUUID = uuid.v4();
         const root = {
             uuid: rootUUID,
-            label: "Origin",
+            label: t('fallback.origin'),
             isRoot: true,
             x: 0, y: 0,
             fx: 0, fy: 0,
-            summary: "初始奇点",
-            content: "欢迎来到星罗。",
+            summary: t('fallback.summary'),
+            content: t('fallback.content'),
             color: "#ffffff",
             alpha: 1
         };
@@ -287,6 +597,8 @@ App.Store = {
         this.state.slots = [null, null, null, null];
         this.state.focusNode = root;
         this.state.viewLayers = 1;
+        this.state.navHistory = []; // 新建根节点时清空历史记录
+        this.state.presets = this.DEFAULT_PRESETS; // 新建根节点时重置预设
     },
 
     // 核心安全执行器 (Anchor-based Safety Check)
@@ -294,9 +606,9 @@ App.Store = {
         const { nodes, focusNode, slots } = this.state;
 
         // 1. 获取当前锚点集合 (Origin + Focus + Slots)
-        const getAnchorUUIDs = (nList, fNode, sList) => {
-            const root = nList.find(n => n.isRoot);
-            return new Set([root, fNode, ...sList].filter(n => n).map(n => n.uuid));
+        const getAnchors = (nl, fn, sl) => {
+            const r = nl.find(n=>n.isRoot);
+            return new Set([r, fn, ...sl].filter(x=>x).map(x=>x.uuid));
         };
         const currentAnchorUUIDs = getAnchorUUIDs(nodes, focusNode, slots);
 
@@ -335,7 +647,8 @@ App.Store = {
 
         if (lostNodes.length > 0) {
             const names = lostNodes.slice(0, 3).map(n => n.label).join(', ');
-            if (confirm(`警告：此操作将导致 ${lostNodes.length} 个节点丢失（如 ${names}...）。是否继续？`)) {
+            const msg = t('alert.deleteConfirm', {n: lostNodes.length, label: lostNodes[0].label});
+            if (confirm(msg)) {
                 // Apply the simulated state first
                 applyState();
 
@@ -389,11 +702,13 @@ App.Store = {
                 try {
                     const importedData = JSON.parse(e.target.result);
                     if (importedData && importedData.data) {
-                        App.Runtime.clearAllStorage();
-                        localStorage.setItem('stars_v5', e.target.result);
-                        location.reload();
-                    } else { App.UI.showFlash("导入格式错误", 'warn'); }
-                } catch (error) { App.UI.showFlash("解析错误", 'warn'); }
+                        this.loadState(importedData, true);
+                        App.UI.showFlash(t('alert.importSuccess'), 'info');
+                    } else { App.UI.showFlash(t('alert.importFail'), 'warn'); }
+                } catch (error) {
+                    console.error(t('alert.parseFail'), error);
+                    App.UI.showFlash(t('alert.parseFail'), 'warn');
+                };
             };
             r.readAsText(f);
             inp.value = '';
@@ -401,7 +716,7 @@ App.Store = {
     },
 
     resetSystem() {
-        if(confirm("重置系统将清空所有数据，确定吗？")) {
+        if(confirm(t('alert.resetConfirm'))) {
             App.Runtime.clearAllStorage();
             localStorage.removeItem('stars_v5');
             location.reload();
@@ -623,18 +938,18 @@ App.UI = {
 
             this.body.innerHTML = ''; // 清空
 
-            const raw = node.content || "*暂无正文内容*";
+            const raw = node.content || t('modal.noContent');
             const html = typeof marked !== 'undefined' ? marked.parse(raw) : raw;
             const containerId = `node-content-host-${node.uuid}`;
 
             this.body.innerHTML = `
                 <div style="font-size:2em; font-weight:bold; color:#4facfe; margin-bottom:10px;">${node.label}</div>
                 <div style="color:#666; font-style:italic; margin-bottom:20px; border-left:3px solid #555; padding-left:10px;">
-                    ${node.summary ? (typeof marked !== 'undefined' ? marked.parse(node.summary) : node.summary) : '无摘要'}
+                    ${node.summary ? (typeof marked !== 'undefined' ? marked.parse(node.summary) : node.summary) : ''}
                 </div>
                 <hr style="border:0; border-bottom:1px solid #333; margin-bottom:20px;">
                 <div id="${containerId}" class="node-content-host" style="line-height:1.8; font-size:16px;">${html}</div>
-                <div style="margin-top:50px; text-align:center; font-size:12px; color:#444; cursor:pointer;" onclick="App.UI.Modal.close()">按 ESC 关闭</div>
+                <div style="margin-top:50px; text-align:center; font-size:12px; color:#444; cursor:pointer;" onclick="App.UI.Modal.close()">${t('modal.close')}</div>
             `;
 
             if (typeof hljs !== 'undefined') this.body.querySelectorAll('pre code').forEach(b => hljs.highlightElement(b));
@@ -669,12 +984,13 @@ App.UI = {
             this.allowDelete = allowDelete;
             return new Promise((res, rej) => {
                 const presets = App.Store.state.presets;
-                let html = `<div class="menu-title">1. 选择类型 <span style="font-weight:normal; color:#888;">(Space 自定义${allowDelete ? ', D 删除' : ''})</span></div>`;
+                const delFrag = allowDelete ? t('preset.delete') : '';
+                let html = `<div class="menu-title">${t('preset.title', {deleteFragment: delFrag})}</div>`;
                 html += presets.slice(0, 9).map((p, i) =>
                     `<div class="menu-opt" onclick="App.UI.RelationPicker.pick('${p.val}')"><span class="menu-key" style="color:${p.color}">[${i+1}]</span>${p.label || p.val}</div>`
                 ).join('');
-                if (presets.length > 9) html += `<div class="menu-title" style="margin-top:10px;">更多</div>` + presets.slice(9).map(p => `<div class="menu-opt" onclick="App.UI.RelationPicker.pick('${p.val}')"><span class="menu-key" style="visibility:hidden;">[]</span>${p.label}</div>`).join('');
-                if (allowDelete) html += `<div class="menu-opt delete-opt" style="margin-top:5px; border-top:1px solid #333" onclick="App.UI.RelationPicker.pick('DELETE')"><span class="menu-key" style="color:#e74c3c">[D]</span><span style="color:#e74c3c">删除/断开连接</span></div>`;
+                if (presets.length > 9) html += `<div class="menu-title" style="margin-top:10px;">${t('preset.more')}</div>` + presets.slice(9).map(p => `<div class="menu-opt" onclick="App.UI.RelationPicker.pick('${p.val}')"><span class="menu-key" style="visibility:hidden;">[]</span>${p.label}</div>`).join('');
+                if (allowDelete) html += `<div class="menu-opt delete-opt" style="margin-top:5px; border-top:1px solid #333" onclick="App.UI.RelationPicker.pick('DELETE')"><span class="menu-key" style="color:#e74c3c">[D]</span><span style="color:#e74c3c">${t('linkMode.deleteLabel')}</span></div>`;
 
                 this.el.innerHTML = html; this.el.classList.add('active'); this.active = true;
                 this.resolve = res; this.reject = rej;
@@ -729,8 +1045,8 @@ App.UI = {
                 row.innerHTML = `
                     <span class="preset-idx">${i+1}</span>
                     <input type="color" class="preset-color" value="${p.color}" onchange="App.UI.PresetEditor.update(${i}, 'color', this.value)">
-                    <input type="text" class="preset-input" style="width:120px" placeholder="显示名称" value="${p.label}" oninput="App.UI.PresetEditor.update(${i}, 'label', this.value)">
-                    <input type="text" class="preset-input" style="flex:1; color:#aaa;" placeholder="Value" value="${p.val}" oninput="App.UI.PresetEditor.update(${i}, 'val', this.value)">
+                    <input type="text" class="preset-input" style="width:120px" placeholder="${t('preset.input.label')}" value="${p.label}" oninput="App.UI.PresetEditor.update(${i}, 'label', this.value)">
+                    <input type="text" class="preset-input" style="flex:1; color:#aaa;" placeholder="${t('preset.input.value')}" value="${p.val}" oninput="App.UI.PresetEditor.update(${i}, 'val', this.value)">
                     <span class="preset-del" onclick="App.UI.PresetEditor.remove(${i})">✕</span>`;
                 this.listEl.appendChild(row);
             });
@@ -738,20 +1054,20 @@ App.UI = {
         update(idx, field, val) { this.tempPresets[idx][field] = val; },
         remove(idx) { this.tempPresets.splice(idx, 1); this.renderList(); },
         add() {
-            this.tempPresets.push({label:'New', val:'new', color: App.Utils.getRandomColor()});
+            this.tempPresets.push({label:t('fallback.newRelationship'), val:'new', color: App.Utils.getRandomColor()});
             this.renderList();
             setTimeout(() => this.listEl.scrollTop = this.listEl.scrollHeight, 10);
         },
         saveAndClose() {
             // 1. 检查空值
             if (this.tempPresets.some(p => !p.val || !p.val.trim())) {
-                App.UI.showFlash("预设的 Value (数据值) 不能为空。", 'warn');
+                App.UI.showFlash(t('alert.presetValueEmpty'), 'warn');
                 return;
             }
             // 2. 检查重复值
             const values = this.tempPresets.map(p => p.val.trim());
             if (new Set(values).size !== values.length) {
-                App.UI.showFlash("预设的 Value (数据值) 不能重复。", 'warn');
+                App.UI.showFlash(t('alert.presetValueDuplicate'), 'warn');
                 return;
             }
 
@@ -760,7 +1076,7 @@ App.UI = {
             App.Store.saveToLocal();
             App.Renderer.restartSim();
             this.close();
-            App.UI.showFlash("预设已更新");
+            App.UI.showFlash(t('flash.presetUpdated'));
         },
         close() { this.el.classList.remove('active'); this.active = false; }
     }
@@ -1037,6 +1353,7 @@ App.Renderer = {
         });
 
         this.ctx.restore();
+        document.getElementById('layer-indicator').innerText=App.Store.state.viewLayers;
         document.getElementById('visible-count').innerText = visibleCount;
         requestAnimationFrame((t) => this.render(t));
         if (this.simulation.alpha() < 0.3) this.simulation.alpha(0.3).restart();
@@ -1171,7 +1488,7 @@ App.Input = {
                     nextFocus: target,
                     nextSlots: App.Store.state.slots
                 }));
-            } else App.UI.showFlash("无连接可断开", 'info');
+            } else App.UI.showFlash(t('alert.noLinkToBreak'), 'info');
         } else {
             if(existing) { existing.type = type; existing.source = source; existing.target = target; }
             else { links.push({source, target, type, alpha: 0}); }
@@ -1186,7 +1503,7 @@ App.Input = {
             const mode = { active: true, source: App.Store.state.focusNode, type: res.val, color: '#fff' };
 
             if (res.val === 'CUSTOM') {
-                const cLabel = prompt("输入关系名称或数据值:");
+                const cLabel = prompt(t('linkMode.prompt'));
                 if(!cLabel) { this.exitLinkMode(); return; }
                 const preset = App.Store.state.presets.find(p=>p.label===cLabel);
                 mode.type = preset ? preset.val : cLabel;
@@ -1198,17 +1515,26 @@ App.Input = {
             }
 
             this.state.linkMode = mode;
-            const ind = document.getElementById('link-mode-indicator');
-            ind.style.display = 'inline-block';
-            ind.innerHTML = `🔗 <span style="color:${mode.color}">连线模式: ${mode.type}</span>`;
-            ind.classList.add('active');
+            this.updateLinkModeIndicator();
         } catch(e) { this.exitLinkMode(); }
     },
 
     exitLinkMode() {
         this.state.linkMode = { active: false, source: null, type: null, color: null };
-        document.getElementById('link-mode-indicator').classList.remove('active');
-        document.getElementById('link-mode-indicator').style.display = 'none';
+        this.updateLinkModeIndicator();
+    },
+
+    updateLinkModeIndicator() {
+        const el = document.getElementById('link-mode-indicator');
+        if (this.state.linkMode.active) {
+            el.innerHTML = t('linkMode.typeIndicator', {color: this.state.linkMode.color, type: this.state.linkMode.type});
+            el.classList.add('active');
+            el.style.display = 'inline-block';
+        } else {
+            el.innerHTML = t('hud.linkMode');
+            el.classList.remove('active');
+            el.style.display = 'none';
+        }
     },
 
     handleSlot(idx) {
@@ -1291,7 +1617,7 @@ App.Input = {
             const html = typeof marked!=='undefined'
                 ? marked.parse(node.summary||'')
                 : node.summary;
-            this.showTooltip(`<strong>${node.label}</strong><br>${html}<br><span style='color:#666'>点击跳转</span>`, e.clientX, e.clientY, 'mouse');
+            this.showTooltip(t('tooltip.nodeHover', {label: node.label, summary: html}), e.clientX, e.clientY, 'mouse');
         } else {
             this.state.hoverNode = null;
             if(!this.state.previewNode) this.hideTooltip();
@@ -1366,8 +1692,8 @@ App.Input = {
             case 'ArrowRight': this.jumpDirection(0); break;
             case '.': this.cyclePreview(1); break;
             case ',': this.cyclePreview(-1); break;
-            case '=': case '+': App.Store.state.viewLayers = Math.max(1, App.Store.state.viewLayers-1); App.Renderer.adjustZoomByLayer(); document.getElementById('layer-indicator').innerText=App.Store.state.viewLayers; break;
-            case '-': case '_': App.Store.state.viewLayers = Math.min(7, App.Store.state.viewLayers+1); App.Renderer.adjustZoomByLayer(); document.getElementById('layer-indicator').innerText=App.Store.state.viewLayers; break;
+            case '=': case '+': App.Store.state.viewLayers = Math.max(1, App.Store.state.viewLayers-1); App.Renderer.adjustZoomByLayer(); break;
+            case '-': case '_': App.Store.state.viewLayers = Math.min(7, App.Store.state.viewLayers+1); App.Renderer.adjustZoomByLayer(); break;
             case 'Tab': case 'n': case 'N': e.preventDefault(); this.createNode(); break;
             case 'F2': e.preventDefault(); App.UI.els.label.focus(); App.UI.els.label.select(); break;
             case ' ': e.preventDefault(); App.UI.els.summary.focus(); App.UI.els.summary.select(); break;
@@ -1393,7 +1719,7 @@ App.Input = {
     createNode() {
         const { focusNode, nodes, links, slots } = App.Store.state;
         const newNode = {
-            uuid: uuid.v4(), label: "新概念",
+            uuid: uuid.v4(), label: t('fallback.newNode'),
             x: focusNode.x + 150, y: focusNode.y + 50,
             summary: "", content: "", color: App.Utils.getRandomColor(), alpha: 0
         };
@@ -1423,7 +1749,7 @@ App.Input = {
 
     deleteNode(target = null) {
         const node = target || App.Store.state.focusNode;
-        if(node.isRoot) { App.UI.showFlash("初始奇点不可删除", 'warn'); return; }
+        if(node.isRoot) { App.UI.showFlash(t('alert.rootCannotDelete'), 'warn'); return; }
 
         const { navHistory, nodes, links, slots } = App.Store.state
         let nextFocus = App.Store.state.focusNode;
@@ -1470,7 +1796,7 @@ App.Input = {
             }
         }
         // Optional feedback
-        App.UI.showFlash("没有更多历史记录可回退", 'info');
+        App.UI.showFlash(t('flash.noHistory'), 'info');
     },
 
     // --- Radar/Preview Logic ---
@@ -1532,8 +1858,8 @@ App.Input = {
     setPreview(targetWrapper) {
         this.state.previewNode = targetWrapper.node;
         App.Renderer.setTargetRotation(-Math.PI/2 - targetWrapper.rawAngle);
-        const html = typeof marked!=='undefined' ? marked.parse(this.state.previewNode.summary||'') : wrapper.node.summary || '';
-        this.showTooltip(`<strong>预览: ${this.state.previewNode.label}</strong><br>${html}<br><span style='color:#af4cae'>按 <span class="key">↑</span> <span class="key">/</span> 跳转</span>`, 0, 0, 'fixed');
+        const html = (typeof marked!=='undefined' ? marked.parse(this.state.previewNode.summary||'') : this.state.previewNode.summary) || '';
+        this.showTooltip(t('tooltip.preview', {label: this.state.previewNode.label, summary: html}), 0, 0, 'fixed');
     },
 
     jumpDirection(targetAng) {
@@ -1594,6 +1920,7 @@ App.Input = {
 // Main Initialization
 // ==========================================
 window.onload = () => {
+    App.I18n.init();
     // 1. 初始化 Renderer (确保 simulation 存在)
     App.Renderer.init();
     // 2. 初始化 Store (会依赖 Renderer 的方法)
