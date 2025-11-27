@@ -1,6 +1,10 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-<head>
+<head>好的，根据您提供的 `git diff` 输出，这是为 VS Code 扩展版本做的中文提交总结：
+
+```
+feat: 为 VS Code 扩展添加国际化 (I18n) 支持和 UI 优化
+
     <meta charset="UTF-8">
     <title>星罗 (Stars v5.0 Refactored)</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
@@ -606,9 +610,9 @@ App.Store = {
         const { nodes, focusNode, slots } = this.state;
 
         // 1. 获取当前锚点集合 (Origin + Focus + Slots)
-        const getAnchors = (nl, fn, sl) => {
-            const r = nl.find(n=>n.isRoot);
-            return new Set([r, fn, ...sl].filter(x=>x).map(x=>x.uuid));
+        const getAnchorUUIDs = (nList, fNode, sList) => {
+            const root = nList.find(n => n.isRoot);
+            return new Set([root, fNode, ...sList].filter(n => n).map(n => n.uuid));
         };
         const currentAnchorUUIDs = getAnchorUUIDs(nodes, focusNode, slots);
 
