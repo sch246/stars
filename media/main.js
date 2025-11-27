@@ -633,6 +633,7 @@ App.Store = {
             presets: this.state.presets
         };
         vscode.postMessage({ command: 'saveData', data: payload });
+        return payload;
     },
     saveDebounced: null,
 
@@ -643,7 +644,7 @@ App.Store = {
         const b = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
         const a = document.createElement('a');
         a.href = URL.createObjectURL(b);
-        a.download = 'stars_data.json';
+        a.download = 'stars_v5.json';
         a.click();
     },
 
@@ -871,7 +872,7 @@ App.Renderer = {
                 const src=l.source, tgt=l.target;
                 const isFocus = (src===focusNode||tgt===focusNode);
                 const isHigh = (hoverNode&&(src===hoverNode||tgt===hoverNode)) || (previewNode&&(src===previewNode||tgt===previewNode));
-                const mult = isFocus ? 0.9 : (isHigh ? 0.5 : 0.2);
+                const mult = isFocus ? 0.9 : (isHigh ? 0.6 : 0.4);
                 this.ctx.globalAlpha = l.alpha * mult;
                 this.ctx.lineWidth = (isFocus||isHigh) ? 2.5 : 1.5;
                 const color = App.Store.state.presets.find(p=>p.val===l.type)?.color || '#666';

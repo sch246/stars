@@ -238,7 +238,7 @@ App.Store = {
 
     // 初始化系统
     init() {
-        const saved = localStorage.getItem('stars_v4');
+        const saved = localStorage.getItem('stars_v5');
         if (saved) {
             try {
                 const raw = JSON.parse(saved);
@@ -369,15 +369,16 @@ App.Store = {
             viewLayers: this.state.viewLayers,
             presets: this.state.presets
         };
-        localStorage.setItem('stars_v4', JSON.stringify(payload));
+        localStorage.setItem('stars_v5', JSON.stringify(payload));
+        return payload;
     },
 
     saveToLocalDebounced: null,
 
     exportData() {
         this.saveToLocal();
-        const b = new Blob([localStorage.getItem('stars_v4')], {type:'application/json'});
-        const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'stars_v4.json'; a.click();
+        const b = new Blob([localStorage.getItem('stars_v5')], {type:'application/json'});
+        const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'stars_v5.json'; a.click();
     },
 
     importData(inp) {
@@ -389,7 +390,7 @@ App.Store = {
                     const importedData = JSON.parse(e.target.result);
                     if (importedData && importedData.data) {
                         App.Runtime.clearAllStorage();
-                        localStorage.setItem('stars_v4', e.target.result);
+                        localStorage.setItem('stars_v5', e.target.result);
                         location.reload();
                     } else { App.UI.showFlash("导入格式错误", 'warn'); }
                 } catch (error) { App.UI.showFlash("解析错误", 'warn'); }
@@ -402,7 +403,7 @@ App.Store = {
     resetSystem() {
         if(confirm("重置系统将清空所有数据，确定吗？")) {
             App.Runtime.clearAllStorage();
-            localStorage.removeItem('stars_v4');
+            localStorage.removeItem('stars_v5');
             location.reload();
         }
     }
