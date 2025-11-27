@@ -953,7 +953,7 @@ App.Renderer = {
                 const src = l.source, tgt = l.target;
                 const isFocusLink = (src===focusNode || tgt===focusNode);
                 const isHigh = (hoverNode && (src===hoverNode||tgt===hoverNode)) || (previewNode && (src===previewNode||tgt===previewNode));
-                const mult = isFocusLink ? 0.9 : (isHigh ? 0.5 : 0.2);
+                const mult = isFocusLink ? 1.0 : (isHigh ? 0.7 : 0.4);
 
                 this.ctx.globalAlpha = l.alpha * mult;
                 this.ctx.lineWidth = (isFocusLink || isHigh) ? 2.5 : 1.5;

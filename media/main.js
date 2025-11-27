@@ -872,7 +872,7 @@ App.Renderer = {
                 const src=l.source, tgt=l.target;
                 const isFocus = (src===focusNode||tgt===focusNode);
                 const isHigh = (hoverNode&&(src===hoverNode||tgt===hoverNode)) || (previewNode&&(src===previewNode||tgt===previewNode));
-                const mult = isFocus ? 0.9 : (isHigh ? 0.6 : 0.4);
+                const mult = isFocus ? 1.0 : (isHigh ? 0.7 : 0.4);
                 this.ctx.globalAlpha = l.alpha * mult;
                 this.ctx.lineWidth = (isFocus||isHigh) ? 2.5 : 1.5;
                 const color = App.Store.state.presets.find(p=>p.val===l.type)?.color || '#666';
