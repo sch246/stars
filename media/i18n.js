@@ -13,7 +13,7 @@ const translations = {
         "hud.nodes": "nodes",
         "hud.linkMode": "🔗 Link Mode: Jump to connect / Esc to cancel",
         "hud.controls": `
-            <span class="key">L</span> <span class="key">Front Key</span> New Link <span class="key">N</span> New Node <span class="key">Tab</span> New Linked Node<br>
+            <span class="key">L</span> <span class="key">Front Key</span> New Link <span class="key">N</span> New Node <span class="key">Tab</span> <span class="key">Double Click</span> New Linked Node<br>
             <span class="key">Del</span> <span class="key">D</span> <span class="key">Right Click</span> Delete Link/Node<br>
             <span class="key">↑↓←→ /?</span> <span class="key">L-Click</span> Move <br>
             <span class="key">Space</span> Edit <span class="key">Enter</span> <span class="key">Focus</span> View<br>
@@ -86,7 +86,7 @@ const translations = {
         "hud.nodes": "节点",
         "hud.linkMode": "🔗 连线模式: 跳转以连接/Esc 取消",
         "hud.controls": `
-            <span class="key">L</span> <span class="key">前侧键</span> 新建关系 <span class="key">N</span> 新建节点 <span class="key">Tab</span> 新建并连接节点<br>
+            <span class="key">L</span> <span class="key">前侧键</span> 新建关系 <span class="key">N</span> 新建节点 <span class="key">Tab</span> <span class="key">双击</span> 新建并连接节点<br>
             <span class="key">Del</span> <span class="key">D</span> <span class="key">右键</span> 删除关系/节点<br>
             <span class="key">↑↓←→ /?</span> <span class="key">左键</span> 移动 <br>
             <span class="key">Space</span> 编辑 <span class="key">Enter</span> <span class="key">左键焦点</span> 查看<br>
