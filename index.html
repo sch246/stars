@@ -147,7 +147,7 @@
 <div id="content-modal" onclick="App.UI.Modal.close()"><div id="modal-body" onclick="event.stopPropagation()"></div></div>
 
 <div id="io-controls">
-    <button id="btn-save" onclick="App.Store.saveToLocal()">保存</button>
+    <button id="btn-save" onclick="App.Store.save()">保存</button>
     <button id="btn-export" onclick="App.Store.exportData()">导出</button>
     <button id="btn-reset" onclick="App.Store.resetSystem()">重置</button>
     <input type="file" id="importFile" style="display:none" onchange="App.Store.importData(this)">
@@ -506,7 +506,7 @@ App.Store = {
         // 2. 处理空数据情况 (回退到创建根节点)
         if (!payload || !payload.data || !payload.data.nodes) {
             this.createRoot();
-            if (shouldSave) this.saveToLocal();
+            if (shouldSave) this.save();
             return;
         }
         // 3. 解析基础数据
@@ -589,7 +589,7 @@ App.Store = {
 
         // 预热模拟 (让节点稍微散开一点)
         for(let i=0; i<30; i++) App.Renderer.simulation.tick();
-        this.saveToLocal();
+        this.save();
     },
 
     // 初始化系统
@@ -663,7 +663,7 @@ App.Store = {
             }
             App.UI.updateSidebar();
             App.UI.updateSlotUI();
-            this.saveToLocal();
+            this.save();
             App.Renderer.restartSim();
         };
 
@@ -692,7 +692,7 @@ App.Store = {
                 this.state.navHistory = this.state.navHistory.filter(n => !deadSet.has(n.uuid));
                 lostNodes.forEach(n => App.Runtime.clearStorage(n.uuid));
 
-                this.saveToLocal();
+                this.save();
                 App.Renderer.restartSim();
                 return true;
             }
@@ -703,11 +703,18 @@ App.Store = {
         }
     },
 
-    saveToLocal() {
+    save() {
         const payload = {
             data: {
-                nodes: this.state.nodes.map(n => ({ uuid: n.uuid, label: n.label, isRoot: n.isRoot, x: n.x, y: n.y, summary: n.summary, content: n.content, color: n.color })),
-                links: this.state.links.map(l => ({ source: l.source.uuid, target: l.target.uuid, type: l.type }))
+                nodes: this.state.nodes.map(n => ({
+                    uuid: n.uuid, label: n.label, isRoot: n.isRoot, x: n.x, y: n.y,
+                    summary: n.summary, content: n.content, color: n.color
+                })),
+                links: this.state.links.map(l => ({
+                    source: l.source.uuid,
+                    target: l.target.uuid,
+                    type: l.type
+                }))
             },
             focusNodeUuid: this.state.focusNode ? this.state.focusNode.uuid : null,
             slots: this.state.slots.map(s => s ? s.uuid : null),
@@ -718,12 +725,16 @@ App.Store = {
         return payload;
     },
 
-    saveToLocalDebounced: null,
+    saveDebounced: null,
 
     exportData() {
-        this.saveToLocal();
-        const b = new Blob([localStorage.getItem('stars_v5')], {type:'application/json'});
-        const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'stars_v5.json'; a.click();
+        const data = this.save();
+
+        const b = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(b);
+        a.download = 'stars_v5.json';
+        a.click();
     },
 
     importData(inp) {
@@ -755,96 +766,121 @@ App.Store = {
         }
     }
 };
-App.Store.saveToLocalDebounced = App.Utils.debounce(App.Store.saveToLocal, 1000);
+App.Store.saveDebounced = App.Utils.debounce(App.Store.save, 1000);
 
 // ==========================================
-// 3. Runtime (节点脚本沙箱)
+// 3. Runtime (节点脚本沙箱) - Unified Version
 // ==========================================
 App.Runtime = {
     activeInstances: {}, // { uuid: { unmountFn: ... } }
-
     mount(node, containerId) {
-        // 清理旧实例
+        // 1. 清理旧实例
         this.unmount(node.uuid);
-
         const container = document.getElementById(containerId);
         if (!container) return;
-
-        // 提取并移除 script 标签
+        // 2. 提取并移除 script 标签
         const scriptsToExecute = [];
-        const scriptElements = container.querySelectorAll('script');
-        scriptElements.forEach(script => {
+        // 使用 Array.from 转换 NodeList 以便安全遍历
+        Array.from(container.querySelectorAll('script')).forEach(script => {
             scriptsToExecute.push(script.textContent);
             script.remove();
         });
-
         let unmountCallbacks = [];
-
-        // 创建 API
+        // 3. 创建 API 沙箱环境
         const api = {
+            // DOM 操作仅限于容器内部
             $: (sel) => container.querySelector(sel),
             $$: (sel) => container.querySelectorAll(sel),
-            storage: this._createStorageApi(node.uuid),
-            node: { uuid: node.uuid, label: node.label, color: node.color },
-            onMount: (cb) => { try { cb(); } catch(e) { console.error(e); } },
-            onUnmount: (cb) => { unmountCallbacks.push(cb); }
-        };
 
-        // 记录实例
+            // 数据存储
+            storage: this._createStorageApi(node.uuid),
+
+            // 节点元数据
+            node: { uuid: node.uuid, label: node.label, color: node.color },
+
+            // 生命周期
+            onMount: (cb) => {
+                try { cb(); } catch(e) { console.error(`[Node ${node.uuid}] onMount error:`, e); }
+            },
+            onUnmount: (cb) => { unmountCallbacks.push(cb); },
+            // 全局对象访问 (保留 VSCode 版的能力，如果追求绝对安全可移除)
+            window: window,
+            document: document,
+
+            // 辅助工具
+            container: container
+        };
+        // 4. 注册销毁函数
         this.activeInstances[node.uuid] = {
             unmountFn: () => {
-                unmountCallbacks.forEach(cb => { try { cb(); } catch(e) { console.error(e); } });
+                unmountCallbacks.forEach(cb => {
+                    try { cb(); } catch(e) { console.error(`[Node ${node.uuid}] onUnmount error:`, e); }
+                });
                 unmountCallbacks = [];
             }
         };
-
-        // 执行
-        scriptsToExecute.forEach((code, idx) => {
+        // 5. 执行脚本
+        scriptsToExecute.forEach((code) => {
             try {
-                new Function('api', `(function(Runtime){ ${code} })(arguments[0])`)(api);
+                // 使用 "use strict" 模式 (来自 VSCode 版优化)
+                new Function('api', `(function(Runtime){ "use strict"; ${code} })(arguments[0])`)(api);
             } catch (e) {
                 console.error(`Script error in node ${node.uuid}:`, e);
-                const errDiv = document.createElement('div');
-                errDiv.style.color = 'red';
-                errDiv.style.fontSize = '12px';
-                errDiv.style.marginTop = '10px';
-                errDiv.innerText = `[Script Error: ${e.message}]`;
-                container.appendChild(errDiv);
+                this._renderError(container, e.message);
             }
         });
     },
-
     unmount(uuid) {
         if (this.activeInstances[uuid]) {
-            this.activeInstances[uuid].unmountFn();
+            try {
+                this.activeInstances[uuid].unmountFn();
+            } catch (e) {
+                console.warn(`Error unmounting node ${uuid}:`, e);
+            }
             delete this.activeInstances[uuid];
         }
     },
-
+    _renderError(container, message) {
+        const errDiv = document.createElement('div');
+        Object.assign(errDiv.style, {
+            color: '#ff4d4f',
+            fontSize: '12px',
+            marginTop: '8px',
+            padding: '4px',
+            background: 'rgba(255,0,0,0.05)',
+            borderLeft: '2px solid #ff4d4f'
+        });
+        errDiv.innerText = `Script Error: ${message}`;
+        container.appendChild(errDiv);
+    },
     _createStorageApi(uuid) {
         const prefix = `node_storage_${uuid}_`;
+        // 保留 Web 版的 try-catch，防止隐私模式或配额已满导致崩溃
         return {
-            set: (k, v) => { try { localStorage.setItem(prefix + k, JSON.stringify(v)); return true; } catch(e){return false;} },
-            get: (k, def) => { try { const i = localStorage.getItem(prefix + k); return i ? JSON.parse(i) : def; } catch(e){return def;} },
+            set: (k, v) => {
+                try { localStorage.setItem(prefix + k, JSON.stringify(v)); return true; }
+                catch(e) { console.warn('Storage set failed:', e); return false; }
+            },
+            get: (k, def) => {
+                try { const i = localStorage.getItem(prefix + k); return i ? JSON.parse(i) : def; }
+                catch(e) { return def; }
+            },
             remove: (k) => localStorage.removeItem(prefix + k),
             clear: () => this.clearStorage(uuid)
         };
     },
-
     clearStorage(uuid) {
         const prefix = `node_storage_${uuid}_`;
-        for (let i = localStorage.length - 1; i >= 0; i--) {
-            const key = localStorage.key(i);
-            if (key.startsWith(prefix)) localStorage.removeItem(key);
-        }
+        this._clearStorageByPrefix(prefix);
     },
-
     clearAllStorage() {
-        const prefix = "node_storage_";
-        for (let i = localStorage.length - 1; i >= 0; i--) {
-            const key = localStorage.key(i);
-            if (key.startsWith(prefix)) localStorage.removeItem(key);
-        }
+        this._clearStorageByPrefix("node_storage_");
+    },
+    // 统一的清理逻辑 (结合 VSCode 的简洁和 Web 的倒序遍历思想避免索引塌陷)
+    _clearStorageByPrefix(prefix) {
+        Object.keys(localStorage)
+            .filter(k => k.startsWith(prefix))
+            .forEach(k => localStorage.removeItem(k));
     }
 };
 
@@ -924,7 +960,7 @@ App.UI = {
     onNodeEdit(field, value) {
         if(App.Store.state.focusNode) {
             App.Store.state.focusNode[field] = value;
-            App.Store.saveToLocalDebounced();
+            App.Store.saveDebounced();
         }
     },
 
@@ -1000,7 +1036,7 @@ App.UI = {
                 this.btnConfirm.innerText = t('dialog.confirm');
                 this.btnCancel.innerText = t('dialog.cancel');
                 this.overlay.classList.add('active');
-                
+
                 // 焦点管理
                 if (needsInput) setTimeout(() => this.inputEl.focus(), 50);
                 else setTimeout(() => this.btnConfirm.focus(), 50);
@@ -1028,7 +1064,7 @@ App.UI = {
                     if(e.key === 'Enter') { e.preventDefault(); this.btnConfirm.click(); }
                     if(e.key === 'Escape') { e.preventDefault(); this.btnCancel.click(); }
                 };
-                
+
                 // 防止 ESC 关闭弹窗时误触其他逻辑
                 this.btnConfirm.addEventListener('keydown', handleBtnKey);
                 this.btnCancel.addEventListener('keydown', handleBtnKey);
@@ -1184,7 +1220,7 @@ App.UI = {
 
             // 执行保存
             App.Store.state.presets = JSON.parse(JSON.stringify(this.tempPresets));
-            App.Store.saveToLocal();
+            App.Store.save();
             App.Renderer.restartSim();
             this.close();
             App.UI.showFlash(t('flash.presetUpdated'));
@@ -1579,7 +1615,7 @@ App.Input = {
         this.hideTooltip();
 
         App.UI.updateSidebar();
-        App.Store.saveToLocal();
+        App.Store.save();
         App.Renderer.restartSim();
     },
 
@@ -1666,7 +1702,7 @@ App.Input = {
             // Store logic
             slots[idx] = focusNode;
             App.UI.updateSlotUI();
-            App.Store.saveToLocal();
+            App.Store.save();
         }
     },
 
@@ -1747,7 +1783,7 @@ App.Input = {
         const node = this.state.dragNode;
         if(node) {
             App.Renderer.pointerForce.node(null).target(null);
-            App.Store.saveToLocal();
+            App.Store.save();
             App.Renderer.canvas.style.cursor = 'crosshair';
         }
         this.state.dragNode = null; // 关键：这一行会让 render 循环停止更新物理力

@@ -713,7 +713,6 @@ App.Store = {
     saveDebounced: null,
 
     exportData() {
-        // 不要读 localStorage，直接获取内存数据
         const data = this.save();
 
         const b = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
@@ -736,8 +735,8 @@ App.Store = {
                         App.UI.showFlash(App.Utils.t('alert.importSuccess'));
                     } else App.UI.showFlash(App.Utils.t('alert.importFail'), 'warn');
                 } catch(e) {
-                    console.error("解析错误:", e);
-                    App.UI.showFlash("解析错误: " + e.message, 'warn');
+                    console.error(App.Utils.t('alert.parseFail'), e);
+                    App.UI.showFlash(App.Utils.t('alert.parseFail'), 'warn');
                 };
             };
             r.readAsText(f);
@@ -755,58 +754,118 @@ App.Store = {
 App.Store.saveDebounced = App.Utils.debounce(() => App.Store.save(), 1000);
 
 // ==========================================
-// 3. Runtime
+// 3. Runtime (节点脚本沙箱) - Unified Version
 // ==========================================
 App.Runtime = {
-    activeInstances: {},
+    activeInstances: {}, // { uuid: { unmountFn: ... } }
     mount(node, containerId) {
+        // 1. 清理旧实例
         this.unmount(node.uuid);
         const container = document.getElementById(containerId);
         if (!container) return;
-        const scripts = [];
-        container.querySelectorAll('script').forEach(s => { scripts.push(s.textContent); s.remove(); });
-        let unmountCbs = [];
+        // 2. 提取并移除 script 标签
+        const scriptsToExecute = [];
+        // 使用 Array.from 转换 NodeList 以便安全遍历
+        Array.from(container.querySelectorAll('script')).forEach(script => {
+            scriptsToExecute.push(script.textContent);
+            script.remove();
+        });
+        let unmountCallbacks = [];
+        // 3. 创建 API 沙箱环境
         const api = {
-            $: (s) => container.querySelector(s),
-            $$: (s) => container.querySelectorAll(s),
+            // DOM 操作仅限于容器内部
+            $: (sel) => container.querySelector(sel),
+            $$: (sel) => container.querySelectorAll(sel),
+
+            // 数据存储
             storage: this._createStorageApi(node.uuid),
+
+            // 节点元数据
             node: { uuid: node.uuid, label: node.label, color: node.color },
-            onMount: (cb) => { try{cb()}catch(e){console.error(e)} },
-            onUnmount: (cb) => { unmountCbs.push(cb) },
-            window: window, document: document
+
+            // 生命周期
+            onMount: (cb) => {
+                try { cb(); } catch(e) { console.error(`[Node ${node.uuid}] onMount error:`, e); }
+            },
+            onUnmount: (cb) => { unmountCallbacks.push(cb); },
+            // 全局对象访问 (保留 VSCode 版的能力，如果追求绝对安全可移除)
+            window: window,
+            document: document,
+
+            // 辅助工具
+            container: container
         };
-        this.activeInstances[node.uuid] = { unmountFn: () => unmountCbs.forEach(cb => cb()) };
-        scripts.forEach((code, idx) => {
+        // 4. 注册销毁函数
+        this.activeInstances[node.uuid] = {
+            unmountFn: () => {
+                unmountCallbacks.forEach(cb => {
+                    try { cb(); } catch(e) { console.error(`[Node ${node.uuid}] onUnmount error:`, e); }
+                });
+                unmountCallbacks = [];
+            }
+        };
+        // 5. 执行脚本
+        scriptsToExecute.forEach((code) => {
             try {
+                // 使用 "use strict" 模式 (来自 VSCode 版优化)
                 new Function('api', `(function(Runtime){ "use strict"; ${code} })(arguments[0])`)(api);
-            } catch(e) {
-                const err = document.createElement('div');
-                err.style.color = 'red'; err.innerText = `Script Error: ${e.message}`;
-                container.appendChild(err);
+            } catch (e) {
+                console.error(`Script error in node ${node.uuid}:`, e);
+                this._renderError(container, e.message);
             }
         });
     },
     unmount(uuid) {
-        if(this.activeInstances[uuid]) {
-            try { this.activeInstances[uuid].unmountFn(); } catch(e){}
+        if (this.activeInstances[uuid]) {
+            try {
+                this.activeInstances[uuid].unmountFn();
+            } catch (e) {
+                console.warn(`Error unmounting node ${uuid}:`, e);
+            }
             delete this.activeInstances[uuid];
         }
     },
+    _renderError(container, message) {
+        const errDiv = document.createElement('div');
+        Object.assign(errDiv.style, {
+            color: '#ff4d4f',
+            fontSize: '12px',
+            marginTop: '8px',
+            padding: '4px',
+            background: 'rgba(255,0,0,0.05)',
+            borderLeft: '2px solid #ff4d4f'
+        });
+        errDiv.innerText = `Script Error: ${message}`;
+        container.appendChild(errDiv);
+    },
     _createStorageApi(uuid) {
-        const p = `node_storage_${uuid}_`;
+        const prefix = `node_storage_${uuid}_`;
+        // 保留 Web 版的 try-catch，防止隐私模式或配额已满导致崩溃
         return {
-            set: (k, v) => { localStorage.setItem(p+k, JSON.stringify(v)); return true; },
-            get: (k, d) => { const i=localStorage.getItem(p+k); return i?JSON.parse(i):d; },
-            remove: (k) => localStorage.removeItem(p+k),
+            set: (k, v) => {
+                try { localStorage.setItem(prefix + k, JSON.stringify(v)); return true; }
+                catch(e) { console.warn('Storage set failed:', e); return false; }
+            },
+            get: (k, def) => {
+                try { const i = localStorage.getItem(prefix + k); return i ? JSON.parse(i) : def; }
+                catch(e) { return def; }
+            },
+            remove: (k) => localStorage.removeItem(prefix + k),
             clear: () => this.clearStorage(uuid)
         };
     },
     clearStorage(uuid) {
-        const p = `node_storage_${uuid}_`;
-        Object.keys(localStorage).forEach(k => { if(k.startsWith(p)) localStorage.removeItem(k); });
+        const prefix = `node_storage_${uuid}_`;
+        this._clearStorageByPrefix(prefix);
     },
     clearAllStorage() {
-        Object.keys(localStorage).forEach(k => { if(k.startsWith('node_storage_')) localStorage.removeItem(k); });
+        this._clearStorageByPrefix("node_storage_");
+    },
+    // 统一的清理逻辑 (结合 VSCode 的简洁和 Web 的倒序遍历思想避免索引塌陷)
+    _clearStorageByPrefix(prefix) {
+        Object.keys(localStorage)
+            .filter(k => k.startsWith(prefix))
+            .forEach(k => localStorage.removeItem(k));
     }
 };
 
