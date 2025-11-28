@@ -1893,12 +1893,14 @@ App.Input = {
             : App.Store.DEFAULT_PRESETS[0];
         // 2. 手动激活连线模式状态 (对应 "按L")
         // 我们不需要真的打开UI，只需要设置状态，因为 createNode 会读取这个状态
-        this.state.linkMode = {
-            active: true,
-            source: focusNode,
-            type: defaultPreset.val,
-            color: defaultPreset.color
-        };
+        if (!this.state.linkMode.active) {
+            this.state.linkMode = {
+                active: true,
+                source: focusNode,
+                type: defaultPreset.val,
+                color: defaultPreset.color
+            };
+        }
         // 3. 调用原有的创建逻辑 (对应 "按N")
         // createNode 内部检测到 linkMode.active 为 true 时，
         // 会自动建立连接、退出连线模式并跳转焦点
