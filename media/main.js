@@ -502,6 +502,19 @@ App.Store = {
         }
     },
 
+    getBackNodeIndex() {
+        let {focusNode, navHistory, nodes} = this.state;
+        // 策略：倒序遍历历史，找到第一个“既不是当前的节点，又真实存在于 nodes 列表”的节点
+        for (let i = navHistory.length - 1; i >= 0; i--) {
+            const hNode = navHistory[i];
+            // 排除掉自己
+            if (hNode.uuid === focusNode.uuid) continue;
+            // 确保这个历史节点还“活着”
+            if (nodes.find(n => n.uuid === hNode.uuid)) return i;
+        }
+        return -1;
+    },
+
     loadState(payload, shouldSave = false) {
         // 1. 清理旧状态
         App.Runtime.clearAllStorage();
@@ -1142,7 +1155,7 @@ App.Input = {
         if (slotNode) {
             slots[idx] = focusNode;
             App.UI.updateSlotUI();
-            this.navigateTo(slotNode, true);
+            this.navigate(slotNode, true);
         } else {
             // Store logic
             slots[idx] = focusNode;
@@ -1199,7 +1212,7 @@ App.Input = {
             }
         }
         if (this.state.linkMode.active) {
-            this.navigateTo(node, recordHistory);
+            this.navigate(node, recordHistory);
             return;
         }
         // Wrap in Safe Action
@@ -1219,7 +1232,7 @@ App.Input = {
 
     // Internal Navigate (State Update)
     // Called by executeSafeAction or Link Mode
-    navigateTo(node, recordHistory = true) {
+    navigate(node, recordHistory = true) {
         if(!node) return;
         const { linkMode } = this.state;
         if (linkMode.active && linkMode.source && linkMode.source.uuid !== node.uuid) {
@@ -1291,6 +1304,28 @@ App.Input = {
         }
     },
 
+    createDefaultLinkedNode() {
+        const { focusNode, presets } = App.Store.state;
+        if (!focusNode) return;
+        // 1. 获取第一个预设关系 (对应 "回车选择第一个")
+        // 如果没有预设，兜底使用 "comp"
+        const defaultPreset = presets.length > 0
+            ? presets[0]
+            : App.Store.DEFAULT_PRESETS[0];
+        // 2. 手动激活连线模式状态 (对应 "按L")
+        // 我们不需要真的打开UI，只需要设置状态，因为 createNode 会读取这个状态
+        this.state.linkMode = {
+            active: true,
+            source: focusNode,
+            type: defaultPreset.val,
+            color: defaultPreset.color
+        };
+        // 3. 调用原有的创建逻辑 (对应 "按N")
+        // createNode 内部检测到 linkMode.active 为 true 时，
+        // 会自动建立连接、退出连线模式并跳转焦点
+        this.createNode();
+    },
+
     createNode() {
         const { focusNode, nodes, links, slots } = App.Store.state;
         const newNode = {
@@ -1305,8 +1340,8 @@ App.Input = {
             App.Renderer.restartSim();
             this.executeLinkAction(this.state.linkMode.source, newNode);
             this.exitLinkMode();
-            this.navigateTo(newNode, true);
-            setTimeout(() => { App.UI.els.label.focus(); App.UI.els.label.select(); }, 50);
+            this.navigate(newNode, true);
+            // setTimeout(() => { App.UI.els.label.focus(); App.UI.els.label.select(); }, 50);
         } else {
             // Safe Create
             const { focusNode } = App.Store.state;
@@ -1317,7 +1352,7 @@ App.Input = {
                 nextSlots: slots
             }),  () => {
                 App.Store.pushHistory(focusNode);
-                setTimeout(() => { App.UI.els.label.focus(); App.UI.els.label.select(); }, 50);
+                // setTimeout(() => { App.UI.els.label.focus(); App.UI.els.label.select(); }, 50);
             });
         }
     },
@@ -1325,20 +1360,35 @@ App.Input = {
     deleteNode(target = null) {
         const node = target || App.Store.state.focusNode;
         if(node.isRoot) { App.UI.showFlash(App.Utils.t('alert.rootCannotDelete'), 'warn'); return; }
+
         const { navHistory, nodes, links, slots } = App.Store.state
-        let next = App.Store.state.focusNode;
-        if(node === next) {
-            next = navHistory.length > 0 ? navHistory[navHistory.length-1] : nodes.find(n=>n.isRoot);
-            if (next === node) next = nodes.find(n=>n.isRoot);
+
+        // --- 预判下一跳 ---
+        const backIdx = App.Store.getBackNodeIndex();
+        let nextFocus = null;
+
+        if (backIdx >= 0) {
+            // 用历史记录的 UUID 去找“活体”节点，防止使用过期的历史快照
+            const uuid = navHistory[backIdx].uuid;
+            nextFocus = nodes.find(n => n.uuid === uuid);
         }
-        App.Store.executeSafeAction(() => ({
-            nodes: nodes.filter(n=>n.uuid!==node.uuid),
-            links: links.filter(l=>l.source.uuid!==node.uuid && l.target.uuid!==node.uuid),
-            nextFocus: next,
-            nextSlots: slots.map(s=>(s&&s.uuid===node.uuid)?null:s)
-        }), () => {
-            App.Store.state.navHistory = App.Store.state.navHistory.filter(n => n.uuid !== node.uuid);
-        });
+
+        // 兜底逻辑
+        if (!nextFocus) {
+            nextFocus = nodes.find(n => n.isRoot) || nodes.find(n => n.uuid !== node.uuid);
+        }
+
+        App.Store.executeSafeAction(
+            () => ({
+                nodes: nodes.filter(n => n.uuid !== node.uuid),
+                links: links.filter(l => l.source.uuid !== node.uuid && l.target.uuid !== node.uuid),
+                nextFocus: nextFocus,
+                nextSlots: slots.map(s => (s && s.uuid === node.uuid) ? null : s)
+            }),
+            () => {
+                App.Store.state.navHistory = App.Store.state.navHistory.filter(n => n.uuid !== node.uuid);
+            }
+        );
     },
 
     deleteLink(link) {
@@ -1350,29 +1400,26 @@ App.Input = {
         }));
     },
 
-    navigateBack() {
-        const h = App.Store.state.navHistory;
+    safeNavigateBack() {
+        const backIdx = App.Store.getBackNodeIndex();
+        const { navHistory, nodes } = App.Store.state;
 
-        // Loop and Pop until we find a valid previous node
-        while (h.length > 0) {
-            const prev = h.pop(); // Remove from stack so we don't go back to it again
-            const exists = App.Store.state.nodes.find(n => n.uuid === prev.uuid);
-
-            // Ensure node exists and we aren't just reloading the current node
-            if (exists && exists.uuid !== App.Store.state.focusNode.uuid) {
-                // Move to it, but DO NOT record history (recordHistory = false)
-                this.safeNavigate(exists, false);
-                return;
+        if (backIdx >= 0) {
+            const targetUUID = navHistory[backIdx].uuid;
+            App.Store.state.navHistory.splice(backIdx + 1);
+            const targetNode = nodes.find(n => n.uuid === targetUUID)
+            if (targetNode) {
+                this.safeNavigate(targetNode, false);
             }
+        } else {
+            App.UI.showFlash(App.Utils.t('flash.noHistory'), 'info');
         }
-        // Optional feedback
-        App.UI.showFlash(App.Utils.t('flash.noHistory'), 'info');
     },
 
     // --- Mouse ---
     onMouseDown(e) {
         if(App.UI.Modal.el.classList.contains('active') || App.UI.Dialog.isActive) return;
-        if(e.button===3) { e.preventDefault(); this.navigateBack(); return; }
+        if(e.button===3) { e.preventDefault(); this.safeNavigateBack(); return; }
         if(e.button===4) { e.preventDefault(); this.enterLinkMode(); return; }
         if(e.button!==0) return;
 
@@ -1464,15 +1511,15 @@ App.Input = {
             case ',': this.cyclePreview(-1); break;
             case '=': case '+': App.Store.state.viewLayers = Math.max(1, App.Store.state.viewLayers-1); App.Renderer.adjustZoomByLayer(); break;
             case '-': case '_': App.Store.state.viewLayers = Math.min(7, App.Store.state.viewLayers+1); App.Renderer.adjustZoomByLayer(); break;
-            case 'Tab': case 'n': case 'N': e.preventDefault(); this.createNode(); break;
+            case 'Tab': e.preventDefault(); this.createDefaultLinkedNode(); break;
+            case 'n': case 'N': e.preventDefault(); this.createNode(); break;
             case 'F2': e.preventDefault(); App.UI.els.label.focus(); App.UI.els.label.select(); break;
-            case ' ': e.preventDefault(); App.UI.els.summary.focus(); App.UI.els.summary.select(); break;
+            case ' ': e.preventDefault(); App.UI.els.label.focus(); App.UI.els.label.select(); break;
             case 'Enter': if(App.Store.state.focusNode) App.UI.Modal.show(); break;
             case 'l': case 'L': this.enterLinkMode(); break;
-            case 'e': case 'E': App.UI.showFlash(App.Utils.t('hud.linkMode'), 'info'); break;
             case 'h': case 'H': const root = App.Store.state.nodes.find(n=>n.isRoot); if(root) this.safeNavigate(root); break;
             case 'Escape': if(this.state.linkMode.active) this.exitLinkMode(); break;
-            case 'b': case 'B': this.navigateBack(); break;
+            case 'b': case 'B': this.safeNavigateBack(); break;
             case 'Delete': case 'd': case 'D': this.deleteNode(); break;
             case 'i': case 'I': e.preventDefault(); this.state.keyControlsVisible=!this.state.keyControlsVisible; document.getElementById('key-controls').style.display=this.state.keyControlsVisible?'block':'none'; break;
             case '`': e.preventDefault(); App.UI.PresetEditor.open(); break;
