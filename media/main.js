@@ -1277,6 +1277,8 @@ App.Input = {
             if (recordHistory) {
                 App.Store.pushHistory(focusNode);
             }
+            this.state.previewNode = null;
+            this.hideTooltip();
         });
         // Note: executeSafeAction will call navigateTo if safe via its applyState
     },
@@ -1591,7 +1593,7 @@ App.Input = {
             case '.': this.cyclePreview(1); break;
             case ',': this.cyclePreview(-1); break;
             case '=': case '+': App.Store.state.viewLayers = Math.max(1, App.Store.state.viewLayers-1); App.Renderer.adjustZoomByLayer(); break;
-            case '-': case '_': App.Store.state.viewLayers = Math.min(7, App.Store.state.viewLayers+1); App.Renderer.adjustZoomByLayer(); break;
+            case '-': case '_': App.Store.state.viewLayers = App.Store.state.viewLayers+1; App.Renderer.adjustZoomByLayer(); break;
             case 'Tab': e.preventDefault(); this.createDefaultLinkedNode(); break;
             case 'n': case 'N': e.preventDefault(); this.createNode(); break;
             case 'F2': e.preventDefault(); App.UI.els.label.focus(); App.UI.els.label.select(); break;
