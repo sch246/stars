@@ -987,7 +987,7 @@ App.Renderer = {
         if(root) { root.fx=0; root.fy=0; }
         nodes.forEach(n => { if(!n.isRoot) { n.fx=null; n.fy=null; } });
 
-        const SIM_LAYERS = 7;
+        const SIM_LAYERS = Math.max(7, App.Store.state.viewLayers);
         const targets = new Set();
         if(focusNode) {
             targets.add(focusNode.uuid);

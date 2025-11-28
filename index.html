@@ -1354,7 +1354,7 @@ App.Renderer = {
 
     restartSim() {
         // Find visible nodes for simulation to reduce load
-        const SIM_LAYERS = 7;
+        const SIM_LAYERS = Math.max(7, App.Store.state.viewLayers);
         const targets = new Set();
         const { nodes, links, focusNode } = App.Store.state;
 
