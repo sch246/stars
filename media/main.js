@@ -1033,7 +1033,17 @@ App.Renderer = {
 // 5. Input
 // ==========================================
 App.Input = {
-    state: { hoverNode: null, previewNode: null, linkMode: { active: false }, dragNode: null, click: {}, keyState: {}, mouseX: 0, mouseY: 0 },
+    state: {
+        hoverNode: null,
+        previewNode: null,
+        linkMode: { active: false },
+        dragNode: null,
+        click: { startTime: 0, startX: 0, startY: 0 },
+        keyState: {},
+        keyControlsVisible: true,
+        mouseX: 0,
+        mouseY: 0
+    },
 
     init() {
         const C = App.Renderer.canvas;
@@ -1067,14 +1077,18 @@ App.Input = {
 
     handleSlot(idx) {
         const { slots, focusNode } = App.Store.state;
-        if (slots[idx] === focusNode) return;
-        if (slots[idx]) {
-            const targetNode = slots[idx];
+        const slotNode = slots[idx];
+        if (slotNode === focusNode) return;
+
+        if (slotNode) {
             slots[idx] = focusNode;
             App.UI.updateSlotUI();
-            this.navigateTo(targetNode, true);
+            this.navigateTo(slotNode, true);
         } else {
-            slots[idx] = focusNode; App.UI.updateSlotUI(); App.Store.save();
+            // Store logic
+            slots[idx] = focusNode;
+            App.UI.updateSlotUI();
+            App.Store.save();
         }
     },
 
@@ -1401,7 +1415,7 @@ App.Input = {
             case 'Escape': if(this.state.linkMode.active) this.exitLinkMode(); break;
             case 'b': case 'B': this.navigateBack(); break;
             case 'Delete': case 'd': case 'D': this.deleteNode(); break;
-            case 'i': case 'I': e.preventDefault(); this.state.hudVisible=!this.state.hudVisible; document.getElementById('key-controls').style.display=this.state.hudVisible?'block':'none'; break;
+            case 'i': case 'I': e.preventDefault(); this.state.keyControlsVisible=!this.state.keyControlsVisible; document.getElementById('key-controls').style.display=this.state.keyControlsVisible?'block':'none'; break;
             case '`': e.preventDefault(); App.UI.PresetEditor.open(); break;
             case '<': App.Renderer.targetRotation += 0.05; break;
             case '>': App.Renderer.targetRotation -= 0.05; break;

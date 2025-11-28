@@ -82,6 +82,27 @@
         #modal-body code { background: #282c34; padding: 3px 6px; border-radius: 4px; font-family: 'Fira Code', 'JetBrains Mono', 'Consolas', monospace; color: #abb2bf; font-size: 0.95em; }
         #modal-body pre { background: #282c34; padding: 15px; border-radius: 6px; overflow-x: auto; margin-top: 1em; margin-bottom: 1em; }
         #modal-body pre code { background: none; padding: 0; font-size: 1em; color: #abb2bf; line-height: 1.5; }
+        #custom-dialog-overlay {
+            display: none;
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0,0,0,0.7); z-index: 500;
+            align-items: center; justify-content: center;
+        }
+        #custom-dialog-overlay.active { display: flex; }
+
+        #custom-dialog {
+            background: #1a1a1d; border: 1px solid #444; border-radius: 8px;
+            padding: 20px; width: 320px; box-shadow: 0 10px 40px rgba(0,0,0,0.9);
+            display: flex; flex-direction: column; gap: 15px;
+        }
+        #custom-dialog-msg { font-size: 14px; color: #ddd; line-height: 1.5; text-align: center; }
+        #custom-dialog-input {
+            background: #0a0a0c; border: 1px solid #333; padding: 8px;
+            border-radius: 4px; width: 100%; box-sizing: border-box;
+            color: #fff; display: none; /* 默认隐藏 */
+        }
+        #custom-dialog-input:focus { border-color: #4facfe; }
+        #custom-dialog-buttons { display: flex; justify-content: center; gap: 10px; } /* 按钮居中 */
     </style>
 </head>
 <body>
@@ -89,10 +110,10 @@
 <div id="hud">
     <h1 id="app-title">星罗 <span style="font-size:10px; opacity:0.5">v5.0</span></h1>
     <div id="slot-bar">
-        <div class="slot" id="slot-1" onclick="App.Input.handleSlot(0)" oncontextmenu="App.Input.clearSlot(0, event)"><div class="slot-circle"><span class="slot-num">1</span></div><span class="slot-name">-</span></div>
-        <div class="slot" id="slot-2" onclick="App.Input.handleSlot(1)" oncontextmenu="App.Input.clearSlot(1, event)"><div class="slot-circle"><span class="slot-num">2</span></div><span class="slot-name">-</span></div>
-        <div class="slot" id="slot-3" onclick="App.Input.handleSlot(2)" oncontextmenu="App.Input.clearSlot(2, event)"><div class="slot-circle"><span class="slot-num">3</span></div><span class="slot-name">-</span></div>
-        <div class="slot" id="slot-4" onclick="App.Input.handleSlot(3)" oncontextmenu="App.Input.clearSlot(3, event)"><div class="slot-circle"><span class="slot-num">4</span></div><span class="slot-name">-</span></div>
+        <div class="slot" id="slot-1" data-index="0"><div class="slot-circle"><span class="slot-num">1</span></div><span class="slot-name">-</span></div>
+        <div class="slot" id="slot-2" data-index="1"><div class="slot-circle"><span class="slot-num">2</span></div><span class="slot-name">-</span></div>
+        <div class="slot" id="slot-3" data-index="2"><div class="slot-circle"><span class="slot-num">3</span></div><span class="slot-name">-</span></div>
+        <div class="slot" id="slot-4" data-index="3"><div class="slot-circle"><span class="slot-num">4</span></div><span class="slot-name">-</span></div>
     </div>
 
     <div id="view-controls">
@@ -149,6 +170,17 @@
 <div id="sidebar-resizer"></div>
 <div id="tooltip"></div>
 <canvas id="canvas"></canvas>
+
+<div id="custom-dialog-overlay">
+<div id="custom-dialog">
+    <div id="custom-dialog-msg"></div>
+    <input type="text" id="custom-dialog-input" placeholder="">
+    <div id="custom-dialog-buttons">
+        <button id="btn-cancel">取消</button>
+        <button id="btn-confirm" class="btn-primary">确定</button>
+    </div>
+</div>
+</div>
 
 <script>
 /**
@@ -602,7 +634,7 @@ App.Store = {
     },
 
     // 核心安全执行器 (Anchor-based Safety Check)
-    executeSafeAction(simulator, onApplied = null) {
+    async executeSafeAction(simulator, onApplied = null) {
         const { nodes, focusNode, slots } = this.state;
 
         // 1. 获取当前锚点集合 (Origin + Focus + Slots)
@@ -648,7 +680,7 @@ App.Store = {
         if (lostNodes.length > 0) {
             const names = lostNodes.slice(0, 3).map(n => n.label).join(', ');
             const msg = t('alert.deleteConfirm', {n: lostNodes.length, label: lostNodes[0].label});
-            if (confirm(msg)) {
+            if (await App.UI.Dialog.confirm(msg)) {
                 // Apply the simulated state first
                 applyState();
 
@@ -715,8 +747,8 @@ App.Store = {
         }
     },
 
-    resetSystem() {
-        if(confirm(t('alert.resetConfirm'))) {
+    async resetSystem() {
+        if(await App.UI.Dialog.confirm(t('alert.resetConfirm'))) {
             App.Runtime.clearAllStorage();
             localStorage.removeItem('stars_v5');
             location.reload();
@@ -831,6 +863,11 @@ App.UI = {
     },
 
     init() {
+        this.initBindings();
+        this.Dialog.init();
+    },
+
+    initBindings() {
         // Sidebar Bindings with Tab Cycling
         this.els.label.addEventListener('input', () => this.onNodeEdit('label', this.els.label.value));
         this.els.label.addEventListener('keydown', (e) => this.handleEditorTab(e, 'node-summary', 'node-content'));
@@ -854,6 +891,21 @@ App.UI = {
                 this.updateSlotUI();
             }
         });
+
+        // Slot Click Listeners (Dynamic)
+        for(let i=0; i<4; i++) {
+            const slotEl = document.getElementById(`slot-${i+1}`);
+            if(slotEl) {
+                slotEl.addEventListener('click', (e) => {
+                    // Shift detection fix
+                    App.Input.handleSlotClick(i, e.shiftKey);
+                });
+                slotEl.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    App.Input.clearSlot(i);
+                });
+            }
+        }
 
         // Sidebar Resizer
         let isResizing = false;
@@ -925,6 +977,65 @@ App.UI = {
         const el = document.getElementById('flash-message');
         el.innerText = msg; el.className = type; el.style.opacity = 1;
         setTimeout(() => { el.style.opacity = 0; }, 2000);
+    },
+
+    Dialog: {
+        overlay: document.getElementById('custom-dialog-overlay'),
+        msgEl: document.getElementById('custom-dialog-msg'),
+        inputEl: document.getElementById('custom-dialog-input'),
+        btnConfirm: document.getElementById('btn-confirm'),
+        btnCancel: document.getElementById('btn-cancel'),
+        isActive: false,
+
+        init() {},
+
+        _show(msg, needsInput = false, placeholder = '') {
+            return new Promise((resolve) => {
+                this.isActive = true;
+                this.msgEl.innerText = msg;
+                this.inputEl.style.display = needsInput ? 'block' : 'none';
+                this.inputEl.value = '';
+                this.inputEl.placeholder = placeholder;
+                // 使用 I18n 获取按钮文本
+                this.btnConfirm.innerText = t('dialog.confirm');
+                this.btnCancel.innerText = t('dialog.cancel');
+                this.overlay.classList.add('active');
+                
+                // 焦点管理
+                if (needsInput) setTimeout(() => this.inputEl.focus(), 50);
+                else setTimeout(() => this.btnConfirm.focus(), 50);
+                // 清理与关闭闭包
+                const cleanup = (e) => {
+                    if(e) { e.preventDefault(); e.stopPropagation(); }
+                    this.btnConfirm.onclick = null;
+                    this.btnCancel.onclick = null;
+                    this.inputEl.onkeydown = null;
+                    this.btnConfirm.removeEventListener('keydown', handleBtnKey);
+                    this.btnCancel.removeEventListener('keydown', handleBtnKey);
+                    this.overlay.classList.remove('active');
+                    this.isActive = false;
+                    App.Renderer.canvas.focus(); // 归还焦点给画布
+                };
+                // 键盘辅助导航
+                const handleBtnKey = (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); this.btnConfirm.click(); }
+                    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.btnCancel.click(); }
+                };
+                // 事件绑定
+                this.btnConfirm.onclick = (e) => { const val = this.inputEl.value; cleanup(e); resolve(needsInput ? val : true); };
+                this.btnCancel.onclick = (e) => { cleanup(e); resolve(needsInput ? null : false); };
+                this.inputEl.onkeydown = (e) => {
+                    if(e.key === 'Enter') { e.preventDefault(); this.btnConfirm.click(); }
+                    if(e.key === 'Escape') { e.preventDefault(); this.btnCancel.click(); }
+                };
+                
+                // 防止 ESC 关闭弹窗时误触其他逻辑
+                this.btnConfirm.addEventListener('keydown', handleBtnKey);
+                this.btnCancel.addEventListener('keydown', handleBtnKey);
+            });
+        },
+        confirm(msg) { return this._show(msg, false); },
+        prompt(msg, ph = '') { return this._show(msg, true, ph); }
     },
 
     Modal: {
@@ -1384,9 +1495,9 @@ App.Input = {
         dragNode: null,
         click: { startTime: 0, startX: 0, startY: 0 },
         keyState: {},
-        hudVisible: true,
-        mouseX: 0, // 新增：实时记录鼠标屏幕X
-        mouseY: 0, // 新增：实时记录鼠标屏幕Y
+        keyControlsVisible: true,
+        mouseX: 0,
+        mouseY: 0,
     },
 
     init() {
@@ -1503,7 +1614,7 @@ App.Input = {
             const mode = { active: true, source: App.Store.state.focusNode, type: res.val, color: '#fff' };
 
             if (res.val === 'CUSTOM') {
-                const cLabel = prompt(t('linkMode.prompt'));
+                const cLabel = await App.UI.Dialog.prompt(t('linkMode.prompt'), t('linkMode.promptPlaceholder'));
                 if(!cLabel) { this.exitLinkMode(); return; }
                 const preset = App.Store.state.presets.find(p=>p.label===cLabel);
                 mode.type = preset ? preset.val : cLabel;
@@ -1537,6 +1648,11 @@ App.Input = {
         }
     },
 
+    handleSlotClick(idx, isShift) {
+        if (isShift) this.handleSlotStore(idx);
+        else this.handleSlot(idx);
+    },
+
     handleSlot(idx) {
         const { slots, focusNode } = App.Store.state;
         const slotNode = slots[idx];
@@ -1554,8 +1670,7 @@ App.Input = {
         }
     },
 
-    clearSlot(idx, e) {
-        e.preventDefault();
+    clearSlot(idx) {
         const { slots, nodes, links, focusNode } = App.Store.state;
         if(!slots[idx]) return;
         App.Store.executeSafeAction(() => ({
@@ -1580,6 +1695,7 @@ App.Input = {
     // --- Mouse Events ---
 
     onMouseDown(e) {
+        if(App.UI.Dialog.isActive) return;
         if(App.UI.Modal.el.classList.contains('active')) return;
         if(e.button===3) { e.preventDefault(); this.navigateBack(); return; }
         if(e.button===4) { e.preventDefault(); this.enterLinkMode(); return; }
@@ -1664,6 +1780,7 @@ App.Input = {
     // --- Keyboard Events ---
 
     onKeyDown(e) {
+        if(App.UI.Dialog.isActive) return;
         if(App.UI.Modal.el.classList.contains('active')) return;
         if(App.UI.PresetEditor.active) { if(e.key==='Escape') App.UI.PresetEditor.close(); return; }
         if(App.UI.RelationPicker.active) { App.UI.RelationPicker.handleInput(e); return; }
@@ -1703,7 +1820,7 @@ App.Input = {
             case 'Escape': if(this.state.linkMode.active) this.exitLinkMode(); break;
             case 'b': case 'B': this.navigateBack(); break;
             case 'Delete': case 'd': case 'D': this.deleteNode(); break;
-            case 'i': case 'I': e.preventDefault(); this.state.hudVisible=!this.state.hudVisible; document.getElementById('key-controls').style.display=this.state.hudVisible?'block':'none'; break;
+            case 'i': case 'I': e.preventDefault(); this.state.keyControlsVisible=!this.state.keyControlsVisible; document.getElementById('key-controls').style.display=this.state.keyControlsVisible?'block':'none'; break;
             case '`': e.preventDefault(); App.UI.PresetEditor.open(); break;
             case '<': App.Renderer.targetRotation += 0.05; break;
             case '>': App.Renderer.targetRotation -= 0.05; break;
