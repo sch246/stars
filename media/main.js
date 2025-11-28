@@ -109,12 +109,19 @@ App.UI = {
             this.onNodeEdit('color', this.els.colorInput.value);
             this.updateSlotUI();
         });
+
         this.els.colorHex.addEventListener('input', () => {
             if(/^#[0-9A-F]{6}$/i.test(this.els.colorHex.value)) {
                 this.els.colorInput.value = this.els.colorHex.value;
                 this.onNodeEdit('color', this.els.colorHex.value);
                 this.updateSlotUI();
             }
+        });
+
+        // dialog Background Click to Close
+        const dialog = document.getElementById('custom-dialog-overlay');
+        dialog.addEventListener('mousedown', (e) => {
+            if (e.target === dialog) App.UI.Dialog.close();
         });
 
         // Modal Background Click to Close
@@ -217,49 +224,84 @@ App.UI = {
         btnCancel: document.getElementById('btn-cancel'),
         isActive: false,
 
+        // 用于存储当前正在运行的关闭回调，以便外部强行关闭
+        _currentCleanup: null,
         init() {},
-
+        /**
+         * 强行关闭当前对话框
+         * 这等同于用户点击了“取消”按钮
+         */
+        close() {
+            if (this.isActive && this.btnCancel) {
+                // 模拟点击取消按钮，这样可以复用已有的 Promise resolve(false/null) 逻辑
+                // 并且会自动调用 cleanup 清理事件监听
+                this.btnCancel.click();
+            } else if (this.isActive && this._currentCleanup) {
+                // 如果 DOM 还没准备好或者发生了其他异常，但在逻辑上是 Active
+                // 此时直接调用清理函数作为备选方案
+                this._currentCleanup();
+            }
+        },
         _show(msg, needsInput = false, placeholder = '') {
             return new Promise((resolve) => {
+                // 如果当前已经有一个窗口打开，先关掉它，防止冲突
+                if (this.isActive) this.close();
                 this.isActive = true;
                 this.msgEl.innerText = msg;
                 this.inputEl.style.display = needsInput ? 'block' : 'none';
                 this.inputEl.value = '';
                 this.inputEl.placeholder = placeholder;
 
-                this.btnConfirm.innerText = App.Utils.t('dialog.confirm');
-                this.btnCancel.innerText = App.Utils.t('dialog.cancel');
-
+                // 使用 I18n 获取按钮文本 (假设 t 函数存在)
+                this.btnConfirm.innerText = typeof t !== 'undefined' ? t('dialog.confirm') : 'Confirm';
+                this.btnCancel.innerText = typeof t !== 'undefined' ? t('dialog.cancel') : 'Cancel';
                 this.overlay.classList.add('active');
+                // 焦点管理
                 if (needsInput) setTimeout(() => this.inputEl.focus(), 50);
-                else this.btnConfirm.focus();
-
+                else setTimeout(() => this.btnConfirm.focus(), 50);
+                // 键盘辅助导航
+                const handleBtnKey = (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); this.btnConfirm.click(); }
+                    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.btnCancel.click(); }
+                };
+                // 清理与关闭闭包
                 const cleanup = (e) => {
                     if(e) { e.preventDefault(); e.stopPropagation(); }
+
+                    // 解绑事件
                     this.btnConfirm.onclick = null;
                     this.btnCancel.onclick = null;
                     this.inputEl.onkeydown = null;
                     this.btnConfirm.removeEventListener('keydown', handleBtnKey);
                     this.btnCancel.removeEventListener('keydown', handleBtnKey);
 
+                    // 隐藏 UI
                     this.overlay.classList.remove('active');
                     this.isActive = false;
-                    App.Renderer.canvas.focus();
+                    this._currentCleanup = null; // 清空引用
+                    // 归还焦点
+                    if (App && App.Renderer && App.Renderer.canvas) {
+                        App.Renderer.canvas.focus();
+                    }
+                };
+                // 将 cleanup 暴露给实例，以防万一需要强制直接调用
+                this._currentCleanup = () => { cleanup(); resolve(needsInput ? null : false); };
+                // 事件绑定
+                this.btnConfirm.onclick = (e) => {
+                    const val = this.inputEl.value;
+                    cleanup(e);
+                    resolve(needsInput ? val : true);
                 };
 
-                const handleBtnKey = (e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); this.btnConfirm.click(); }
-                    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.btnCancel.click(); }
+                this.btnCancel.onclick = (e) => {
+                    cleanup(e);
+                    resolve(needsInput ? null : false);
                 };
-
-                this.btnConfirm.onclick = (e) => { const val = this.inputEl.value; cleanup(e); resolve(needsInput ? val : true); };
-                this.btnCancel.onclick = (e) => { cleanup(e); resolve(needsInput ? null : false); };
-
                 this.inputEl.onkeydown = (e) => {
                     if(e.key === 'Enter') { e.preventDefault(); this.btnConfirm.click(); }
                     if(e.key === 'Escape') { e.preventDefault(); this.btnCancel.click(); }
                 };
-
+                // 防止 ESC 关闭弹窗时误触其他逻辑
                 this.btnConfirm.addEventListener('keydown', handleBtnKey);
                 this.btnCancel.addEventListener('keydown', handleBtnKey);
             });
@@ -289,8 +331,8 @@ App.UI = {
         },
 
         apply() {
-            const setText = (id, key) => { const el = document.getElementById(id); if(el) el.innerHTML = App.Utils.t(key); };
-            const setPh = (id, key) => { const el = document.getElementById(id); if(el) el.placeholder = App.Utils.t(key); };
+            const setText = (id, key) => { const el = document.getElementById(id); if(el) el.innerHTML = t(key); };
+            const setPh = (id, key) => { const el = document.getElementById(id); if(el) el.placeholder = t(key); };
 
             setText('app-title', 'hud.title');
             setText('txt-view-range', 'hud.viewLayers');
@@ -330,7 +372,7 @@ App.UI = {
 
             this.body.innerHTML = '';
 
-            const raw = node.content || App.Utils.t('modal.noContent');
+            const raw = node.content || t('modal.noContent');
             const html = typeof marked !== 'undefined' ? marked.parse(raw) : raw;
             const containerId = `node-content-host-${node.uuid}`;
 
@@ -342,11 +384,10 @@ App.UI = {
                 <hr style="border:0; border-bottom:1px solid #333; margin-bottom:20px;">
                 <div id="${containerId}" class="node-content-host" style="line-height:1.8; font-size:16px;">${html}</div>
                 <div id="modal-close-btn" style="margin-top:50px; text-align:center; font-size:12px; color:#444; cursor:pointer;">
-                    ${App.Utils.t('modal.close')} (Esc)
+                    ${t('modal.close')} (Esc)
                 </div>
             `;
 
-            // CSP Safe Binding
             document.getElementById('modal-close-btn').addEventListener('click', () => App.UI.Modal.close());
 
             if (typeof hljs !== 'undefined') this.body.querySelectorAll('pre code').forEach(b => hljs.highlightElement(b));
@@ -376,21 +417,21 @@ App.UI = {
             return new Promise((res, rej) => {
                 const presets = App.Store.state.presets;
                 // 注意这里，原先的 preset.title 只有一个占位符，现在需要适配
-                const deleteFragment = allowDelete ? App.Utils.t('preset.delete') : '';
-                let html = `<div class="menu-title">${App.Utils.t('preset.title', {deleteFragment})}</div>`;
+                const deleteFragment = allowDelete ? t('preset.delete') : '';
+                let html = `<div class="menu-title">${t('preset.title', {deleteFragment})}</div>`;
 
                 html += presets.slice(0, 9).map((p, i) =>
                     `<div class="menu-opt" data-val="${p.val}"><span class="menu-key" style="color:${p.color}">[${i+1}]</span>${p.label || p.val}</div>`
                 ).join('');
 
                 if (presets.length > 9) {
-                    html += `<div class="menu-title" style="margin-top:10px;">${App.Utils.t('preset.more')}</div>` +
+                    html += `<div class="menu-title" style="margin-top:10px;">${t('preset.more')}</div>` +
                     presets.slice(9).map(p => `<div class="menu-opt" data-val="${p.val}"><span class="menu-key" style="visibility:hidden;">[]</span>${p.label}</div>`).join('');
                 }
 
                 if (allowDelete) {
                     html += `<div class="menu-opt delete-opt" data-val="DELETE" style="margin-top:5px; border-top:1px solid #333">
-                    <span class="menu-key" style="color:#e74c3c">[D]</span>${App.Utils.t('linkMode.deleteLabel')}</div>`;
+                    <span class="menu-key" style="color:#e74c3c">[D]</span>${t('linkMode.deleteLabel')}</div>`;
                 }
 
                 this.el.innerHTML = html;
@@ -433,8 +474,8 @@ App.UI = {
                 row.innerHTML = `
                     <span class="preset-idx">${i+1}</span>
                     <input type="color" class="preset-color" value="${p.color}" data-idx="${i}" data-field="color">
-                    <input type="text" class="preset-input" style="width:120px" placeholder="${App.Utils.t('preset.input.label')}" value="${p.label}" data-idx="${i}" data-field="label">
-                    <input type="text" class="preset-input" style="flex:1; color:#aaa;" placeholder="${App.Utils.t('preset.input.value')}" value="${p.val}" data-idx="${i}" data-field="val">
+                    <input type="text" class="preset-input" style="width:120px" placeholder="${t('preset.input.label')}" value="${p.label}" data-idx="${i}" data-field="label">
+                    <input type="text" class="preset-input" style="flex:1; color:#aaa;" placeholder="${t('preset.input.value')}" value="${p.val}" data-idx="${i}" data-field="val">
                     <span class="preset-del" data-idx="${i}">✕</span>`;
                 this.listEl.appendChild(row);
             });
@@ -453,18 +494,18 @@ App.UI = {
         update(idx, field, val) { this.tempPresets[idx][field] = val; },
         remove(idx) { this.tempPresets.splice(idx, 1); this.renderList(); },
         add() {
-            if (this.tempPresets.length >= 20) { App.UI.showFlash(App.Utils.t('alert.presetExceedMax'), 'warn'); return; }
-            this.tempPresets.push({label: App.Utils.t('fallback.newRelationship'), val:'new', color: App.Utils.getRandomColor()});
+            if (this.tempPresets.length >= 20) { App.UI.showFlash(t('alert.presetExceedMax'), 'warn'); return; }
+            this.tempPresets.push({label: t('fallback.newRelationship'), val:'new', color: App.Utils.getRandomColor()});
             this.renderList(); setTimeout(() => this.listEl.scrollTop = this.listEl.scrollHeight, 10);
         },
         saveAndClose() {
-            if (this.tempPresets.some(p => !p.val || !p.val.trim())) { App.UI.showFlash(App.Utils.t('alert.presetValueEmpty'), 'warn'); return; }
+            if (this.tempPresets.some(p => !p.val || !p.val.trim())) { App.UI.showFlash(t('alert.presetValueEmpty'), 'warn'); return; }
             const values = this.tempPresets.map(p => p.val.trim());
-            if (new Set(values).size !== values.length) { App.UI.showFlash(App.Utils.t('alert.presetValueDuplicate'), 'warn'); return; }
+            if (new Set(values).size !== values.length) { App.UI.showFlash(t('alert.presetValueDuplicate'), 'warn'); return; }
             App.Store.state.presets = JSON.parse(JSON.stringify(this.tempPresets));
             App.Store.save(); App.Renderer.restartSim();
             this.close();
-            App.UI.showFlash(App.Utils.t('flash.presetUpdated'));
+            App.UI.showFlash(t('flash.presetUpdated'));
         },
         close() { this.el.classList.remove('active'); this.active = false; }
     }
@@ -485,12 +526,12 @@ App.Store = {
     },
 
     DEFAULT_PRESETS: [
-        { label: App.Utils.t('preset.default.includes'), val: 'comp', color: '#0062ff' },
-        { label: App.Utils.t('preset.default.definedAs'), val: 'def', color: '#00ff00' },
-        { label: App.Utils.t('preset.default.intuitive'), val: 'ins', color: '#33ffff' },
-        { label: App.Utils.t('preset.default.calculates'), val: 'calc', color: '#ffaa00' },
-        { label: App.Utils.t('preset.default.implies'), val: 'impl', color: '#bd00ff' },
-        { label: App.Utils.t('preset.default.orthogonalTo'), val: 'orth', color: '#ff0055' },
+        { label: t('preset.default.includes'), val: 'comp', color: '#0062ff' },
+        { label: t('preset.default.definedAs'), val: 'def', color: '#00ff00' },
+        { label: t('preset.default.intuitive'), val: 'ins', color: '#33ffff' },
+        { label: t('preset.default.calculates'), val: 'calc', color: '#ffaa00' },
+        { label: t('preset.default.implies'), val: 'impl', color: '#bd00ff' },
+        { label: t('preset.default.orthogonalTo'), val: 'orth', color: '#ff0055' },
     ],
 
     pushHistory(node) {
@@ -612,12 +653,12 @@ App.Store = {
         const rootUUID = uuid.v4();
         const root = {
             uuid: rootUUID,
-            label: App.Utils.t('fallback.origin'),
+            label: t('fallback.origin'),
             isRoot: true,
             x: 0, y: 0,
             fx: 0, fy: 0,
-            summary: App.Utils.t('fallback.summary'),
-            content: App.Utils.t('fallback.content'),
+            summary: t('fallback.summary'),
+            content: t('fallback.content'),
             color: "#ffffff",
             alpha: 1
         };
@@ -675,7 +716,7 @@ App.Store = {
 
         if (lost.length > 0) {
             const label = lost[0].label;
-            const msg = App.Utils.t('alert.deleteConfirm', { n: lost.length, label: label });
+            const msg = t('alert.deleteConfirm', { n: lost.length, label: label });
 
             if (await App.UI.Dialog.confirm(msg)) {
                 // Apply simulation result first
@@ -745,11 +786,11 @@ App.Store = {
                     if (data && data.data && Array.isArray(data.data.nodes)) {
                         vscode.postMessage({ command: 'saveData', data: data });
                         App.Store.loadState(data, true);
-                        App.UI.showFlash(App.Utils.t('alert.importSuccess'));
-                    } else App.UI.showFlash(App.Utils.t('alert.importFail'), 'warn');
+                        App.UI.showFlash(t('alert.importSuccess'));
+                    } else App.UI.showFlash(t('alert.importFail'), 'warn');
                 } catch(e) {
-                    console.error(App.Utils.t('alert.parseFail'), e);
-                    App.UI.showFlash(App.Utils.t('alert.parseFail'), 'warn');
+                    console.error(t('alert.parseFail'), e);
+                    App.UI.showFlash(t('alert.parseFail'), 'warn');
                 };
             };
             r.readAsText(f);
@@ -758,7 +799,7 @@ App.Store = {
     },
 
     async resetSystem() {
-        if(await App.UI.Dialog.confirm(App.Utils.t('alert.resetConfirm'))) {
+        if(await App.UI.Dialog.confirm(t('alert.resetConfirm'))) {
             App.Runtime.clearAllStorage();
             vscode.postMessage({ command: 'resetSystem' });
         }
@@ -1256,7 +1297,7 @@ App.Input = {
             if(!App.UI.RelationPicker.active && !res) return;
             const mode = { active: true, source: App.Store.state.focusNode, type: res.val, color: '#fff' };
             if (res.val === 'CUSTOM') {
-                const cLabel = await App.UI.Dialog.prompt(App.Utils.t('linkMode.prompt'), App.Utils.t('linkMode.promptPlaceholder'));
+                const cLabel = await App.UI.Dialog.prompt(t('linkMode.prompt'), t('linkMode.promptPlaceholder'));
                 if(!cLabel) { this.exitLinkMode(); return; }
                 const preset = App.Store.state.presets.find(p=>p.label===cLabel);
                 mode.type = preset ? preset.val : cLabel;
@@ -1275,10 +1316,10 @@ App.Input = {
     updateLinkModeIndicator() {
         const el = document.getElementById('link-mode-indicator');
         if (this.state.linkMode.active) {
-            el.innerHTML = App.Utils.t('linkMode.typeIndicator', {color: this.state.linkMode.color, type: this.state.linkMode.type});
+            el.innerHTML = t('linkMode.typeIndicator', {color: this.state.linkMode.color, type: this.state.linkMode.type});
             el.classList.add('active');
         } else {
-            el.innerHTML = App.Utils.t('hud.linkMode');
+            el.innerHTML = t('hud.linkMode');
             el.classList.remove('active');
         }
     },
@@ -1296,7 +1337,7 @@ App.Input = {
                     nextFocus: target,
                     nextSlots: App.Store.state.slots
                 }));
-            } else App.UI.showFlash(App.Utils.t('alert.noLinkToBreak'), 'info');
+            } else App.UI.showFlash(t('alert.noLinkToBreak'), 'info');
         } else {
             if(existing) { existing.type = type; existing.source = source; existing.target = target; }
             else links.push({source, target, type, alpha: 0});
@@ -1331,7 +1372,7 @@ App.Input = {
     createNode() {
         const { focusNode, nodes, links, slots } = App.Store.state;
         const newNode = {
-            uuid: uuid.v4(), label: App.Utils.t('fallback.newNode'),
+            uuid: uuid.v4(), label: t('fallback.newNode'),
             x: focusNode.x + 150, y: focusNode.y + 50,
             summary: "", content: "", color: App.Utils.getRandomColor(), alpha: 0
         };
@@ -1361,7 +1402,7 @@ App.Input = {
 
     deleteNode(target = null) {
         const node = target || App.Store.state.focusNode;
-        if(node.isRoot) { App.UI.showFlash(App.Utils.t('alert.rootCannotDelete'), 'warn'); return; }
+        if(node.isRoot) { App.UI.showFlash(t('alert.rootCannotDelete'), 'warn'); return; }
 
         const { navHistory, nodes, links, slots } = App.Store.state
 
@@ -1414,7 +1455,7 @@ App.Input = {
                 this.safeNavigate(targetNode, false);
             }
         } else {
-            App.UI.showFlash(App.Utils.t('flash.noHistory'), 'info');
+            App.UI.showFlash(t('flash.noHistory'), 'info');
         }
     },
 
@@ -1433,7 +1474,10 @@ App.Input = {
         if(node) {
             this.state.hoverNode=null; this.state.previewNode=null; this.hideTooltip();
             App.Renderer.canvas.style.cursor = 'grabbing';
-        } else App.UI.RelationPicker.close();
+        } else {
+            App.UI.RelationPicker.close();
+            App.UI.PresetEditor.close();
+        }
     },
 
     onMouseMove(e) {
@@ -1445,7 +1489,7 @@ App.Input = {
         if(node) {
             this.state.hoverNode = node; this.state.previewNode = null;
             const html = typeof marked!=='undefined' ? marked.parse(node.summary||'') : node.summary;
-            this.showTooltip(App.Utils.t('tooltip.nodeHover', {label: node.label, summary: html}), e.clientX, e.clientY, 'mouse');
+            this.showTooltip(t('tooltip.nodeHover', {label: node.label, summary: html}), e.clientX, e.clientY, 'mouse');
         } else {
             this.state.hoverNode = null;
             if(!this.state.previewNode) this.hideTooltip();
@@ -1489,7 +1533,7 @@ App.Input = {
     onKeyDown(e) {
         if(App.UI.Dialog.isActive) return;
         if(App.UI.Modal.el.classList.contains('active')) return;
-        if(App.UI.PresetEditor.active) { if(e.key==='Escape') App.UI.PresetEditor.close(); return; }
+        if(App.UI.PresetEditor.active) { if(e.key==='Escape' || e.key==='`') App.UI.PresetEditor.close(); return; }
         if(App.UI.RelationPicker.active) { App.UI.RelationPicker.handleInput(e); return; }
 
         if(['INPUT','TEXTAREA'].includes(e.target.tagName)) {
@@ -1572,7 +1616,7 @@ App.Input = {
         this.state.previewNode = wrapper.node;
         App.Renderer.setTargetRotation(-Math.PI/2 - wrapper.rawAngle);
         const html = (typeof marked!=='undefined' ? marked.parse(wrapper.node.summary||'') : wrapper.node.summary) || '';
-        this.showTooltip(App.Utils.t('tooltip.preview', {label: wrapper.node.label, summary: html}), 0, 0, 'fixed');
+        this.showTooltip(t('tooltip.preview', {label: wrapper.node.label, summary: html}), 0, 0, 'fixed');
     },
 
     jumpDirection(targetAng) {

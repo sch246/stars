@@ -144,7 +144,7 @@
     </div>
 </div>
 
-<div id="content-modal" onclick="App.UI.Modal.close()"><div id="modal-body" onclick="event.stopPropagation()"></div></div>
+<div id="content-modal"><div id="modal-body"></div></div>
 
 <div id="io-controls">
     <button id="btn-save" onclick="App.Store.save()">保存</button>
@@ -941,6 +941,18 @@ App.UI = {
             }
         });
 
+        // dialog Background Click to Close
+        const dialog = document.getElementById('custom-dialog-overlay');
+        dialog.addEventListener('mousedown', (e) => {
+            if (e.target === dialog) App.UI.Dialog.close();
+        });
+
+        // Modal Background Click to Close
+        const modal = document.getElementById('content-modal');
+        modal.addEventListener('mousedown', (e) => {
+            if (e.target === modal) App.UI.Modal.close();
+        });
+
         // Slot Click Listeners (Dynamic)
         for(let i=0; i<4; i++) {
             const slotEl = document.getElementById(`slot-${i+1}`);
@@ -1036,48 +1048,83 @@ App.UI = {
         btnCancel: document.getElementById('btn-cancel'),
         isActive: false,
 
+        // 用于存储当前正在运行的关闭回调，以便外部强行关闭
+        _currentCleanup: null,
         init() {},
-
+        /**
+         * 强行关闭当前对话框
+         * 这等同于用户点击了“取消”按钮
+         */
+        close() {
+            if (this.isActive && this.btnCancel) {
+                // 模拟点击取消按钮，这样可以复用已有的 Promise resolve(false/null) 逻辑
+                // 并且会自动调用 cleanup 清理事件监听
+                this.btnCancel.click();
+            } else if (this.isActive && this._currentCleanup) {
+                // 如果 DOM 还没准备好或者发生了其他异常，但在逻辑上是 Active
+                // 此时直接调用清理函数作为备选方案
+                this._currentCleanup();
+            }
+        },
         _show(msg, needsInput = false, placeholder = '') {
             return new Promise((resolve) => {
+                // 如果当前已经有一个窗口打开，先关掉它，防止冲突
+                if (this.isActive) this.close();
                 this.isActive = true;
                 this.msgEl.innerText = msg;
                 this.inputEl.style.display = needsInput ? 'block' : 'none';
                 this.inputEl.value = '';
                 this.inputEl.placeholder = placeholder;
-                // 使用 I18n 获取按钮文本
-                this.btnConfirm.innerText = t('dialog.confirm');
-                this.btnCancel.innerText = t('dialog.cancel');
-                this.overlay.classList.add('active');
 
+                // 使用 I18n 获取按钮文本 (假设 t 函数存在)
+                this.btnConfirm.innerText = typeof t !== 'undefined' ? t('dialog.confirm') : 'Confirm';
+                this.btnCancel.innerText = typeof t !== 'undefined' ? t('dialog.cancel') : 'Cancel';
+                this.overlay.classList.add('active');
                 // 焦点管理
                 if (needsInput) setTimeout(() => this.inputEl.focus(), 50);
                 else setTimeout(() => this.btnConfirm.focus(), 50);
-                // 清理与关闭闭包
-                const cleanup = (e) => {
-                    if(e) { e.preventDefault(); e.stopPropagation(); }
-                    this.btnConfirm.onclick = null;
-                    this.btnCancel.onclick = null;
-                    this.inputEl.onkeydown = null;
-                    this.btnConfirm.removeEventListener('keydown', handleBtnKey);
-                    this.btnCancel.removeEventListener('keydown', handleBtnKey);
-                    this.overlay.classList.remove('active');
-                    this.isActive = false;
-                    App.Renderer.canvas.focus(); // 归还焦点给画布
-                };
                 // 键盘辅助导航
                 const handleBtnKey = (e) => {
                     if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); this.btnConfirm.click(); }
                     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.btnCancel.click(); }
                 };
+                // 清理与关闭闭包
+                const cleanup = (e) => {
+                    if(e) { e.preventDefault(); e.stopPropagation(); }
+
+                    // 解绑事件
+                    this.btnConfirm.onclick = null;
+                    this.btnCancel.onclick = null;
+                    this.inputEl.onkeydown = null;
+                    this.btnConfirm.removeEventListener('keydown', handleBtnKey);
+                    this.btnCancel.removeEventListener('keydown', handleBtnKey);
+
+                    // 隐藏 UI
+                    this.overlay.classList.remove('active');
+                    this.isActive = false;
+                    this._currentCleanup = null; // 清空引用
+                    // 归还焦点
+                    if (App && App.Renderer && App.Renderer.canvas) {
+                        App.Renderer.canvas.focus();
+                    }
+                };
+                // 将 cleanup 暴露给实例，以防万一需要强制直接调用
+                this._currentCleanup = () => { cleanup(); resolve(needsInput ? null : false); };
                 // 事件绑定
-                this.btnConfirm.onclick = (e) => { const val = this.inputEl.value; cleanup(e); resolve(needsInput ? val : true); };
-                this.btnCancel.onclick = (e) => { cleanup(e); resolve(needsInput ? null : false); };
+                this.btnConfirm.onclick = (e) => {
+                    const val = this.inputEl.value;
+                    cleanup(e);
+                    resolve(needsInput ? val : true);
+                };
+
+                this.btnCancel.onclick = (e) => {
+                    cleanup(e);
+                    resolve(needsInput ? null : false);
+                };
                 this.inputEl.onkeydown = (e) => {
                     if(e.key === 'Enter') { e.preventDefault(); this.btnConfirm.click(); }
                     if(e.key === 'Escape') { e.preventDefault(); this.btnCancel.click(); }
                 };
-
                 // 防止 ESC 关闭弹窗时误触其他逻辑
                 this.btnConfirm.addEventListener('keydown', handleBtnKey);
                 this.btnCancel.addEventListener('keydown', handleBtnKey);
@@ -1109,8 +1156,12 @@ App.UI = {
                 </div>
                 <hr style="border:0; border-bottom:1px solid #333; margin-bottom:20px;">
                 <div id="${containerId}" class="node-content-host" style="line-height:1.8; font-size:16px;">${html}</div>
-                <div style="margin-top:50px; text-align:center; font-size:12px; color:#444; cursor:pointer;" onclick="App.UI.Modal.close()">${t('modal.close')}</div>
+                <div id="modal-close-btn" style="margin-top:50px; text-align:center; font-size:12px; color:#444; cursor:pointer;">
+                    ${App.Utils.t('modal.close')} (Esc)
+                </div>
             `;
+
+            document.getElementById('modal-close-btn').addEventListener('click', () => App.UI.Modal.close());
 
             if (typeof hljs !== 'undefined') this.body.querySelectorAll('pre code').forEach(b => hljs.highlightElement(b));
 
@@ -1766,6 +1817,7 @@ App.Input = {
             App.Renderer.canvas.style.cursor = 'grabbing';
         } else {
             App.UI.RelationPicker.close();
+            App.UI.PresetEditor.close();
         }
     },
 
@@ -1831,7 +1883,7 @@ App.Input = {
     onKeyDown(e) {
         if(App.UI.Dialog.isActive) return;
         if(App.UI.Modal.el.classList.contains('active')) return;
-        if(App.UI.PresetEditor.active) { if(e.key==='Escape') App.UI.PresetEditor.close(); return; }
+        if(App.UI.PresetEditor.active) { if(e.key==='Escape' || e.key==='`') App.UI.PresetEditor.close(); return; }
         if(App.UI.RelationPicker.active) { App.UI.RelationPicker.handleInput(e); return; }
 
         if(['INPUT','TEXTAREA'].includes(e.target.tagName)) {
