@@ -1994,21 +1994,25 @@ App.Input = {
         const node = target || App.Store.state.focusNode;
         if(node.isRoot) { App.UI.showFlash(t('alert.rootCannotDelete'), 'warn'); return; }
 
-        const { navHistory, nodes, links, slots } = App.Store.state;
+        const { focusNode, navHistory, nodes, links, slots } = App.Store.state;
 
-        // --- 预判下一跳 ---
-        const backIdx = App.Store.getBackNodeIndex();
         let nextFocus = null;
+        if (focusNode && node !== focusNode) {
+            nextFocus = focusNode;
+        } else {
+            // --- 预判下一跳 ---
+            const backIdx = App.Store.getBackNodeIndex();
 
-        if (backIdx >= 0) {
-            // 用历史记录的 UUID 去找“活体”节点，防止使用过期的历史快照
-            const uuid = navHistory[backIdx].uuid;
-            nextFocus = nodes.find(n => n.uuid === uuid);
-        }
+            if (backIdx >= 0) {
+                // 用历史记录的 UUID 去找“活体”节点，防止使用过期的历史快照
+                const uuid = navHistory[backIdx].uuid;
+                nextFocus = nodes.find(n => n.uuid === uuid);
+            }
 
-        // 兜底逻辑
-        if (!nextFocus) {
-            nextFocus = nodes.find(n => n.isRoot) || nodes.find(n => n.uuid !== node.uuid);
+            // 兜底逻辑
+            if (!nextFocus) {
+                nextFocus = nodes.find(n => n.isRoot) || nodes.find(n => n.uuid !== node.uuid);
+            }
         }
 
         App.Store.executeSafeAction(
