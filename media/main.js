@@ -1,5 +1,5 @@
 /**
- * Stars v5.0 Refactored
+ * Stars v5.2
  */
 
 const vscode = acquireVsCodeApi();
