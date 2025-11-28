@@ -929,13 +929,22 @@ App.Runtime = {
 App.Renderer = {
     canvas: document.getElementById('canvas'),
     ctx: document.getElementById('canvas').getContext('2d'),
-    width: 0, height: 0, viewX: 0, viewY: 0, viewK: 1, viewRotation: 0, targetRotation: 0,
-    simulation: null, pointerForce: null, lastRenderTime: 0, FADE_DURATION: 400, DEFAULT_NODE_COLOR: "#4facfe",
+    width: 0, height: 0,
+    viewX: 0, viewY: 0, viewK: 1, viewRotation: 0, targetRotation: 0,
+    simulation: null,
+    pointerForce: null,
+    lastRenderTime: 0,
+
+    // Constants
+    FADE_DURATION: 400,
+    DEFAULT_NODE_COLOR: "#4facfe",
+
+    LINK_DISTANCE: 220,
 
     init() {
         this.resize();
         this.simulation = d3.forceSimulation()
-            .force("link", d3.forceLink().id(d => d.uuid).distance(220).strength(0.1))
+            .force("link", d3.forceLink().id(d => d.uuid).distance(this.LINK_DISTANCE).strength(0.1))
             .force("charge", d3.forceManyBody().strength(-200))
             .force("collide", d3.forceCollide(10))
             .force("x", d3.forceX(0).strength(0.01))
@@ -1163,6 +1172,7 @@ App.Input = {
         C.addEventListener('mousedown', this.onMouseDown.bind(this));
         C.addEventListener('mouseup', this.onMouseUp.bind(this));
         C.addEventListener('mousemove', this.onMouseMove.bind(this));
+        C.addEventListener('dblclick', this.onMouseDoubleClick.bind(this));
         C.addEventListener('wheel', this.onWheel.bind(this), {passive:false});
         C.addEventListener('contextmenu', this.onContextMenu.bind(this));
         window.addEventListener('keydown', this.onKeyDown.bind(this));
@@ -1345,7 +1355,7 @@ App.Input = {
         }
     },
 
-    createDefaultLinkedNode() {
+    createDefaultLinkedNode(node) {
         const { focusNode, presets } = App.Store.state;
         if (!focusNode) return;
         // 1. 获取第一个预设关系 (对应 "回车选择第一个")
@@ -1366,15 +1376,22 @@ App.Input = {
         // 3. 调用原有的创建逻辑 (对应 "按N")
         // createNode 内部检测到 linkMode.active 为 true 时，
         // 会自动建立连接、退出连线模式并跳转焦点
-        this.createNode();
+        this.createNode(node);
     },
 
-    createNode() {
+    createNode(node) {
         const { focusNode, nodes, links, slots } = App.Store.state;
+
+        // 固定长度随机一个角度进行偏移
+        const distance = App.Renderer.LINK_DISTANCE;
+        const angle = Math.random() * 2 * Math.PI;
+        const [ offsetX, offsetY ] = [ distance * Math.cos(angle), distance * Math.sin(angle) ];
+
         const newNode = {
             uuid: uuid.v4(), label: t('fallback.newNode'),
             x: focusNode.x + 150, y: focusNode.y + 50,
-            summary: "", content: "", color: App.Utils.getRandomColor(), alpha: 0
+            summary: "", content: "", color: App.Utils.getRandomColor(), alpha: 0,
+            ...node,
         };
 
         // If LinkMode, we skip safe check because we create a link immediately
@@ -1517,6 +1534,20 @@ App.Input = {
                 if(target !== App.Store.state.focusNode) this.safeNavigate(target);
                 else App.UI.Modal.show();
             }
+        }
+    },
+
+    onMouseDoubleClick(e) {
+        if(App.UI.Modal.el.classList.contains('active') || App.UI.Dialog.isActive) return;
+        if(e.button===3) { e.preventDefault(); this.safeNavigateBack(); return; }
+        if(e.button===4) { e.preventDefault(); this.enterLinkMode(); return; }
+        if(e.button!==0) return;
+
+        const node = this.pickNode(e.clientX, e.clientY);
+
+        if(node) {
+        } else {
+            this.createDefaultLinkedNode(App.Renderer.screenToWorld(e.clientX, e.clientY));
         }
     },
 
