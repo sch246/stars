@@ -13,13 +13,13 @@ const translations = {
         "hud.nodes": "nodes",
         "hud.linkMode": "🔗 Link Mode: Jump to connect / Esc to cancel",
         "hud.controls": `
-            <span class="key">L</span> <span class="key">Front Key</span> New Link <span class="key">N</span> New Node <span class="key">Tab</span> <span class="key">Double Click</span> New Linked Node<br>
-            <span class="key">Del</span> <span class="key">D</span> <span class="key">Right Click</span> Delete Link/Node<br>
-            <span class="key">↑↓←→ /?</span> <span class="key">L-Click</span> Move <br>
-            <span class="key">Space</span> Edit <span class="key">Enter</span> <span class="key">Focus</span> View<br>
-            <span class="key">(Shift)1-4</span> Swap(Store) <span class="key">H</span> Home <span class="key">B</span> <span class="key">Back Key</span> Back<br>
-            <span class="key">, .</span> Preview Neighbors <span class="key">< ></span> Rotate<br>
-            <span class="key">\`</span> Presets <span class="key">I</span> Hide Help
+            <span class="key">L</span> <span class="key">Fwd Btn</span> New Rel. <span class="key">N</span> New Node <span class="key">Tab</span> <span class="key">Dbl Click</span> New & Connect<br>
+            <span class="key">Del</span> <span class="key">X</span> <span class="key">R Click</span> Del Rel/Node<br>
+            <span class="key">(shift)WASD</span> <span class="key">(shift)↑←↓→</span> <span class="key">(/?)</span> <span class="key">L Click</span> (Path Aligned) Move <br>
+            <span class="key">Space</span> Edit <span class="key">Enter</span> <span class="key">L Click Focus</span> View<br>
+            <span class="key">(Shift)1-4</span> (Save) Swap <span class="key">H</span> Home <span class="key">B</span> <span class="key">Back Btn</span> Back<br>
+            <span class="key">(shift)Q E</span> <span class="key">(shift)< ></span> (Free Rotate) Prev. Neighbors<br>
+            <span class="key">\`</span> Rel. Presets <span class="key">I</span> Hide Tip
         `,
         "btn.save": "Save",
         "btn.export": "Export",
@@ -87,11 +87,11 @@ const translations = {
         "hud.linkMode": "🔗 连线模式: 跳转以连接/Esc 取消",
         "hud.controls": `
             <span class="key">L</span> <span class="key">前侧键</span> 新建关系 <span class="key">N</span> 新建节点 <span class="key">Tab</span> <span class="key">双击</span> 新建并连接节点<br>
-            <span class="key">Del</span> <span class="key">D</span> <span class="key">右键</span> 删除关系/节点<br>
-            <span class="key">↑↓←→ /?</span> <span class="key">左键</span> 移动 <br>
+            <span class="key">Del</span> <span class="key">X</span> <span class="key">右键</span> 删除关系/节点<br>
+            <span class="key">(shift)WASD</span> <span class="key">(shift)↑←↓→</span> <span class="key">(/?)</span> <span class="key">左键</span> (沿路径)移动 <br>
             <span class="key">Space</span> 编辑 <span class="key">Enter</span> <span class="key">左键焦点</span> 查看<br>
             <span class="key">(Shift)1-4</span> (存入)交换 <span class="key">H</span> 回家 <span class="key">B</span> <span class="key">后侧键</span> 后退<br>
-            <span class="key">, .</span> 预览邻居 <span class="key">< ></span> 自由旋转<br>
+            <span class="key">(shift)Q E</span> <span class="key">(shift)< ></span> (自由旋转)预览邻居<br>
             <span class="key">\`</span> 关系预设 <span class="key">I</span> 隐藏此提示
         `,
         "btn.save": "保存",

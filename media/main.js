@@ -450,7 +450,7 @@ App.UI = {
             if (!isNaN(num) && num >= 1 && num <= Math.min(9, presets.length)) { e.preventDefault(); this.pick(presets[num-1].val); }
             else if (e.key === ' ') { e.preventDefault(); this.pick('CUSTOM'); }
             else if (e.key === 'Enter' && presets.length>0) { e.preventDefault(); this.pick(presets[0].val); }
-            else if (this.allowDelete && ['d','D','Delete'].includes(e.key)) { e.preventDefault(); this.pick('DELETE'); }
+            else if (this.allowDelete && ['x','X','Delete'].includes(e.key)) { e.preventDefault(); this.pick('DELETE'); }
             else if (e.key === 'Escape') { e.preventDefault(); this.reject(); this.close(); }
         },
         pick(val) { if(this.resolve) { this.resolve({ val }); this.resolve=null; this.reject=null; } this.close(); },
@@ -1201,12 +1201,12 @@ App.Renderer = {
         }
 
         // --- 处理键盘旋转 ---
-        if (keyState['<']) {
+        if (keyState['<'] || keyState['Q']) {
             this.targetRotation += 0.05;
             // 旋转时隐藏临时的预览提示，避免眼花
             if(previewNode) { App.Input.state.previewNode = null; App.Input.hideTooltip(); }
         }
-        if (keyState['>']) {
+        if (keyState['>'] || keyState['E']) {
             this.targetRotation -= 0.05;
             if(previewNode) { App.Input.state.previewNode = null; App.Input.hideTooltip(); }
         }
@@ -1961,12 +1961,14 @@ App.Input = {
         if(!e.shiftKey && isSlot) { this.handleSlot(parseInt(e.key)-1); return; }
 
         switch(e.key) {
-            case 'ArrowUp': case '/': if(this.state.previewNode) this.safeNavigate(this.state.previewNode); else this.jumpDirection(-Math.PI/2); break;
-            case 'ArrowDown': case '?': this.jumpDirection(Math.PI/2); break;
-            case 'ArrowLeft': this.jumpDirection(Math.PI); break;
-            case 'ArrowRight': this.jumpDirection(0); break;
-            case '.': this.cyclePreview(1); break;
-            case ',': this.cyclePreview(-1); break;
+            case '/': this.jumpDirection(-Math.PI/2, true); break;
+            case '?': this.jumpDirection(Math.PI/2, true); break;
+            case 'w': case 'W': case 'ArrowUp': this.jumpDirection(-Math.PI/2, e.shiftKey); break;
+            case 's': case 'S': case 'ArrowDown': this.jumpDirection(Math.PI/2, e.shiftKey); break;
+            case 'a': case 'A': case 'ArrowLeft': this.jumpDirection(Math.PI, e.shiftKey); break;
+            case 'd': case 'D': case 'ArrowRight': this.jumpDirection(0, e.shiftKey); break;
+            case 'q': case ',': this.cyclePreview(-1); break;
+            case 'e': case '.': this.cyclePreview(1); break;
             case '=': case '+': App.Store.state.viewLayers = Math.max(1, App.Store.state.viewLayers-1); App.Renderer.restartSim(); break;
             case '-': case '_': App.Store.state.viewLayers = App.Store.state.viewLayers+1; App.Renderer.restartSim(); break;
             case 'Tab': e.preventDefault(); this.createDefaultLinkedNode(); break;
@@ -1978,11 +1980,9 @@ App.Input = {
             case 'h': case 'H': const root = App.Store.state.nodes.find(n=>n.isRoot); if(root) this.safeNavigate(root); break;
             case 'Escape': if(this.state.linkMode.active) this.exitLinkMode(); break;
             case 'b': case 'B': this.safeNavigateBack(); break;
-            case 'Delete': case 'd': case 'D': this.deleteNode(); break;
+            case 'Delete': case 'x': case 'X': this.deleteNode(); break;
             case 'i': case 'I': e.preventDefault(); this.state.keyControlsVisible=!this.state.keyControlsVisible; document.getElementById('key-controls').style.display=this.state.keyControlsVisible?'block':'none'; break;
             case '`': e.preventDefault(); App.UI.PresetEditor.open(); break;
-            case '<': App.Renderer.targetRotation += 0.05; break;
-            case '>': App.Renderer.targetRotation -= 0.05; break;
         }
     },
 
@@ -2031,14 +2031,26 @@ App.Input = {
         this.showTooltip(t('tooltip.preview', {label: wrapper.node.label, summary: html}), 0, 0, 'fixed');
     },
 
-    jumpDirection(targetAng) {
+    jumpDirection(targetAng, shiftKey) {
         const neighbors = this.getNeighbors();
-        let best = null, minDiff = 1.2;
+        let best = null, minDiff = 1.2; // Threshold ~68 deg
+        let rawAngle = 0, vAngle = 0;
         neighbors.forEach(n => {
-            let diff = Math.abs(n.vAngle - targetAng); if (diff > Math.PI) diff = 2*Math.PI - diff;
-            if (diff < minDiff) { minDiff = diff; best = n.node; }
+            let diff = Math.abs(n.vAngle - targetAng);
+            if (diff > Math.PI) diff = 2*Math.PI - diff;
+            if (diff < minDiff) {
+                minDiff = diff;
+                best = n.node;
+                rawAngle = n.rawAngle;
+                vAngle = n.vAngle;
+            }
         });
-        if(best) this.safeNavigate(best);
+        if(best) {
+            if (shiftKey) {
+                App.Renderer.setTargetRotation(targetAng - rawAngle);
+            }
+            this.safeNavigate(best);
+        }
     },
 
     pickNode(sx, sy) {
