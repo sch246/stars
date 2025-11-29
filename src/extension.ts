@@ -258,7 +258,7 @@ class StarsPanel {
       </head>
       <body>
           <div id="hud">
-              <h1><span id="app-title">Stars</span> <span style="font-size:10px; opacity:0.5">v5.2</span></h1>
+              <h1><span id="app-title">Stars</span> <span style="font-size:10px; opacity:0.5">v5.3</span></h1>
               <div id="slot-bar">
                   <!-- 移除 onclick/oncontextmenu，保留 id 和 class -->
                   <div class="slot" id="slot-1" data-index="0"><div class="slot-circle"><span class="slot-num">1</span></div><span class="slot-name">-</span></div>

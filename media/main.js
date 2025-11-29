@@ -1,5 +1,5 @@
 /**
- * Stars v5.2
+ * Stars v5.3
  */
 
 const vscode = acquireVsCodeApi();
@@ -938,17 +938,21 @@ App.Renderer = {
     // Constants
     FADE_DURATION: 400,
     DEFAULT_NODE_COLOR: "#4facfe",
-
     LINK_DISTANCE: 220,
+    // New Constants for Visuals
+    MIN_NODE_PIXEL_SIZE: 3, // 缩小时节点的最小像素大小
+    PROXIMITY_RANGE: 300,   // 鼠标接近产生反应的像素范围
+    HOVER_STOP_RANGE: 30,    // [新增] 鼠标进入节点中心 30px 范围内时，锁定为最大大小
+    MAX_SCALE_MULT: 1.8,    // 鼠标最接近时的最大放大倍数
 
     init() {
         this.resize();
         this.simulation = d3.forceSimulation()
             .force("link", d3.forceLink().id(d => d.uuid).distance(this.LINK_DISTANCE).strength(0.1))
-            .force("charge", d3.forceManyBody().strength(-200))
+            .force("charge", d3.forceManyBody().strength(-80))
             .force("collide", d3.forceCollide(10))
-            .force("x", d3.forceX(0).strength(0.01))
-            .force("y", d3.forceY(0).strength(0.01))
+            // .force("x", d3.forceX(0).strength(0.01))
+            // .force("y", d3.forceY(0).strength(0.01))
             .alphaDecay(0.05).alphaMin(0.05);
 
         this.pointerForce = (() => {
@@ -967,18 +971,33 @@ App.Renderer = {
     },
 
     resize() {
-        const el = this.canvas;
-        if (el) {
-            this.width = el.clientWidth; this.height = el.clientHeight;
-            const dpr = window.devicePixelRatio || 1;
-            el.width = this.width * dpr; el.height = this.height * dpr;
-            this.ctx.setTransform(1, 0, 0, 1, 0, 0);
-            this.ctx.scale(dpr, dpr);
-        }
+        // 1. [来自写法 A]：计算逻辑上的宽度和高度 (CSS 像素)
+        // 如果你的 canvas 已经通过 css (flex:1 等) 自动撑满右侧，这一步可以省略，
+        // 直接用 const logicalWidth = this.canvas.clientWidth 即可。
+        const sidebarW = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width')) || 340;
+        const logicalWidth = window.innerWidth - sidebarW;
+        const logicalHeight = window.innerHeight;
+        // 保存给 render 函数计算中心点用
+        this.width = logicalWidth;
+        this.height = logicalHeight;
+        // 2. [来自写法 B]：处理高清屏 (DPR)
+        const dpr = window.devicePixelRatio || 1;
+        // 设置 Canvas 内部真实像素 (物理像素)
+        this.canvas.width = logicalWidth * dpr;
+        this.canvas.height = logicalHeight * dpr;
+        // 显式设置 Canvas 的 CSS 大小 (确保它不会因为内部变大而被撑大)
+        this.canvas.style.width = `${logicalWidth}px`;
+        this.canvas.style.height = `${logicalHeight}px`;
+        // 3. [来自写法 B]：标准化坐标系
+        // 这一步非常关键！
+        // 它让你后续所有的 render 代码、x/y 坐标都不用管 dpr，
+        // 就像在一个普通屏幕上画图一样，但系统会自动帮你画出高清效果。
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0); // 重置矩阵
+        this.ctx.scale(dpr, dpr);
     },
 
     adjustZoomByLayer() {
-        this.viewK = Math.max(0.3, Math.min(5, 2.0 / (Math.pow(App.Store.state.viewLayers, 0.7))));
+        this.viewK = 2.0 / Math.pow(App.Store.state.viewLayers, 0.7);
     },
 
     restartSim() {
@@ -1010,32 +1029,61 @@ App.Renderer = {
         const activeLinks = links.filter(l => targets.has(l.source.uuid) && targets.has(l.target.uuid));
         this.simulation.nodes(activeNodes);
         this.simulation.force("link").links(activeLinks);
-        this.simulation.alpha(1).restart();
+        // this.simulation.alpha(1).restart();
     },
 
-    render(t) {
+    render(currentTime) {
         const { keyState, dragNode, mouseX, mouseY, hoverNode, previewNode, linkMode } = App.Input.state;
-        if (keyState['<']) { this.targetRotation += 0.05; if(App.Input.state.previewNode) { App.Input.state.previewNode=null; App.Input.hideTooltip(); } }
-        if (keyState['>']) { this.targetRotation -= 0.05; if(App.Input.state.previewNode) { App.Input.state.previewNode=null; App.Input.hideTooltip(); } }
+        const { nodes, links, focusNode, viewLayers, presets, slots } = App.Store.state;
+        if (keyState['<']) {
+            this.targetRotation += 0.05;
+            if(previewNode) { // 还原：旋转时取消预览的细节
+                App.Input.state.previewNode = null;
+                App.Input.hideTooltip();
+            }
+        }
+        if (keyState['>']) {
+            this.targetRotation -= 0.05;
+            if(previewNode) {
+                App.Input.state.previewNode = null;
+                App.Input.hideTooltip();
+            }
+        }
 
-        if (!this.lastRenderTime) this.lastRenderTime = t;
-        const dt = t - this.lastRenderTime; this.lastRenderTime = t;
+        if (!this.lastRenderTime) this.lastRenderTime = currentTime;
+        const deltaTime = currentTime - this.lastRenderTime;
+        this.lastRenderTime = currentTime;
 
+        // --- 实时更新拖拽力目标 ---
+        // 这是必要的。即使鼠标没动，世界模拟也在继续，世界仍然会相对屏幕移动，因此鼠标对应的世界坐标会发生变化
         if (dragNode) {
             const w = this.screenToWorld(mouseX, mouseY);
             this.pointerForce.node(dragNode).target(w.x, w.y);
         }
 
-        const { nodes, links, focusNode, viewLayers } = App.Store.state;
-        const tx = this.width/2, ty = this.height/2;
+        // Camera Logic
+        const targetX = this.width/2, targetY = this.height/2;
         if(focusNode) {
-            this.viewX += ((-focusNode.x * this.viewK + tx) - this.viewX) * 0.1;
-            this.viewY += ((-focusNode.y * this.viewK + ty) - this.viewY) * 0.1;
+            // 1. 初始化（防止第一帧飞入）
+            if (this.cameraLookAtX === undefined) {
+                this.cameraLookAtX = focusNode.x;
+                this.cameraLookAtY = focusNode.y;
+            }
+            // 2. 只对“观察目标”进行缓动 (平滑飞行)
+            // 不管缩放是多少，我们只是慢慢把相机挪到节点的物理坐标上
+            this.cameraLookAtX += (focusNode.x - this.cameraLookAtX) * 0.1;
+            this.cameraLookAtY += (focusNode.y - this.cameraLookAtY) * 0.1;
+            // 3. 刚性计算屏幕偏移 (解决缩放漂移)
+            // 公式：屏幕位置 = -(观察点 * 缩放) + 屏幕中心
+            // 因为这里直接乘了 this.viewK，所以缩放是瞬时响应的，绝对居中，不会漂移
+            this.viewX = -this.cameraLookAtX * this.viewK + targetX;
+            this.viewY = -this.cameraLookAtY * this.viewK + targetY;
         }
         let diff = this.targetRotation - this.viewRotation;
         while(diff > Math.PI) diff -= 2*Math.PI; while(diff < -Math.PI) diff += 2*Math.PI;
         this.viewRotation += diff * 0.1;
 
+        // Clear & Transform
         this.ctx.save();
         this.ctx.clearRect(0, 0, this.width, this.height);
         this.ctx.translate(this.width/2, this.height/2);
@@ -1044,18 +1092,25 @@ App.Renderer = {
         this.ctx.translate(this.viewX, this.viewY);
         this.ctx.scale(this.viewK, this.viewK);
 
-        const visNodes = new Set(); const visLinks = new Set();
-        const addVis = (s, d) => {
-            if(!s) return;
-            visNodes.add(s.uuid);
-            let q=[{n:s, d:0}], h=0;
-            while(h<q.length){
-                const {n,d:depth} = q[h++];
-                if(depth>=d) continue;
+        // Visibility Logic (BFS)
+        const visibleNodes = new Set();
+        const visibleLinks = new Set();
+        const addVis = (start, depth) => {
+            if(!start) return;
+            visibleNodes.add(start.uuid);
+            let queue = [{n: start, d: 0}], head = 0;
+            while(head < queue.length){
+                const {n, d} = queue[head++];
+                if(d >= depth) continue;
                 links.forEach(l => {
-                    const src=l.source, tgt=l.target;
-                    if(src.uuid===n.uuid) { if(!visNodes.has(tgt.uuid)) {visNodes.add(tgt.uuid); q.push({n:tgt,d:depth+1});} visLinks.add(l); }
-                    else if(tgt.uuid===n.uuid) { if(!visNodes.has(src.uuid)) {visNodes.add(src.uuid); q.push({n:src,d:depth+1});} visLinks.add(l); }
+                    const src = l.source, tgt = l.target;
+                    if (src.uuid === n.uuid) {
+                        if(!visibleNodes.has(tgt.uuid)) { visibleNodes.add(tgt.uuid); queue.push({n:tgt, d:d+1}); }
+                        visibleLinks.add(l);
+                    } else if (tgt.uuid === n.uuid) {
+                        if(!visibleNodes.has(src.uuid)) { visibleNodes.add(src.uuid); queue.push({n:src, d:d+1}); }
+                        visibleLinks.add(l);
+                    }
                 });
             }
         };
@@ -1063,77 +1118,192 @@ App.Renderer = {
         if(hoverNode && hoverNode!==focusNode) addVis(hoverNode, 1);
         if(previewNode && previewNode!==focusNode) addVis(previewNode, 1);
 
+        // Draw Links
         links.forEach(l => {
-            const isVis = visLinks.has(l);
-            if(isVis && l.alpha<1) l.alpha += dt/this.FADE_DURATION;
-            else if(!isVis && l.alpha>0) l.alpha -= dt/this.FADE_DURATION;
+            const isVis = visibleLinks.has(l);
+            if(isVis && l.alpha < 1) l.alpha += deltaTime/this.FADE_DURATION;
+            else if(!isVis && l.alpha > 0) l.alpha -= deltaTime/this.FADE_DURATION;
             l.alpha = Math.max(0, Math.min(1, l.alpha));
+
             if(l.alpha > 0.01) {
-                const src=l.source, tgt=l.target;
-                const isFocus = (src===focusNode||tgt===focusNode);
-                const isHigh = (hoverNode&&(src===hoverNode||tgt===hoverNode)) || (previewNode&&(src===previewNode||tgt===previewNode));
-                const mult = isFocus ? 1.0 : (isHigh ? 0.7 : 0.4);
+                const src = l.source, tgt = l.target;
+                const isFocusLink = (src===focusNode || tgt===focusNode);
+                const isHigh = (hoverNode && (src===hoverNode||tgt===hoverNode)) || (previewNode && (src===previewNode||tgt===previewNode));
+                const mult = isFocusLink ? 1.0 : (isHigh ? 0.7 : 0.4);
+
                 this.ctx.globalAlpha = l.alpha * mult;
-                this.ctx.lineWidth = (isFocus||isHigh) ? 2.5 : 1.5;
-                const color = App.Store.state.presets.find(p=>p.val===l.type)?.color || '#666';
-                const g = this.ctx.createLinearGradient(src.x, src.y, tgt.x, tgt.y);
-                g.addColorStop(0, color); g.addColorStop(0.7, "#444"); g.addColorStop(1, "#222");
-                this.ctx.strokeStyle = g;
+                this.ctx.lineWidth = (isFocusLink || isHigh) ? 2.5 : 1.5;
+
+                const typeColor = presets.find(p=>p.val===l.type)?.color || '#666';
+                const grad = this.ctx.createLinearGradient(src.x, src.y, tgt.x, tgt.y);
+                grad.addColorStop(0, typeColor); grad.addColorStop(1, "#88888888");
+
+                this.ctx.strokeStyle = grad;
                 this.ctx.beginPath(); this.ctx.moveTo(src.x, src.y); this.ctx.lineTo(tgt.x, tgt.y); this.ctx.stroke();
-                if(l.type && isFocus) {
-                    const mx=(src.x+tgt.x)/2, my=(src.y+tgt.y)/2;
-                    this.ctx.save(); this.ctx.translate(mx,my); this.ctx.rotate(-this.viewRotation);
-                    this.ctx.fillStyle = color; this.ctx.font="11px Arial"; this.ctx.textAlign="center";
-                    const label = App.Store.state.presets.find(p=>p.val===l.type)?.label || l.type;
-                    this.ctx.fillText(label, 0, -8); this.ctx.restore();
+
+                if (l.type && isFocusLink) {
+                     const mx = (src.x+tgt.x)/2, my = (src.y+tgt.y)/2;
+                     this.ctx.save(); this.ctx.translate(mx, my); this.ctx.rotate(-this.viewRotation);
+                     this.ctx.fillStyle = typeColor; this.ctx.font = "11px Arial"; this.ctx.textAlign="center";
+                     const label = presets.find(p=>p.val===l.type)?.label || l.type;
+                     this.ctx.fillText(label, 0, -8); this.ctx.restore();
+                }
+            }
+        });
+        this.ctx.restore(); // End Link Transform
+
+        // Draw Nodes
+        const pulse = Math.sin(currentTime * 0.002) * 0.5 + 1;
+        let visibleCount = 0;
+
+        nodes.forEach(n => {
+            const isVis = visibleNodes.has(n.uuid);
+            if(n === focusNode) n.alpha = 1;
+            else {
+                if(isVis && n.alpha < 1) n.alpha += deltaTime/this.FADE_DURATION;
+                else if(!isVis && n.alpha > 0) n.alpha -= deltaTime/this.FADE_DURATION;
+                n.alpha = Math.max(0, Math.min(1, n.alpha));
+            }
+
+            if (n.alpha > 0.01) {
+                visibleCount++;
+
+                // [Coordinate Calculation - Verified Correct]
+                let p_unrotated_x = n.x * this.viewK + this.viewX;
+                let p_unrotated_y = n.y * this.viewK + this.viewY;
+                let p_shifted_x = p_unrotated_x - this.width/2;
+                let p_shifted_y = p_unrotated_y - this.height/2;
+                let screen_x_rotated = p_shifted_x * Math.cos(this.viewRotation) - p_shifted_y * Math.sin(this.viewRotation);
+                let screen_y_rotated = p_shifted_x * Math.sin(this.viewRotation) + p_shifted_y * Math.cos(this.viewRotation);
+                n._screenX = screen_x_rotated + this.width/2;
+                n._screenY = screen_y_rotated + this.height/2;
+                // [Proximity Logic]
+                const isFocus = (n === focusNode);
+                // 这里的 previewNode 指的是键盘选中的那个，hoverNode 指的是鼠标当前的
+                const isPreview = n === previewNode;
+                const isHover = n === hoverNode;
+                const isSlot = slots.includes(n);
+                // --- 新的缩放逻辑 ---
+                let proximityScale = 1.0;
+                if (isFocus) {
+                    // [建议2] 焦点不再放大，保持稳定
+                    proximityScale = 1.0;
+                } else if (isPreview) {
+                    // [建议3] Preview 对象直接获得最大放大倍数，与鼠标悬停效果一致
+                    proximityScale = this.MAX_SCALE_MULT;
+                } else {
+                    // [建议1] 鼠标接近逻辑优化
+                    // 在放缩变小时范围增大
+                    const dist = Math.hypot(n._screenX - mouseX, n._screenY - mouseY) / Math.sqrt(this.viewK);
+                    const stopRange = this.HOVER_STOP_RANGE / Math.sqrt(this.viewK)
+
+                    if (dist < stopRange) {
+                        // 进入核心区域 (30px)，锁定最大放大倍数
+                        proximityScale = this.MAX_SCALE_MULT;
+                    } else if (dist < this.PROXIMITY_RANGE) {
+                        // 在感应范围内 (30px - 100px)，进行插值
+                        // 归一化距离：0 (在边缘) -> 1 (在核心边缘)
+                        const range = this.PROXIMITY_RANGE - stopRange;
+                        const effectiveDist = dist - stopRange;
+                        const ratio = 1 - (effectiveDist / range);
+
+                        // 使用平方缓动 (ratio * ratio) 让变化在靠近时更明显，远端更平滑
+                        proximityScale = 1 + (this.MAX_SCALE_MULT - 1) * (ratio * ratio);
+                    }
+                }
+
+                // ----------------------------------------------------------------
+                // [NEW SCALE & GLOW LOGIC]
+                // ----------------------------------------------------------------
+
+                // 1. 计算核心实心圆半径 (物理大小)
+                // 焦点基准20，普通10。随viewK缩放，但至少保留 MIN_NODE_PIXEL_SIZE px可见
+                let baseRadius = isFocus ? 20 : 10;
+                let rawRadius = baseRadius * this.viewK;
+                let coreRadius = Math.max(this.MIN_NODE_PIXEL_SIZE, rawRadius);
+                // 2. 计算光晕模糊大小 (视觉光晕)
+                // 焦点基准35，普通15(约为焦点一半)。
+                let baseBlur = isFocus ? 35 : 15;
+                // 设定光晕下限：即使缩到很小，普通节点也保留5px光晕，焦点保留20px
+                let minBlur = isFocus ? 20 : 5;
+                // 随缩放变化，但不能小于下限
+                let glowRadius = Math.max(minBlur, baseBlur * this.viewK);
+                // 3. 应用鼠标交互的放大倍数
+                coreRadius *= proximityScale;
+                glowRadius *= proximityScale;
+                // 记录渲染半径供文字排版使用 (实心+少许光晕空间)
+                n._renderRadius = coreRadius + (glowRadius * 0.2);
+
+                // ----------------------------------------------------------------
+                // [DRAWING] - 统一绘制逻辑
+                // ----------------------------------------------------------------
+
+                this.ctx.globalAlpha = (isFocus ? 1 : n.alpha);
+                this.ctx.beginPath();
+                this.ctx.arc(n._screenX, n._screenY, coreRadius, 0, 2*Math.PI);
+                this.ctx.fillStyle = n.color || this.DEFAULT_NODE_COLOR;
+                // [Glow/Shadow Handling]
+                if(isFocus && linkMode.active) {
+                    // 连线模式下的特殊呼吸光晕
+                    this.ctx.shadowBlur = glowRadius * pulse;
+                    this.ctx.shadowColor = linkMode.color || '#fff';
+                } else {
+                    // 通用光晕逻辑：所有节点都有光晕，大小由上面计算决定
+                    this.ctx.shadowBlur = glowRadius;
+
+                    // 颜色逻辑：焦点/预览/高亮用自身颜色加亮或纯色，普通节点用自身颜色
+                    // 也可以统一用 this.ctx.fillStyle 简单处理
+                    this.ctx.shadowColor = (isFocus || isPreview) ? this.ctx.fillStyle : (n.color || this.DEFAULT_NODE_COLOR);
+                }
+                // [Strokes]
+                if (isFocus && linkMode.active) {
+                    this.ctx.strokeStyle = linkMode.color || '#fff'; this.ctx.lineWidth = 3; this.ctx.stroke();
+                }
+                if(isSlot && !isFocus) {
+                    this.ctx.strokeStyle = "#fff"; this.ctx.lineWidth = 2; this.ctx.stroke();
+                }
+                // Fill Solid Core
+                this.ctx.fill();
+
+                // Reset Shadow for text
+                this.ctx.shadowBlur = 0;
+                // ----------------------------------------------------------------
+                // [TEXT RENDERING]
+                // ----------------------------------------------------------------
+
+                // 只有当节点足够大(viewK > 0.4)，或者鼠标靠近了，或者它是焦点时才显示文字
+                // 避免缩小成星空时全是文字乱码
+                const showText = (this.viewK > 0.4) || (proximityScale > 1.1) || isFocus || isPreview;
+                if (showText) {
+                    this.ctx.fillStyle = (isFocus || isPreview || isHover) ? "#fff" : "rgba(200,200,200,0.8)";
+
+                    // 字号计算
+                    let baseFontSize = isFocus ? 22 : 11;
+                    const scaledFontSize = baseFontSize * Math.sqrt(this.viewK) * proximityScale;
+
+                    // 限制最小字号，太小就不渲染了，省得看着累（可选）
+                    if(scaledFontSize > 5) {
+                        const fontWeight = (isFocus) ? "bold" : "normal";
+                        this.ctx.font = `${fontWeight} ${scaledFontSize}px Arial`;
+                        this.ctx.textAlign = "center";
+                        // 文字位置：在光晕边缘下方
+                        const textY = n._screenY + coreRadius + scaledFontSize + 2;
+                        this.ctx.fillText(n.label, n._screenX, textY);
+                        const sIdx = slots.indexOf(n);
+                        if (sIdx >= 0) {
+                            this.ctx.fillStyle = "#4facfe";
+                            this.ctx.font = `bold ${scaledFontSize}px monospace`;
+                            this.ctx.fillText(`[${sIdx+1}]`, n._screenX, n._screenY - coreRadius - (scaledFontSize*0.5));
+                        }
+                    }
                 }
             }
         });
 
-        const pulse = (Math.sin(t * 0.002) + 1) * 10 + 10;
-        let vCount = 0;
-        nodes.forEach(n => {
-            const isVis = visNodes.has(n.uuid);
-            if(n===focusNode) n.alpha = 1;
-            else {
-                if(isVis && n.alpha<1) n.alpha += dt/this.FADE_DURATION;
-                else if(!isVis && n.alpha>0) n.alpha -= dt/this.FADE_DURATION;
-                n.alpha = Math.max(0, Math.min(1, n.alpha));
-            }
-            if(n.alpha > 0.01) {
-                vCount++;
-                const isSlot = App.Store.state.slots.includes(n);
-                const isFocus = (n===focusNode);
-                const isPreview = (n===previewNode||n===hoverNode);
-                this.ctx.globalAlpha = isFocus ? 1 : n.alpha;
-                let r = isFocus ? 20 : (isSlot ? 14 : 10);
-                if(this.viewK < 0.5) r = r / this.viewK * 0.5;
-                this.ctx.beginPath(); this.ctx.arc(n.x, n.y, r, 0, 2*Math.PI);
-                this.ctx.fillStyle = n.color || this.DEFAULT_NODE_COLOR;
-                if(isFocus) {
-                    if(linkMode.active) { this.ctx.shadowBlur=pulse; this.ctx.shadowColor=linkMode.color||'#fff'; }
-                    else { this.ctx.shadowBlur=35; this.ctx.shadowColor=this.ctx.fillStyle; }
-                } else if(isPreview) { this.ctx.shadowBlur=20; this.ctx.shadowColor=this.ctx.fillStyle; } else this.ctx.shadowBlur=0;
-                if(isFocus && linkMode.active) { this.ctx.strokeStyle=linkMode.color||'#fff'; this.ctx.lineWidth=3; this.ctx.stroke(); }
-                if(isSlot && !isFocus) { this.ctx.strokeStyle="#fff"; this.ctx.lineWidth=2; this.ctx.stroke(); }
-                this.ctx.fill(); this.ctx.shadowBlur=0;
-                if(isFocus || isPreview || n.alpha > 0.5) {
-                    this.ctx.save(); this.ctx.translate(n.x, n.y); this.ctx.rotate(-this.viewRotation);
-                    this.ctx.fillStyle = (isFocus||isPreview) ? "#fff" : "rgba(200,200,200,0.7)";
-                    this.ctx.font = (isFocus||isPreview) ? "bold 14px Arial" : "11px Arial";
-                    this.ctx.textAlign = "center";
-                    this.ctx.fillText(n.label, 0, r + 16);
-                    const sIdx = App.Store.state.slots.indexOf(n);
-                    if(sIdx>=0) { this.ctx.fillStyle="#4facfe"; this.ctx.font="bold 11px monospace"; this.ctx.fillText(`[${sIdx+1}]`, 0, -r-6); }
-                    this.ctx.restore();
-                }
-            }
-        });
-        this.ctx.restore();
-        document.getElementById('layer-indicator').innerText=App.Store.state.viewLayers;
-        document.getElementById('visible-count').innerText = vCount;
+        document.getElementById('layer-indicator').innerText = viewLayers;
+        document.getElementById('visible-count').innerText = visibleCount;
         if (this.simulation.alpha() < 0.3) this.simulation.alpha(0.3).restart();
-        requestAnimationFrame(now => this.render(now));
+        requestAnimationFrame((t) => this.render(t));
     },
 
     screenToWorld(sx, sy) {
@@ -1146,7 +1316,7 @@ App.Renderer = {
     },
     setTargetRotation(rad) {
         let diff = rad - this.targetRotation;
-        while(diff > Math.PI) diff -= 2*Math.PI; while(diff < -Math.PI) diff += 2*Math.PI;
+        while (diff > Math.PI) diff -= 2 * Math.PI; while (diff < -Math.PI) diff += 2 * Math.PI;
         this.targetRotation += diff;
     }
 };
@@ -1563,7 +1733,10 @@ App.Input = {
 
     onWheel(e) {
         e.preventDefault();
-        App.Renderer.viewK = Math.max(0.1, Math.min(5, App.Renderer.viewK - e.deltaY * 0.001));
+        const scaleFactor = 1.05;
+        App.Renderer.viewK = Math.min(10,
+            App.Renderer.viewK * (e.deltaY < 0 ? scaleFactor : (1/scaleFactor))
+        );
     },
 
     // --- Keyboard ---
@@ -1592,8 +1765,8 @@ App.Input = {
             case 'ArrowRight': this.jumpDirection(0); break;
             case '.': this.cyclePreview(1); break;
             case ',': this.cyclePreview(-1); break;
-            case '=': case '+': App.Store.state.viewLayers = Math.max(1, App.Store.state.viewLayers-1); App.Renderer.adjustZoomByLayer(); break;
-            case '-': case '_': App.Store.state.viewLayers = App.Store.state.viewLayers+1; App.Renderer.adjustZoomByLayer(); break;
+            case '=': case '+': App.Store.state.viewLayers = Math.max(1, App.Store.state.viewLayers-1); App.Renderer.restartSim(); break;
+            case '-': case '_': App.Store.state.viewLayers = App.Store.state.viewLayers+1; App.Renderer.restartSim(); break;
             case 'Tab': e.preventDefault(); this.createDefaultLinkedNode(); break;
             case 'n': case 'N': e.preventDefault(); this.createNode(); break;
             case 'F2': e.preventDefault(); App.UI.els.label.focus(); App.UI.els.label.select(); break;
@@ -1677,19 +1850,38 @@ App.Input = {
         }
         return null;
     },
-    pickLink(sx, sy) {
-        const w = App.Renderer.screenToWorld(sx, sy);
-        const links = App.Store.state.links;
-        for(let l of links) {
-            if(l.alpha < 0.3) continue;
-            const x1 = l.source.x, y1 = l.source.y, x2 = l.target.x, y2 = l.target.y;
-            const A = x2-x1, B = y2-y1, lenSq = A*A+B*B;
-            let t = ((w.x-x1)*A + (w.y-y1)*B) / lenSq;
-            t = Math.max(0, Math.min(1, t));
-            if(Math.hypot(w.x-(x1+t*A), w.y-(y1+t*B)) < 10/App.Renderer.viewK) return l;
+pickNode(sx, sy) {
+    const nodes = App.Store.state.nodes;
+    
+    // 倒序遍历：从最上层的节点开始判断（因为渲染是正序，后面的盖在前面）
+    for(let i = nodes.length - 1; i >= 0; i--) {
+        const n = nodes[i];
+
+        // 1. 过滤不可见节点 (保持和 render 一致)
+        if(n.alpha <= 0.01) continue;
+        
+        // 2. 安全检查：如果还没渲染过第一帧，数据不存在，跳过
+        if (n._screenX === undefined || n._renderRadius === undefined) continue;
+
+        // 3. 计算鼠标点击位置与节点【屏幕位置】的距离
+        const dx = sx - n._screenX;
+        const dy = sy - n._screenY;
+        // 使用平方距离比较，效率稍微高一点点
+        const distSq = dx * dx + dy * dy;
+
+        // 4. 获取判定半径
+        // 直接使用 render 中算好的 _renderRadius。
+        // _renderRadius = coreRadius + (glowRadius * 0.2)，包含了一点点光晕区域，
+        // 这正好作为点击的容错范围，手感会很好。
+        const hitRadius = n._renderRadius;
+
+        // 5. 判定
+        if (distSq <= hitRadius * hitRadius) {
+            return n; // 只要点中了最上面一个，直接返回
         }
-        return null;
-    },
+    }
+    return null;
+},
     showTooltip(html, x, y, mode) {
         const t = document.getElementById('tooltip');
         t.innerHTML = html; t.style.opacity = 1;
