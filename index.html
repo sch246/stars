@@ -1041,7 +1041,7 @@ App.UI = {
                 if (target) {
                     App.Input.navigate(target);
                     // 可选：清空输入框
-                    // inpJump.value = ''; 
+                    // inpJump.value = '';
                     App.UI.showFlash(`Jumped to: ${target.label}`);
                     // 失去焦点，回到画布
                     inpJump.blur();
@@ -1057,7 +1057,7 @@ App.UI = {
             if (e.key === 'Enter') {
                 App.Store.state.filterNodeStr = inpFilterNode.value;
                 // 强制刷新渲染
-                App.Renderer.visCache.lastSignature = null; 
+                App.Renderer.visCache.lastSignature = null;
                 App.Renderer.restartSim();
                 App.UI.showFlash("Node Filter Updated");
                 inpFilterNode.blur();
@@ -1075,7 +1075,7 @@ App.UI = {
                 inpFilterLink.blur();
             }
         });
-        
+
         // 防止按键事件冒泡触发全局快捷键 (如删除、移动等)
         [inpJump, inpFilterNode, inpFilterLink].forEach(el => {
             el.addEventListener('keydown', (e) => e.stopPropagation());
@@ -1653,7 +1653,7 @@ App.Renderer = {
         // ==========================================
         // 新增：基于正则表达式的“减法”筛选
         // ==========================================
-        
+
         // 5.1 节点正则筛选
         if (filterNodeStr && filterNodeStr.trim() !== "") {
             try {
