@@ -1,5 +1,6 @@
+/* eslint-disable curly */
 /**
- * Stars v5.3
+ * Stars v5.5
  */
 
 const vscode = acquireVsCodeApi();
@@ -579,6 +580,7 @@ App.Store = {
         nodes: [],
         links: [],
         slots: [null,null,null,null],
+        envNodes: [],
         focusNode: null,
         viewLayers: 1,
         navHistory: [],
@@ -645,6 +647,17 @@ App.Store = {
             n.alpha = 0; n.vx = 0; n.vy = 0; n.fx = null; n.fy = null;
             if (n.isRoot) { n.fx = 0; n.fy = 0; }
         });
+
+        // 恢复 envNodes 引用
+        this.state.envNodes = (payload.envNodes || [])
+            .map(uuid => nodeMap.get(uuid))
+            .filter(n => n);
+        // 确保这些节点的 isEnv 标记为 true，且不透明
+        this.state.envNodes.forEach(n => {
+            n.isEnv = true;
+            n.alpha = 1;
+        });
+
         this.state.nodes = Array.from(nodeMap.values());
         // 恢复连线引用
         this.state.links = (payload.data.links || []).map(l => ({
@@ -697,8 +710,15 @@ App.Store = {
         }
         // 7. 重置视图位置 (Camera)
         if (App.Renderer.width > 0 && this.state.focusNode) {
-            App.Renderer.viewX = -this.state.focusNode.x * App.Renderer.viewK + App.Renderer.width/2;
-            App.Renderer.viewY = -this.state.focusNode.y * App.Renderer.viewK + App.Renderer.height/2;
+            if (this.state.focusNode.isEnv) {
+                // 如果焦点是环境节点，则将相机定位到世界原点，显示正常画布中心
+                App.Renderer.viewX = App.Renderer.width / 2;
+                App.Renderer.viewY = App.Renderer.height / 2;
+            } else {
+                // 否则，正常地将相机定位到焦点节点
+                App.Renderer.viewX = -this.state.focusNode.x * App.Renderer.viewK + App.Renderer.width / 2;
+                App.Renderer.viewY = -this.state.focusNode.y * App.Renderer.viewK + App.Renderer.height / 2;
+            }
         }
         // 8. 刷新 UI 和 模拟器
         App.UI.updateSidebar();
@@ -735,28 +755,48 @@ App.Store = {
 
     // 核心安全执行器 (Anchor-based Safety Check)
     async executeSafeAction(simulator, onApplied = null) {
-        const { nodes, focusNode, slots } = this.state;
+        const { nodes, focusNode, slots, links, envNodes } = this.state;
 
         // 1. 获取当前锚点集合 (Origin + Focus + Slots)
-        const getAnchors = (nl, fn, sl) => {
-            const r = nl.find(n=>n.isRoot);
-            return new Set([r, fn, ...sl].filter(x=>x).map(x=>x.uuid));
+        const getAnchorUUIDs = (nList, fNode, sList, eList) => {
+            const root = nList.find(n => n.isRoot);
+            // 过滤空值并提取UUID
+            const sources = [root, fNode, ...sList, ...(eList || [])].filter(n => n);
+            return new Set(sources.map(n => n.uuid));
         };
-        const curAnchors = getAnchors(nodes, focusNode, slots);
+        const currentAnchorUUIDs = getAnchorUUIDs(nodes, focusNode, slots);
 
-        // 1. Simulate Next State
-        const next = simulator();
-        const nextAnchors = getAnchors(next.nodes, next.nextFocus, next.nextSlots);
+        // 2. 模拟未来状态
+        const nextState = simulator();
+        // 注意：simulator 可能没有返回 nextEnvNodes，如果没返回则认为 envNodes 未变
+        const nextEnvNodes = nextState.nextEnvNodes || envNodes;
+        const nextAnchorUUIDs = getAnchorUUIDs(
+            nextState.nodes,
+            nextState.nextFocus,
+            nextState.nextSlots,
+            nextEnvNodes
+        );
 
-        // 2. Check Structural Integrity
-        const structIntact = next.nodes.length >= nodes.length && next.links.length >= this.state.links.length;
-        const anchorsSame = curAnchors.size === nextAnchors.size && [...curAnchors].every(id => nextAnchors.has(id));
+        // 3. 快速放行判定
+        // 条件 A: 结构未受损 (节点数未减少 且 连线数未减少)
+        const isStructureIntact = nextState.nodes.length >= nodes.length && nextState.links.length >= links.length;
+
+        // 条件 B: 锚点完整性 (Anchor Integrity)
+        // 原逻辑要求完全相等，现在改为：只要新的锚点集合包含旧集合的所有元素（即锚点没有丢失，只增不减），由于结构也未丢失，则判定为安全。
+        // 这对于 "升舱 (Docking)" 操作特别有效。
+        let isAnchorsSafe = true;
+        for (let id of currentAnchorUUIDs) {
+            if (!nextAnchorUUIDs.has(id)) {
+                isAnchorsSafe = false;
+                break;
+            }
+        }
 
         const applyState = () => {
-            this.state.nodes = next.nodes;
-            this.state.links = next.links;
-            this.state.focusNode = next.nextFocus;
-            this.state.slots = next.nextSlots;
+            this.state.nodes = nextState.nodes;
+            this.state.links = nextState.links;
+            this.state.focusNode = nextState.nextFocus;
+            this.state.slots = nextState.nextSlots;
             if (typeof onApplied === 'function') {
                 onApplied();
             }
@@ -766,40 +806,38 @@ App.Store = {
             App.Renderer.restartSim();
         };
 
-        if (structIntact && anchorsSame) {
+        if (isStructureIntact && isAnchorsSafe) {
             applyState();
             return true;
         }
 
-        // 3. Reachability Check (Unsafe Path)
-        const anchorObjs = next.nodes.filter(n => nextAnchors.has(n.uuid));
-        const reachable = App.Utils.findReachable(next.nodes, next.links, anchorObjs);
-        const lost = next.nodes.filter(n => !reachable.has(n.uuid));
+        // 4. 连通性检查 (Reachability)
+        const anchorsObjects = nextState.nodes.filter(n => nextAnchorUUIDs.has(n.uuid));
+        const reachableUUIDs = App.Utils.findReachable(nextState.nodes, nextState.links, anchorsObjects);
+        const lostNodes = nextState.nodes.filter(n => !reachableUUIDs.has(n.uuid));
 
-        if (lost.length > 0) {
-            const label = lost[0].label;
-            const msg = t('alert.deleteConfirm', { n: lost.length, label: label });
+        if (lostNodes.length > 0) {
+            const label = lostNodes[0].label;
+            const msg = t('alert.deleteConfirm', { n: lostNodes.length, label: label });
 
             if (await App.UI.Dialog.confirm(msg)) {
                 // Apply simulation result first
                 applyState();
 
                 // Then cleanup lost nodes
-                const deadSet = new Set(lost.map(n => n.uuid));
+                const deadSet = new Set(lostNodes.map(n => n.uuid));
                 this.state.nodes = this.state.nodes.filter(n => !deadSet.has(n.uuid));
                 this.state.links = this.state.links.filter(l => !deadSet.has(l.source.uuid) && !deadSet.has(l.target.uuid));
                 this.state.slots = this.state.slots.map(s => (s && deadSet.has(s.uuid)) ? null : s);
                 this.state.navHistory = this.state.navHistory.filter(n => !deadSet.has(n.uuid));
-                lost.forEach(n => App.Runtime.clearStorage(n.uuid));
+                lostNodes.forEach(n => App.Runtime.clearStorage(n.uuid));
 
-                // Re-save and Re-sim after cleanup
                 this.save();
                 App.Renderer.restartSim();
                 return true;
             }
             return false;
         } else {
-            // Safe Path (structure changed but no loss)
             applyState();
             return true;
         }
@@ -820,6 +858,7 @@ App.Store = {
             },
             focusNodeUuid: this.state.focusNode ? this.state.focusNode.uuid : null,
             slots: this.state.slots.map(s => s ? s.uuid : null),
+            envNodes: this.state.envNodes.map(n => n.uuid),
             viewLayers: this.state.viewLayers,
             presets: this.state.presets
         };
@@ -865,7 +904,29 @@ App.Store = {
             App.Runtime.clearAllStorage();
             vscode.postMessage({ command: 'resetSystem' });
         }
-    }
+    },
+
+    toggleEnvNode(node) {
+        if (!node || node.isRoot) return; // 根节点不能飞
+        node.isEnv = !node.isEnv;
+        if (node.isEnv) {
+            // 升舱：加入 envNodes 列表
+            if (!this.state.envNodes.find(n => n.uuid === node.uuid)) {
+                this.state.envNodes.push(node);
+            }
+            // 物理重置：停止它的运动，防止它带着速度飞走
+            node.vx = 0; node.vy = 0;
+        } else {
+            // 降舱：从列表移除
+            this.state.envNodes = this.state.envNodes.filter(n => n.uuid !== node.uuid);
+            // 物理重置：释放它的固定位置
+            node.fx = null;
+            node.fy = null;
+        }
+
+        this.save();
+        App.Renderer.restartSim(); // 重启物理引擎以剔除/接纳节点
+    },
 };
 App.Store.saveDebounced = App.Utils.debounce(() => App.Store.save(), 1000);
 
@@ -1058,6 +1119,9 @@ App.Renderer = {
             .force("link", d3.forceLink().id(d => d.uuid).distance(this.LINK_DISTANCE).strength(0.1))
             .force("charge", d3.forceManyBody().strength(-80))
             .force("collide", d3.forceCollide(10))
+            // 产生微弱的中心引力，防止图散开太远
+            .force("center", d3.forceX(0).strength(0.005))
+            .force("centerY", d3.forceY(0).strength(0.005))
             .alphaDecay(0.05).alphaMin(0.05); // 衰减系数，决定了物理停止的快慢
 
         // 4. 自定义鼠标力 (让被拖拽的节点跟随鼠标)
@@ -1118,15 +1182,42 @@ App.Renderer = {
     // 重启物理模拟 (性能优化版)
     // ==========================================
     restartSim() {
-        // 为了性能，物理引擎只计算“当前关注点”附近的节点
-        // 远处的节点不需要物理计算，节省 CPU
-        const SIM_LAYERS = Math.max(7, App.Store.state.viewLayers);
-        const targets = new Set();
-        const { nodes, links, focusNode } = App.Store.state;
+        const { nodes, links, focusNode, filterNodeStr, filterLinkStr } = App.Store.state;
+
+        // --- 准备筛选规则 ---
+        let nodeRegex = null;
+        if (filterNodeStr && filterNodeStr.trim() !== "") {
+            try { nodeRegex = new RegExp(filterNodeStr, 'i'); } catch (e) { console.warn("Invalid Node Regex"); }
+        }
+        let linkRegex = null;
+        if (filterLinkStr && filterLinkStr.trim() !== "") {
+            try { linkRegex = new RegExp(filterLinkStr, 'i'); } catch (e) { console.warn("Invalid Link Regex"); }
+        }
+        // 节点保留规则：焦点永远保留，或者是环境接口，或者符合正则
+        const isNodeValid = (n) => {
+            if (n === focusNode) return true;
+            if (n.isEnv) return true; // 接口节点通常也保留，或者你可以看情况去掉这行
+            if (!nodeRegex) return true;
+            return nodeRegex.test(n.label);
+        };
+        // 连线保留规则
+        const isLinkValid = (l) => {
+            if (!linkRegex) return true;
+            const preset = this.presetMap.get(l.type);
+            const label = preset ? preset.label : l.type;
+            return linkRegex.test(label);
+        };
 
         // 固定根节点位置
         const root = nodes.find(n => n.isRoot);
         if (root) { root.fx = 0; root.fy = 0; }
+
+        // --- 第一阶段：无差别的拓扑搜索 (Reachability) ---
+        // 目的：找出距离内所有的“候选节点”，不管它是否符合正则。
+        // 这样可以确保：“A -> B(被屏蔽) -> C(正常)”，当我们关注 A 时，C 依然能被找到。
+
+        const SIM_LAYERS = Math.max(7, App.Store.state.viewLayers);
+        const targets = new Set();
 
         // 从 FocusNode 开始，找出周围 N 层节点加入物理模拟
         if (focusNode) {
@@ -1137,8 +1228,8 @@ App.Renderer = {
             const adj = {};
             for (let i = 0; i < links.length; i++) {
                 const l = links[i];
-                const s = l.source.uuid||l.source;
-                const t = l.target.uuid||l.target;
+                const s = l.source.uuid;
+                const t = l.target.uuid;
                 if(!adj[s]) adj[s]=[]; adj[s].push(t);
                 if(!adj[t]) adj[t]=[]; adj[t].push(s);
             }
@@ -1159,8 +1250,21 @@ App.Renderer = {
             }
         }
 
-        const activeNodes = nodes.filter(n => targets.has(n.uuid));
-        const activeLinks = links.filter(l => targets.has(l.source.uuid) && targets.has(l.target.uuid));
+        // --- 第二阶段：严格的物理准入筛选 (Admission Control) ---
+        // 目的：在刚才找到的一大堆候选节点中，把不符合正则的踢出物理世界。
+
+        const activeNodes = nodes.filter(n =>
+            targets.has(n.uuid) &&
+            !n.isEnv &&
+            isNodeValid(n)
+        );
+        // 建立一个快速查找表，用于下方筛选连线
+        const activeNodeIds = new Set(activeNodes.map(n => n.uuid));
+        const activeLinks = links.filter(l =>
+            activeNodeIds.has(l.source.uuid) && !l.source.isEnv &&
+            activeNodeIds.has(l.target.uuid) && !l.target.isEnv &&
+            isLinkValid(l)
+        );
 
         // 将活跃节点注入 D3
         this.simulation.nodes(activeNodes);
@@ -1281,13 +1385,19 @@ App.Renderer = {
             } catch (e) { console.warn("Invalid Link Regex", e); }
         }
 
-        // 5.3 一致性清理：如果节点被隐藏了，连接该节点的线也必须隐藏
+        // 5.5 一致性清理：如果节点被隐藏了，连接该节点的线也必须隐藏
         // 这一步必须最后做
         const finalLinksToRemove = new Set();
         visibleLinks.forEach(l => {
-            if (!visibleNodes.has(l.source.uuid) || !visibleNodes.has(l.target.uuid)) {
-                finalLinksToRemove.add(l);
-            }
+            const canRemove =
+                !this.subjectNodes.has(l.source.uuid) &&
+                !this.subjectNodes.has(l.target.uuid);
+            const shouldRemove =
+                l.source.isEnv && canRemove ||
+                l.target.isEnv && canRemove ||
+                !visibleNodes.has(l.source.uuid) ||
+                !visibleNodes.has(l.target.uuid);
+            if (shouldRemove) finalLinksToRemove.add(l);
         });
         finalLinksToRemove.forEach(l => visibleLinks.delete(l));
 
@@ -1304,6 +1414,10 @@ App.Renderer = {
         // 获取输入状态和 Store 数据
         const { keyState, dragNode, mouseX, mouseY, hoverNode, previewNode, linkMode } = App.Input.state;
         const { nodes, links, focusNode, viewLayers, slots, presets } = App.Store.state;
+        this.subjectNodes = new Set();
+        if (focusNode) this.subjectNodes.add(focusNode.uuid);
+        if (hoverNode) this.subjectNodes.add(hoverNode.uuid);
+        if (previewNode) this.subjectNodes.add(previewNode.uuid);
 
         // --- [修复] 异步数据同步 ---
         // 因为 presets 数据可能是异步加载的，这里检测引用变化，动态更新 Map
@@ -1343,7 +1457,7 @@ App.Renderer = {
         const halfW = this.width / 2;
         const halfH = this.height / 2;
 
-        if(focusNode) {
+        if(focusNode && !focusNode.isEnv && !App.Input.state.isPanning) { //如果当前焦点是接口节点，不要自动跟随飞行！
             // 初始化相机位置
             if (this.cameraLookAtX === undefined) {
                 this.cameraLookAtX = focusNode.x;
@@ -1411,6 +1525,10 @@ App.Renderer = {
                 const mult = isFocusLink ? 1.0 : (isHigh ? 0.7 : 0.4);
                 ctx.globalAlpha = l.alpha * mult;
                 ctx.lineWidth = (isFocusLink || isHigh) ? 2.5 : 1.5;
+                if (l.source.isEnv || l.target.isEnv) {
+                    // 除以缩放
+                    ctx.lineWidth /= this.viewK;
+                }
 
                 // [优化] O(1) 查找颜色
                 const preset = this.presetMap.get(l.type);
@@ -1461,6 +1579,7 @@ App.Renderer = {
         const nodesLen = nodes.length;
         for (let i = 0; i < nodesLen; i++) {
             const n = nodes[i];
+            if (n.isEnv) continue;
             const isVis = visibleNodeSet.has(n.uuid);
 
             // 焦点永远不透明，其他节点渐变
@@ -1593,6 +1712,9 @@ App.Renderer = {
             }
         }
 
+        // 绘制顶部接口槽及连线
+        this.renderEnvDock(this.ctx, nodes, links, hoverNode, focusNode, previewNode);
+
         // --- 更新 DOM 计数器 ---
         if (this.uiRefs.layerIndicator) this.uiRefs.layerIndicator.innerText = viewLayers;
         if (this.uiRefs.visibleCount) this.uiRefs.visibleCount.innerText = visibleCount;
@@ -1602,6 +1724,107 @@ App.Renderer = {
 
         // 请求下一帧
         requestAnimationFrame((t) => this.render(t));
+    },
+
+    // 【新增】绘制顶部接口槽
+    renderEnvDock(ctx, nodes, links, hoverNode, focusNode, previewNode) {
+        const envNodes = App.Store.state.envNodes;
+        if (!envNodes || envNodes.length === 0) return;
+        // 获取 Canvas 在浏览器中的位置信息（用于坐标修正）
+        const rect = this.canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        const slotRadius = 18;
+        const gap = 50;
+        const topMargin = 60;
+        
+        // --- 修复 1：使用逻辑宽度 (CSS像素) 计算布局 ---
+        // this.width 是物理像素，除以 dpr 得到逻辑像素
+        const logicalWidth = this.width / dpr; 
+        const totalWidth = envNodes.length * gap;
+        let startX = (logicalWidth / 2) - (totalWidth / 2) + (gap / 2);
+        // 切换到屏幕坐标系
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0); // 重置矩阵
+        ctx.scale(dpr, dpr); // 缩放以适配高分屏，后续绘图单位均为 CSS 像素
+        envNodes.forEach((n, i) => {
+            const x = startX + i * gap;
+            const y = topMargin;
+            // --- 修复 2：坐标交互修正 ---
+            
+            // A. 屏幕交互坐标 (用于鼠标 Hover 检测)
+            // 如果 input 系统的 mouseX 是全局 clientX，这里需要是 x + rect.left
+            // 如果 input 系统的 mouseX 是相对于 canvas 的 offsetX，这里直接是 x
+            // 根据你的 screenToWorld 实现推断，App.Input 里的 mouseX 应该是 clientX (全局)，
+            // 但 render 主循环里的 _screenX 通常是局部坐标。
+            // 建议：此处保持 x 为局部坐标供绘制，但 screenToWorld 传入全局坐标。
+            n._screenX = x + rect.left; // 修正为全局坐标以匹配 mouseX (如果 mouseX 是 clientX)
+            n._screenY = y + rect.top;
+            n._renderRadius = slotRadius;
+            // B. 世界物理坐标 (用于连线物理计算)
+            // screenToWorld 内部会执行 (sx - rect.left)，所以我们需要传入 (x + rect.left) 来抵消
+            const worldPos = this.screenToWorld(x + rect.left, y + rect.top);
+            n.fx = worldPos.x;
+            n.fy = worldPos.y;
+            n.x = worldPos.x;
+            n.y = worldPos.y;
+            n.vx = 0;
+            n.vy = 0;
+            // --- 1. 状态判定 (不变) ---
+            const isSubject = this.subjectNodes.has(n.uuid);
+            const isRelated = !!links.find(l =>
+                l.source.uuid === n.uuid && this.subjectNodes.has(l.target.uuid) ||
+                l.target.uuid === n.uuid && this.subjectNodes.has(l.source.uuid));
+            // --- 3. 绘制节点 (不变) ---
+            ctx.globalAlpha = (isSubject || isRelated) ? 1.0 : 0.3;
+            if (isSubject) {
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = n.color || "#4facfe";
+            } else {
+                ctx.shadowBlur = 0;
+            }
+            ctx.beginPath();
+            ctx.arc(x, y, slotRadius, 0, 2 * Math.PI);
+            ctx.fillStyle = "#1a1a1d";
+            ctx.fill();
+            // 边框
+            ctx.lineWidth = isSubject ? 2 : 1.5;
+            ctx.strokeStyle = isSubject ? "#fff" : (n.color || "#4facfe");
+            ctx.stroke();
+            // 内部点
+            ctx.beginPath();
+            // 注意：slotRadius - 5 可能太小，导致看不见，如果 dpr 很高
+            ctx.arc(x, y, slotRadius - 5, 0, 2 * Math.PI); 
+            ctx.fillStyle = n.color || "#4facfe";
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = isSubject ? "#fff" : "#aaa";
+            ctx.font = isSubject ? "bold 11px Arial" : "11px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText(n.label.substring(0, 8), x, y + 14);
+        });
+        ctx.restore();
+    },
+
+    // 【新增】供 Input 模块调用，平移相机
+    panCamera(dx, dy) {
+        // 1. 计算逆向旋转
+        // 因为 viewX/viewY 是在 Canvas 旋转之后应用的，所以坐标轴已经旋转了。
+        // 我们需要将屏幕上的鼠标位移向量 (dx, dy) 逆向旋转，使其与当前的相机坐标轴对齐。
+        const cos = Math.cos(-this.viewRotation);
+        const sin = Math.sin(-this.viewRotation);
+        // 旋转向量公式
+        const rDx = dx * cos - dy * sin;
+        const rDy = dx * sin + dy * cos;
+        // 2. 应用旋转后的增量
+        this.viewX += rDx;
+        this.viewY += rDy;
+        // 3.【关键】反向更新相机目标点 (LookAt)
+        // 因为 View = -LookAt * K + ScreenCenter
+        // 所以 LookAt = (ScreenCenter - View) / K
+        const halfW = this.width / 2;
+        const halfH = this.height / 2;
+        this.cameraLookAtX = (halfW - this.viewX) / this.viewK;
+        this.cameraLookAtY = (halfH - this.viewY) / this.viewK;
     },
 
     // ==========================================
@@ -1972,6 +2195,14 @@ App.Input = {
     // --- Mouse ---
     onMouseDown(e) {
         if(App.UI.Modal.el.classList.contains('active') || App.UI.Dialog.isActive) return;
+        if (e.button === 1) {
+            e.preventDefault();
+            this.state.isPanning = true;
+            this.state.lastPanX = e.clientX;
+            this.state.lastPanY = e.clientY;
+            App.Renderer.canvas.style.cursor = 'move';
+            return;
+        }
         if(e.button===3) { e.preventDefault(); this.safeNavigateBack(); return; }
         if(e.button===4) { e.preventDefault(); this.enterLinkMode(); return; }
         if(e.button!==0) return;
@@ -1992,6 +2223,17 @@ App.Input = {
 
     onMouseMove(e) {
         this.state.mouseX = e.clientX; this.state.mouseY = e.clientY;
+        // 【新增】处理平移
+        if (this.state.isPanning) {
+            const dx = e.clientX - this.state.lastPanX;
+            const dy = e.clientY - this.state.lastPanY;
+
+            App.Renderer.panCamera(dx, dy);
+
+            this.state.lastPanX = e.clientX;
+            this.state.lastPanY = e.clientY;
+            return; // 平移时不处理 hover
+        }
         if(App.UI.Modal.el.classList.contains('active') || App.UI.Dialog.isActive) return;
         if(this.state.dragNode) return;
 
@@ -2007,6 +2249,12 @@ App.Input = {
     },
 
     onMouseUp(e) {
+        // 【新增】结束平移
+        if (e.button === 1) {
+            this.state.isPanning = false;
+            App.Renderer.canvas.style.cursor = 'crosshair';
+            return;
+        }
         if(e.button!==0 || !this.state.dragNode) return;
         const node = this.state.dragNode;
         if(node) {
@@ -2043,7 +2291,23 @@ App.Input = {
     onContextMenu(e) {
         e.preventDefault();
         const node = this.pickNode(e.clientX, e.clientY);
-        if(node) { this.deleteNode(node); return; }
+        if(node) {
+            // 逻辑 A: 如果是顶部接口节点 (isEnv 为 true)
+            // 无论是否按 Shift，右键都应该把它“拉下来” (Undock)
+            // 或者你也可以保留 Shift 限制，看你习惯。这里建议直接右键就还原，操作更流畅。
+            if (node.isEnv) {
+                App.Store.toggleEnvNode(node);
+                return;
+            }
+            // 逻辑 B: 如果是普通节点
+            // Shift + 右键 = 升舱 (Dock)
+            if (e.shiftKey) {
+                App.Store.toggleEnvNode(node);
+                return;
+            }
+            // 逻辑 C: 普通右键 = 删除节点
+            this.deleteNode(node); return;
+        }
         const link = this.pickLink(e.clientX, e.clientY);
         if(link) { this.deleteLink(link); return; }
     },
@@ -2051,9 +2315,43 @@ App.Input = {
     onWheel(e) {
         e.preventDefault();
         const scaleFactor = 1.05;
-        App.Renderer.viewK = Math.min(10,
-            App.Renderer.viewK * (e.deltaY < 0 ? scaleFactor : (1/scaleFactor))
-        );
+        const delta = e.deltaY < 0 ? scaleFactor : (1 / scaleFactor);
+        const newK = Math.min(10, App.Renderer.viewK * delta);
+        if (!App.Store.state.focusNode.isEnv) {
+            App.Renderer.viewK = newK;
+            return;
+        }
+        // 2. 核心修正：计算缩放对 viewX/viewY 的补偿
+        // 也就是：Zoom Toward Mouse (鼠标指向的世界点不变) 或者 Zoom Toward Center (屏幕中心的世界点不变)
+        
+        // 获取参考点（这里使用屏幕中心，这在聚焦模式下最自然）
+        // 如果你更喜欢“鼠标指哪里缩放哪里”，可以用 e.clientX / e.clientY
+        // const rect = App.Renderer.canvas.getBoundingClientRect();
+        const centerX = e.clientX;
+        const centerY = e.clientY;
+        // 计算参考点当前对应的世界物理偏移 (WorldOffset)
+        // 公式推导：Screen = (World + View) * K  =>  World = Screen/K - View
+        // 但这里我们只需要计算相对偏移量，简化为：
+        // 旧的世界中心偏移 = (CenterX - ViewX_Old) / K_Old
+        const worldOffsetX = (centerX - App.Renderer.viewX) / App.Renderer.viewK;
+        const worldOffsetY = (centerY - App.Renderer.viewY) / App.Renderer.viewK;
+        // 3. 应用新的缩放比例
+        App.Renderer.viewK = newK;
+        // 4. 反向计算新的 ViewX/ViewY，使得世界中心偏移保持不变
+        // ViewX_New = CenterX - (WorldOffset * K_New)
+        App.Renderer.viewX = centerX - (worldOffsetX * newK);
+        App.Renderer.viewY = centerY - (worldOffsetY * newK);
+        
+        // // 【特殊修正】如果是 EnvNode 聚焦或锁定状态
+        // // 这一步确保相机目标点（cameraLookAt）同步更新，防止下一帧 render 里的缓动逻辑把画面又拉回去
+        // const { focusNode } = App.Store.state;
+        // if (focusNode) {
+        //     // 反算出当前的 LookAt 位置
+        //     // View = -LookAt * K + ScreenCenter
+        //     // LookAt = (ScreenCenter - View) / K
+        //     App.Renderer.cameraLookAtX = (App.Renderer.width / 2 - App.Renderer.viewX) / App.Renderer.viewK;
+        //     App.Renderer.cameraLookAtY = (App.Renderer.height / 2 - App.Renderer.viewY) / App.Renderer.viewK;
+        // }
     },
 
     // --- Keyboard ---
@@ -2084,8 +2382,16 @@ App.Input = {
             case 'd': case 'D': case 'ArrowRight': this.jumpDirection(0, e.shiftKey); break;
             case 'q': case ',': this.cyclePreview(-1); break;
             case 'e': case '.': this.cyclePreview(1); break;
-            case '=': case '+': App.Store.state.viewLayers = Math.max(1, App.Store.state.viewLayers-1); App.Renderer.restartSim(); break;
-            case '-': case '_': App.Store.state.viewLayers = App.Store.state.viewLayers+1; App.Renderer.restartSim(); break;
+            case '=': case '+':
+                App.Store.state.viewLayers = Math.max(1, App.Store.state.viewLayers-1);
+                App.Renderer.restartSim();
+                App.Store.saveDebounced();
+                break;
+            case '-': case '_':
+                App.Store.state.viewLayers = App.Store.state.viewLayers+1;
+                App.Renderer.restartSim();
+                App.Store.saveDebounced();
+                break;
             case 'Tab': e.preventDefault(); this.createDefaultLinkedNode(); break;
             case 'n': case 'N': e.preventDefault(); this.createNode(); break;
             case 'F2': e.preventDefault(); App.UI.els.label.focus(); App.UI.els.label.select(); break;
@@ -2098,6 +2404,7 @@ App.Input = {
             case 'Delete': case 'x': case 'X': this.deleteNode(); break;
             case 'i': case 'I': e.preventDefault(); this.state.keyControlsVisible=!this.state.keyControlsVisible; document.getElementById('key-controls').style.display=this.state.keyControlsVisible?'block':'none'; break;
             case '`': e.preventDefault(); App.UI.PresetEditor.open(); break;
+            case 't': case 'T': if (App.Store.state.focusNode) App.Store.toggleEnvNode(App.Store.state.focusNode); break;
         }
     },
 
@@ -2178,7 +2485,7 @@ App.Input = {
         for(let i = nodes.length - 1; i >= 0; i--) {
             const n = nodes[i];
             // 1. 过滤不可见节点 (alpha <= 0.01 也可以，根据需要调整)
-            if(n.alpha <= 0.01) continue;
+            if(n.alpha <= 0.01 && !n.isEnv) continue;
             // 2. 安全检查：确保节点已经经过至少一次渲染，拥有 _screenX 和 _renderRadius
             if (n._screenX === undefined || n._renderRadius === undefined) continue;
             // 3. 计算鼠标点击位置与节点【屏幕位置】的距离
