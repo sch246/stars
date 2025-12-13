@@ -201,3 +201,31 @@ button:hover { background: #333; color: #fff; border-color: #555; }
 }
 #custom-dialog-input:focus { border-color: #4facfe; }
 #custom-dialog-buttons { display: flex; justify-content: center; gap: 10px; } /* 按钮居中 */
+
+#search-controls {
+    position: fixed;
+    bottom: 20px;
+    right: calc(var(--sidebar-width, 340px) + 30px); /* 紧贴侧边栏左侧 */
+    width: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 20;
+}
+.search-input {
+    background: rgba(10, 10, 12, 0.8);
+    border: 1px solid #333;
+    padding: 8px 10px;
+    border-radius: 4px;
+    color: #ddd;
+    font-size: 12px;
+    font-family: monospace;
+    transition: 0.2s;
+    backdrop-filter: blur(4px);
+}
+.search-input:focus {
+    border-color: #4facfe;
+    background: rgba(20, 20, 25, 0.95);
+    box-shadow: 0 0 10px rgba(79, 172, 254, 0.2);
+}
+.search-input::placeholder { color: #555; }

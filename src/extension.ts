@@ -257,6 +257,11 @@ class StarsPanel {
           <title>Stars</title>
       </head>
       <body>
+          <div id="search-controls">
+              <input type="text" id="inp-jump" class="search-input" placeholder="Jump to Node (Enter)">
+              <input type="text" id="inp-filter-node" class="search-input" placeholder="Filter Nodes Regex (Enter)">
+              <input type="text" id="inp-filter-link" class="search-input" placeholder="Filter Links Regex (Enter)">
+          </div>
           <div id="hud">
               <h1><span id="app-title">Stars</span> <span style="font-size:10px; opacity:0.5">v5.3</span></h1>
               <div id="slot-bar">

@@ -157,6 +157,62 @@ App.UI = {
         });
         document.addEventListener('mouseup', () => { if(isResizing) { isResizing = false; App.Renderer.canvas.style.pointerEvents = 'auto'; document.body.style.cursor = 'default'; } });
         window.addEventListener('resize', () => App.Renderer.resize());
+
+
+        // --- 新增：绑定右下角三个输入框 ---
+        const inpJump = document.getElementById('inp-jump');
+        const inpFilterNode = document.getElementById('inp-filter-node');
+        const inpFilterLink = document.getElementById('inp-filter-link');
+
+        // 1. 跳转功能
+        inpJump.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const val = inpJump.value.trim().toLowerCase();
+                if (!val) return;
+                // 简单的模糊搜索
+                const target = App.Store.state.nodes.find(n => n.label.toLowerCase().includes(val));
+                if (target) {
+                    App.Input.navigate(target);
+                    // 可选：清空输入框
+                    // inpJump.value = ''; 
+                    App.UI.showFlash(`Jumped to: ${target.label}`);
+                    // 失去焦点，回到画布
+                    inpJump.blur();
+                    App.Renderer.canvas.focus();
+                } else {
+                    App.UI.showFlash("Node not found", "warn");
+                }
+            }
+        });
+
+        // 2. 节点筛选 (回车触发)
+        inpFilterNode.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                App.Store.state.filterNodeStr = inpFilterNode.value;
+                // 强制刷新渲染
+                App.Renderer.visCache.lastSignature = null; 
+                App.Renderer.restartSim();
+                App.UI.showFlash("Node Filter Updated");
+                inpFilterNode.blur();
+            }
+        });
+
+        // 3. 连线筛选 (回车触发)
+        inpFilterLink.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                App.Store.state.filterLinkStr = inpFilterLink.value;
+                // 强制刷新渲染
+                App.Renderer.visCache.lastSignature = null;
+                App.Renderer.restartSim();
+                App.UI.showFlash("Link Filter Updated");
+                inpFilterLink.blur();
+            }
+        });
+        
+        // 防止按键事件冒泡触发全局快捷键 (如删除、移动等)
+        [inpJump, inpFilterNode, inpFilterLink].forEach(el => {
+            el.addEventListener('keydown', (e) => e.stopPropagation());
+        });
     },
 
     onNodeEdit(field, value) {
@@ -522,7 +578,9 @@ App.Store = {
         focusNode: null,
         viewLayers: 1,
         navHistory: [],
-        presets: []
+        presets: [],
+        filterNodeStr: "",
+        filterLinkStr: "",
     },
 
     DEFAULT_PRESETS: [
@@ -1109,12 +1167,16 @@ App.Renderer = {
     // [核心优化] 可视性计算 (BFS + 缓存)
     // ==========================================
     updateVisibility(focusNode, hoverNode, previewNode, viewLayers, nodes, links) {
+        // 获取筛选正则字符串
+        const { filterNodeStr, filterLinkStr } = App.Store.state;
+
         // 1. 生成状态签名 (Signature)
         // 包括：关键节点ID、层级、数据长度。如果这些都没变，说明可视范围没变。
+        // 加入 filterNodeStr 和 filterLinkStr 到签名中，以便变化时重新计算
         const focusId = focusNode ? focusNode.uuid : 'null';
         const hoverId = hoverNode ? hoverNode.uuid : 'null';
         const previewId = previewNode ? previewNode.uuid : 'null';
-        const signature = `${focusId}|${hoverId}|${previewId}|${viewLayers}|${links.length}|${nodes.length}`;
+        const signature = `${focusId}|${hoverId}|${previewId}|${viewLayers}|${links.length}|${nodes.length}|${filterNodeStr}|${filterLinkStr}`;
 
         // 2. 脏检查：如果签名一致，直接复用上次计算结果，跳过 BFS
         if (this.visCache.lastSignature === signature) {
@@ -1176,7 +1238,56 @@ App.Renderer = {
         if(hoverNode && hoverNode !== focusNode) runBFS(hoverNode, 1);
         if(previewNode && previewNode !== focusNode) runBFS(previewNode, 1);
 
-        // 5. 更新缓存
+        // ==========================================
+        // 新增：基于正则表达式的“减法”筛选
+        // ==========================================
+        
+        // 5.1 节点正则筛选
+        if (filterNodeStr && filterNodeStr.trim() !== "") {
+            try {
+                const nodeRegex = new RegExp(filterNodeStr, 'i'); // 'i' 忽略大小写
+                // 遍历当前可见节点，不符合的剔除
+                // 注意：不能直接在这个循环里删 visibleNodes，因为后面要处理连线
+                const toRemoveNodes = new Set();
+                visibleNodes.forEach(uuid => {
+                    const node = nodes.find(n => n.uuid === uuid);
+                    // 如果节点不存在或者不匹配正则 (且不是焦点节点，焦点节点通常不应该被筛选掉)
+                    if (node && node !== focusNode && !nodeRegex.test(node.label)) {
+                        toRemoveNodes.add(uuid);
+                    }
+                });
+                toRemoveNodes.forEach(uuid => visibleNodes.delete(uuid));
+            } catch (e) { console.warn("Invalid Node Regex", e); }
+        }
+
+        // 5.2 连线正则筛选
+        if (filterLinkStr && filterLinkStr.trim() !== "") {
+            try {
+                const linkRegex = new RegExp(filterLinkStr, 'i');
+                const toRemoveLinks = new Set();
+                visibleLinks.forEach(l => {
+                    // 获取连线的显示名称 (优先 Preset Label，否则用 raw type)
+                    const preset = this.presetMap.get(l.type);
+                    const label = preset ? preset.label : l.type;
+                    if (!linkRegex.test(label)) {
+                        toRemoveLinks.add(l);
+                    }
+                });
+                toRemoveLinks.forEach(l => visibleLinks.delete(l));
+            } catch (e) { console.warn("Invalid Link Regex", e); }
+        }
+
+        // 5.3 一致性清理：如果节点被隐藏了，连接该节点的线也必须隐藏
+        // 这一步必须最后做
+        const finalLinksToRemove = new Set();
+        visibleLinks.forEach(l => {
+            if (!visibleNodes.has(l.source.uuid) || !visibleNodes.has(l.target.uuid)) {
+                finalLinksToRemove.add(l);
+            }
+        });
+        finalLinksToRemove.forEach(l => visibleLinks.delete(l));
+
+        // 6. 更新缓存
         this.visCache.nodes = visibleNodes;
         this.visCache.links = visibleLinks;
         this.visCache.lastSignature = signature;
