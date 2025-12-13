@@ -415,6 +415,10 @@ App.UI = {
             setText('pe-btn-save', 'preset.btnSave');
 
             App.Input.updateLinkModeIndicator();
+
+            setPh('inp-jump', 'input.jump');
+            setPh('inp-filter-node', 'input.filterNode');
+            setPh('inp-filter-link', 'input.filterLink');
         }
     },
 

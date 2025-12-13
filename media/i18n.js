@@ -75,7 +75,10 @@ const translations = {
         "tooltip.click": "<span style='color:#666'>Click to Jump</span>",
         "tooltip.nodeHover": "<strong>{label}</strong><br>{summary}<br><span style='color:#666'>Click to Jump</span>",
         "status.saved": "Stars: Saved.",
-        "status.noWorkspace": "Stars: Please open a folder to save data."
+        "status.noWorkspace": "Stars: Please open a folder to save data.",
+        "input.jump": "Jump to Node (Enter)",
+        "input.filterNode": "Filter Nodes Regex (Enter)",
+        "input.filterLink": "Filter Links Regex (Enter)",
     },
     "zh-cn": {
         "hud.title": "星罗",
@@ -148,7 +151,10 @@ const translations = {
         "tooltip.click": "<span style='color:#666'>点击跳转</span>",
         "tooltip.nodeHover": "<strong>{label}</strong><br>{summary}<br><span style='color:#666'>点击跳转</span>",
         "status.saved": "星罗: 已保存。",
-        "status.noWorkspace": "星罗: 请先打开一个文件夹以保存数据。"
+        "status.noWorkspace": "星罗: 请先打开一个文件夹以保存数据。",
+        "input.jump": "按名称跳转 (回车)",
+        "input.filterNode": "正则筛选节点 (回车)",
+        "input.filterLink": "正则筛选连线 (回车)",
     }
 };
 
