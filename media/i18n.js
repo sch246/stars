@@ -17,7 +17,8 @@ const translations = {
             <span class="key">Del</span> <span class="key">X</span> <span class="key">R Click</span> Del Rel/Node<br>
             <span class="key">(shift)WASD</span> <span class="key">(shift)↑←↓→</span> <span class="key">(/?)</span> <span class="key">L Click</span> (Path Aligned) Move <br>
             <span class="key">Space</span> Edit <span class="key">Enter</span> <span class="key">L Click Focus</span> View<br>
-            <span class="key">(Shift)1-4</span> (Save) Swap <span class="key">H</span> Home <span class="key">B</span> <span class="key">Back Btn</span> Back<br>
+            <span class="key">(Shift)1-4</span> (Save) Swap <span class="key">T</span> Tag<br>
+            <span class="key">H</span> Home <span class="key">B</span> <span class="key">Back Btn</span> Back<br>
             <span class="key">(shift)Q E</span> <span class="key">(shift)< ></span> (Free Rotate) Prev. Neighbors<br>
             <span class="key">\`</span> Rel. Presets <span class="key">I</span> Hide Tip
         `,
@@ -42,8 +43,12 @@ const translations = {
         "alert.presetExceedMax": "Maximum number of presets reached.",
         "alert.noLinkToBreak": "No link to break.",
         "alert.rootCannotDelete": "The root node cannot be deleted.",
+        "alert.nodeNotFound": "Node not found.",
         "flash.presetUpdated": "Presets updated.",
         "flash.linkCut": "Link cut.",
+        "flash.jumpedTo": "Jumped to {label}.",
+        "flash.nodeFiltered": "Node filtered.",
+        "flash.linkFiltered": "link filtered.",
         "flash.noHistory": "No more history to navigate back to.",
         "linkMode.prompt": "Enter link relationship name or val:",
         "linkMode.promptPlaceholder": "e.g., contains, defined as...",
@@ -93,7 +98,8 @@ const translations = {
             <span class="key">Del</span> <span class="key">X</span> <span class="key">右键</span> 删除关系/节点<br>
             <span class="key">(shift)WASD</span> <span class="key">(shift)↑←↓→</span> <span class="key">(/?)</span> <span class="key">左键</span> (沿路径)移动 <br>
             <span class="key">Space</span> 编辑 <span class="key">Enter</span> <span class="key">左键焦点</span> 查看<br>
-            <span class="key">(Shift)1-4</span> (存入)交换 <span class="key">H</span> 回家 <span class="key">B</span> <span class="key">后侧键</span> 后退<br>
+            <span class="key">(Shift)1-4</span> (存入)交换 <span class="key">T</span> 标签<br>
+            <span class="key">H</span> 回家 <span class="key">B</span> <span class="key">后侧键</span> 后退<br>
             <span class="key">(shift)Q E</span> <span class="key">(shift)< ></span> (自由旋转)预览邻居<br>
             <span class="key">\`</span> 关系预设 <span class="key">I</span> 隐藏此提示
         `,
@@ -118,8 +124,12 @@ const translations = {
         "alert.presetExceedMax": "预设数量已达上限。",
         "alert.noLinkToBreak": "无连接可断开。",
         "alert.rootCannotDelete": "初始奇点不可删除。",
+        "alert.nodeNotFound": "未找到指定节点。",
         "flash.presetUpdated": "预设已更新。",
         "flash.linkCut": "链接已切断。",
+        "flash.jumpedTo": "已跳转至 {label}。",
+        "flash.nodeFiltered": "节点已筛选。",
+        "flash.linkFiltered": "关系已筛选。",
         "flash.noHistory": "没有更多历史记录可回退。",
         "linkMode.prompt": "请输入链接关系名称或数据值:",
         "linkMode.promptPlaceholder": "例如: 包含, 定义为...",

@@ -176,12 +176,12 @@ App.UI = {
                     App.Input.navigate(target);
                     // 可选：清空输入框
                     // inpJump.value = ''; 
-                    App.UI.showFlash(`Jumped to: ${target.label}`);
+                    App.UI.showFlash(t('flash.jumpedTo', {label: target.label}));
                     // 失去焦点，回到画布
                     inpJump.blur();
                     App.Renderer.canvas.focus();
                 } else {
-                    App.UI.showFlash("Node not found", "warn");
+                    App.UI.showFlash(t('alert.nodeNotFound'), "warn");
                 }
             }
         });
@@ -193,7 +193,7 @@ App.UI = {
                 // 强制刷新渲染
                 App.Renderer.visCache.lastSignature = null; 
                 App.Renderer.restartSim();
-                App.UI.showFlash("Node Filter Updated");
+                App.UI.showFlash(t('flash.nodeFiltered'));
                 inpFilterNode.blur();
             }
         });
@@ -205,7 +205,7 @@ App.UI = {
                 // 强制刷新渲染
                 App.Renderer.visCache.lastSignature = null;
                 App.Renderer.restartSim();
-                App.UI.showFlash("Link Filter Updated");
+                App.UI.showFlash(t('flash.linkFiltered'));
                 inpFilterLink.blur();
             }
         });
