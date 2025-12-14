@@ -1779,6 +1779,9 @@ App.Renderer = {
         if (this.uiRefs.layerIndicator) this.uiRefs.layerIndicator.innerText = viewLayers;
         if (this.uiRefs.visibleCount) this.uiRefs.visibleCount.innerText = visibleCount;
 
+        // 这确保了即使鼠标不动，当节点飘过鼠标下方时，也能触发 hover
+        App.Input.updateHoverState();
+
         // 保持物理引擎活跃 (实现无限飘动效果)
         if (this.simulation.alpha() < 0.1) this.simulation.alpha(0.1).restart();
 
@@ -2263,6 +2266,63 @@ App.Input = {
         }
     },
 
+
+    // 【新增】核心方法：每帧都会被调用，用于更新悬停状态
+    updateHoverState() {
+        // 1. 阻断检查：如果正在拖拽节点或者打开了弹窗，不执行悬停检测
+        if (this.state.dragNode ||
+            App.UI.Dialog.isActive ||
+            App.UI.Modal.el.classList.contains('active')) {
+            return;
+        }
+        // 2. 获取当前的鼠标坐标 (由 onMouseMove 更新)
+        const { mouseX, mouseY } = this.state;
+        // 3. 尝试拾取节点
+        const node = this.pickNode(mouseX, mouseY);
+        if (node) {
+            App.Renderer.canvas.style.cursor = 'pointer';
+
+            // 只有当悬停的节点发生变化时，才重新渲染 Tooltip
+            if (this.state.hoverNode !== node) {
+                this.state.hoverNode = node;
+                this.state.hoverLink = null;
+                this.state.previewNode = null; // 鼠标操作优先于键盘预览
+                const html = typeof marked !== 'undefined'
+                    ? marked.parse(node.summary || '')
+                    : node.summary;
+
+                // 显示提示框
+                this.showTooltip(t('tooltip.nodeHover', {label: node.label, summary: html}), mouseX, mouseY, 'mouse');
+            }
+        }
+        else {
+            // 4. 如果没碰到节点，尝试拾取连线
+            const link = this.pickLink(mouseX, mouseY);
+            if (link) {
+                App.Renderer.canvas.style.cursor = 'pointer';
+                if (this.state.hoverLink !== link) {
+                    this.state.hoverLink = link;
+                    this.state.hoverNode = null;
+                    this.state.previewNode = null;
+                    if(!this.state.previewNode) this.hideTooltip();
+                }
+            } else {
+                // 5. 什么都没碰到
+                // 只有当前有悬停对象才需要清理，避免每帧都在操作 DOM 隐藏 tooltip
+                if (this.state.hoverNode || this.state.hoverLink) {
+                    this.state.hoverNode = null;
+                    this.state.hoverLink = null;
+                    App.Renderer.canvas.style.cursor = 'crosshair';
+                    if(!this.state.previewNode) this.hideTooltip();
+                }
+                // 确保光标复位
+                if(App.Renderer.canvas.style.cursor !== 'crosshair') {
+                     App.Renderer.canvas.style.cursor = 'crosshair';
+                }
+            }
+        }
+    },
+
     // --- Mouse ---
     onMouseDown(e) {
         if(App.UI.Modal.el.classList.contains('active') || App.UI.Dialog.isActive) return;
@@ -2340,27 +2400,6 @@ App.Input = {
         }
         if(App.UI.Modal.el.classList.contains('active') || App.UI.Dialog.isActive) return;
         if(this.state.dragNode) return;
-
-        const node = this.pickNode(e.clientX, e.clientY);
-        if(node) {
-            App.Renderer.canvas.style.cursor = 'pointer';
-            this.state.hoverNode = node;
-            this.state.hoverLink = null;
-            this.state.previewNode = null;
-            const html = typeof marked!=='undefined' ? marked.parse(node.summary||'') : node.summary;
-            this.showTooltip(t('tooltip.nodeHover', {label: node.label, summary: html}), e.clientX, e.clientY, 'mouse');
-        } else if (link = this.pickLink(e.clientX, e.clientY)) {
-            this.state.hoverNode = null;
-            this.state.previewNode = null;
-            this.state.hoverLink = link;
-            App.Renderer.canvas.style.cursor = 'pointer';
-            if(!this.state.previewNode) this.hideTooltip();
-        } else {
-            this.state.hoverNode = null;
-            this.state.hoverLink = null;
-            App.Renderer.canvas.style.cursor = 'crosshair';
-            if(!this.state.previewNode) this.hideTooltip();
-        }
     },
 
     onMouseUp(e) {
@@ -2439,7 +2478,7 @@ App.Input = {
 
     onContextMenu(e) {
         e.preventDefault();
-        const node = this.pickNode(e.clientX, e.clientY);
+        const node = App.Input.state.hoverNode;
         if(node) {
             // 逻辑 A: 如果是顶部接口节点 (isEnv 为 true)
             // 无论是否按 Shift，右键都应该把它“拉下来” (Undock)
@@ -2457,7 +2496,7 @@ App.Input = {
             // 逻辑 C: 普通右键 = 删除节点
             this.deleteNode(node); return;
         }
-        const link = this.pickLink(e.clientX, e.clientY);
+        const link = App.Input.state.hoverLink;
         if(link) { this.deleteLink(link); return; }
     },
 
