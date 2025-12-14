@@ -1,6 +1,6 @@
 /* eslint-disable curly */
 /**
- * Stars v5.5
+ * Stars v5.6
  */
 
 const vscode = acquireVsCodeApi();
@@ -175,7 +175,7 @@ App.UI = {
                 if (target) {
                     App.Input.navigate(target);
                     // 可选：清空输入框
-                    // inpJump.value = ''; 
+                    // inpJump.value = '';
                     App.UI.showFlash(t('flash.jumpedTo', {label: target.label}));
                     // 失去焦点，回到画布
                     inpJump.blur();
@@ -191,7 +191,7 @@ App.UI = {
             if (e.key === 'Enter') {
                 App.Store.state.filterNodeStr = inpFilterNode.value;
                 // 强制刷新渲染
-                App.Renderer.visCache.lastSignature = null; 
+                App.Renderer.visCache.lastSignature = null;
                 App.Renderer.restartSim();
                 App.UI.showFlash(t('flash.nodeFiltered'));
                 inpFilterNode.blur();
@@ -209,7 +209,7 @@ App.UI = {
                 inpFilterLink.blur();
             }
         });
-        
+
         // 防止按键事件冒泡触发全局快捷键 (如删除、移动等)
         [inpJump, inpFilterNode, inpFilterLink].forEach(el => {
             el.addEventListener('keydown', (e) => e.stopPropagation());
@@ -793,6 +793,9 @@ App.Store = {
         }
 
         const applyState = () => {
+            if (this.state.focusNode !== nextState.nextFocus) {
+                App.Input.onFocusMove(this.state.focusNode, nextState.nextFocus);
+            }
             this.state.nodes = nextState.nodes;
             this.state.links = nextState.links;
             this.state.focusNode = nextState.nextFocus;
@@ -1349,7 +1352,7 @@ App.Renderer = {
         // ==========================================
         // 新增：基于正则表达式的“减法”筛选
         // ==========================================
-        
+
         // 5.1 节点正则筛选
         if (filterNodeStr && filterNodeStr.trim() !== "") {
             try {
@@ -1385,7 +1388,7 @@ App.Renderer = {
             } catch (e) { console.warn("Invalid Link Regex", e); }
         }
 
-        // 5.5 一致性清理：如果节点被隐藏了，连接该节点的线也必须隐藏
+        // 5.3 一致性清理：如果节点被隐藏了，连接该节点的线也必须隐藏
         // 这一步必须最后做
         const finalLinksToRemove = new Set();
         visibleLinks.forEach(l => {
@@ -1500,6 +1503,7 @@ App.Renderer = {
         // ==========================================
         const fadeStep = deltaTime / this.FADE_DURATION;
         const linksLen = links.length;
+        const hoverLink = App.Input.state.hoverLink;
 
         for (let i = 0; i < linksLen; i++) {
             const l = links[i];
@@ -1517,14 +1521,15 @@ App.Renderer = {
                 const src = l.source, tgt = l.target;
 
                 // 判断是否需要高亮
-                const isFocusLink = (src===focusNode || tgt===focusNode);
-                const isHigh = (hoverNode && (src===hoverNode||tgt===hoverNode)) ||
-                               (previewNode && (src===previewNode||tgt===previewNode));
+                const isTarget = l === hoverLink;
+                const isFocus = (src===focusNode || tgt===focusNode) ||
+                    (hoverNode && (src===hoverNode||tgt===hoverNode)) ||
+                    (previewNode && (src===previewNode||tgt===previewNode));
 
                 // 调整透明度和线宽
-                const mult = isFocusLink ? 1.0 : (isHigh ? 0.7 : 0.4);
+                const mult = isTarget ? 1.0 : isFocus ? 0.7 : 0.3;
                 ctx.globalAlpha = l.alpha * mult;
-                ctx.lineWidth = (isFocusLink || isHigh) ? 2.5 : 1.5;
+                ctx.lineWidth = isTarget ? 4.0 : isFocus ? 2.5 : 1.5;
                 if (l.source.isEnv || l.target.isEnv) {
                     // 除以缩放
                     ctx.lineWidth /= this.viewK;
@@ -1545,8 +1550,8 @@ App.Renderer = {
                 ctx.lineTo(tgt.x, tgt.y);
                 ctx.stroke();
 
-                // 如果是焦点相关的线，绘制文字标签
-                if (l.type && isFocusLink) {
+                // 绘制文字标签
+                if (l.type && (isFocus || isTarget)) {
                      const mx = (src.x+tgt.x)/2, my = (src.y+tgt.y)/2;
                      ctx.save();
                      ctx.translate(mx, my);
@@ -1561,6 +1566,57 @@ App.Renderer = {
             }
         }
         ctx.restore(); // 连线绘制完毕，恢复矩阵
+
+        // --- 新增: 绘制拖拽连线预览 ---
+        const dragLink = App.Input.state.dragLink;
+        if (dragLink) {
+            ctx.globalAlpha = 1.0;
+            const src = dragLink.source;
+            let endX, endY;
+
+            // 2. 吸附逻辑：如果有吸附目标，直接使用目标的物理坐标
+            if (dragLink.targetNode) {
+                endX = dragLink.targetNode.x;
+                endY = dragLink.targetNode.y;
+            } else {
+                // 否则使用鼠标的世界坐标
+                const mouseWorld = this.screenToWorld(dragLink.currentX, dragLink.currentY);
+                endX = mouseWorld.x;
+                endY = mouseWorld.y;
+            }
+
+            ctx.save();
+            // 应用变换以确保在世界坐标系下绘制
+            ctx.translate(this.width/2, this.height/2);
+            ctx.rotate(this.viewRotation);
+            ctx.translate(-this.width/2, -this.height/2);
+            ctx.translate(this.viewX, this.viewY);
+            ctx.scale(this.viewK, this.viewK);
+
+            // ctx.strokeStyle = "#4facfe";
+            const grad = ctx.createLinearGradient(src.x, src.y, endX, endY);
+            grad.addColorStop(0, "#4facfe");
+            grad.addColorStop(1, "#88888888"); // 尾端半透明
+            ctx.strokeStyle = grad;
+
+            ctx.lineWidth = 2.5; // 稍微加粗一点
+            ctx.setLineDash([6 / this.viewK, 4 / this.viewK]); // 虚线
+
+            ctx.beginPath();
+            ctx.moveTo(src.x, src.y);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+
+            // 只有在未吸附时才绘制末端小圆点（吸附时圆点在节点中心，被节点覆盖，没必要画）
+            if (!dragLink.targetNode) {
+                ctx.beginPath();
+                ctx.arc(endX, endY, 4 / this.viewK, 0, 2 * Math.PI);
+                ctx.fillStyle = "#4facfe";
+                ctx.fill();
+            }
+
+            ctx.restore();
+        }
 
         // ==========================================
         // 绘制节点 (Nodes)
@@ -1613,6 +1669,8 @@ App.Renderer = {
                 const isPreview = (n === previewNode);
                 const isHover = (n === hoverNode);
                 const isSlot = slots.includes(n);
+                // [修改] 高亮检测：如果是吸附的目标节点
+                const isDragTarget = dragLink && dragLink.targetNode && dragLink.targetNode.uuid === n.uuid;
 
                 // --- 鼠标接近放大算法 ---
                 let proximityScale = 1.0;
@@ -1674,8 +1732,10 @@ App.Renderer = {
                 // 边框绘制
                 if (isFocus && linkMode.active) {
                     ctx.strokeStyle = linkMode.color || '#fff'; ctx.lineWidth = 3; ctx.stroke();
-                }
-                if(isSlot && !isFocus) {
+                } else if (isDragTarget) {
+                    // [修改] 吸附目标的白色边框
+                    ctx.strokeStyle = "#fff"; ctx.lineWidth = 5; ctx.stroke();
+                } else if(isSlot && !isFocus) {
                     ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
                 }
 
@@ -1713,7 +1773,7 @@ App.Renderer = {
         }
 
         // 绘制顶部接口槽及连线
-        this.renderEnvDock(this.ctx, nodes, links, hoverNode, focusNode, previewNode);
+        this.renderEnvDock(this.ctx, links);
 
         // --- 更新 DOM 计数器 ---
         if (this.uiRefs.layerIndicator) this.uiRefs.layerIndicator.innerText = viewLayers;
@@ -1727,7 +1787,7 @@ App.Renderer = {
     },
 
     // 【新增】绘制顶部接口槽
-    renderEnvDock(ctx, nodes, links, hoverNode, focusNode, previewNode) {
+    renderEnvDock(ctx, links) {
         const envNodes = App.Store.state.envNodes;
         if (!envNodes || envNodes.length === 0) return;
         // 获取 Canvas 在浏览器中的位置信息（用于坐标修正）
@@ -1736,10 +1796,10 @@ App.Renderer = {
         const slotRadius = 18;
         const gap = 50;
         const topMargin = 60;
-        
+
         // --- 修复 1：使用逻辑宽度 (CSS像素) 计算布局 ---
         // this.width 是物理像素，除以 dpr 得到逻辑像素
-        const logicalWidth = this.width / dpr; 
+        const logicalWidth = this.width / dpr;
         const totalWidth = envNodes.length * gap;
         let startX = (logicalWidth / 2) - (totalWidth / 2) + (gap / 2);
         // 切换到屏幕坐标系
@@ -1750,7 +1810,7 @@ App.Renderer = {
             const x = startX + i * gap;
             const y = topMargin;
             // --- 修复 2：坐标交互修正 ---
-            
+
             // A. 屏幕交互坐标 (用于鼠标 Hover 检测)
             // 如果 input 系统的 mouseX 是全局 clientX，这里需要是 x + rect.left
             // 如果 input 系统的 mouseX 是相对于 canvas 的 offsetX，这里直接是 x
@@ -1793,7 +1853,7 @@ App.Renderer = {
             // 内部点
             ctx.beginPath();
             // 注意：slotRadius - 5 可能太小，导致看不见，如果 dpr 很高
-            ctx.arc(x, y, slotRadius - 5, 0, 2 * Math.PI); 
+            ctx.arc(x, y, slotRadius - 5, 0, 2 * Math.PI);
             ctx.fillStyle = n.color || "#4facfe";
             ctx.fill();
             ctx.shadowBlur = 0;
@@ -1867,6 +1927,7 @@ App.Renderer = {
 App.Input = {
     state: {
         hoverNode: null,
+        hoverLink: null,
         previewNode: null,
         linkMode: { active: false },
         dragNode: null,
@@ -1874,13 +1935,14 @@ App.Input = {
         keyState: {},
         keyControlsVisible: true,
         mouseX: 0,
-        mouseY: 0
+        mouseY: 0,
+        dragLink: null, // { source: null, currentX: 0, currentY: 0, targetNode: null, locked: false }
     },
 
     init() {
         const C = App.Renderer.canvas;
         C.addEventListener('mousedown', this.onMouseDown.bind(this));
-        C.addEventListener('mouseup', this.onMouseUp.bind(this));
+        window.addEventListener('mouseup', this.onMouseUp.bind(this));
         C.addEventListener('mousemove', this.onMouseMove.bind(this));
         C.addEventListener('dblclick', this.onMouseDoubleClick.bind(this));
         C.addEventListener('wheel', this.onWheel.bind(this), {passive:false});
@@ -1948,6 +2010,13 @@ App.Input = {
     },
 
     // --- Safe Navigation Wrapper ---
+
+    onFocusMove(src, tgt) {
+        if (App.UI.RelationPicker.active) {
+            App.UI.RelationPicker.close();
+        }
+    },
+
     // Replaces simple navigateTo to ensure orphan checking
     safeNavigate(node, recordHistory = true) {
         if (!node) return;
@@ -1997,6 +2066,7 @@ App.Input = {
     // Called by executeSafeAction or Link Mode
     navigate(node, recordHistory = true) {
         if(!node) return;
+        this.onFocusMove(App.Store.state.focusNode, node);
         const { linkMode } = this.state;
         if (linkMode.active && linkMode.source && linkMode.source.uuid !== node.uuid) {
             this.executeLinkAction(linkMode.source, node);
@@ -2046,10 +2116,10 @@ App.Input = {
         }
     },
 
-    executeLinkAction(source, target) {
+    executeLinkAction(source, target, specificType = null) {
         const { links } = App.Store.state;
         const existing = links.find(l => (l.source.uuid===source.uuid && l.target.uuid===target.uuid) || (l.source.uuid===target.uuid && l.target.uuid===source.uuid));
-        const { type } = this.state.linkMode;
+        const type = specificType || this.state.linkMode.type;
 
         if (type === 'DELETE') {
             if(existing) {
@@ -2059,6 +2129,7 @@ App.Input = {
                     nextFocus: target,
                     nextSlots: App.Store.state.slots
                 }));
+                App.UI.showFlash(t('flash.linkCut')); // 添加提示
             } else App.UI.showFlash(t('alert.noLinkToBreak'), 'info');
         } else {
             if(existing) { existing.type = type; existing.source = source; existing.target = target; }
@@ -2183,7 +2254,7 @@ App.Input = {
         if (backIdx >= 0) {
             const targetUUID = navHistory[backIdx].uuid;
             App.Store.state.navHistory.splice(backIdx + 1);
-            const targetNode = nodes.find(n => n.uuid === targetUUID)
+            const targetNode = nodes.find(n => n.uuid === targetUUID);
             if (targetNode) {
                 this.safeNavigate(targetNode, false);
             }
@@ -2196,21 +2267,39 @@ App.Input = {
     onMouseDown(e) {
         if(App.UI.Modal.el.classList.contains('active') || App.UI.Dialog.isActive) return;
         if (e.button === 1) {
-            e.preventDefault();
-            this.state.isPanning = true;
-            this.state.lastPanX = e.clientX;
-            this.state.lastPanY = e.clientY;
-            App.Renderer.canvas.style.cursor = 'move';
-            return;
+            const node = this.pickNode(e.clientX, e.clientY);
+            // 【新增】中键拖拽 进入连线模式
+            if (node) {
+                this.state.dragLink = {
+                    source: node,
+                    targetNode: null,
+                    locked: false,
+                    currentX: e.clientX,
+                    currentY: e.clientY
+                };
+                this.hideTooltip(); // 隐藏提示框防止遮挡
+                return;
+            } else {
+                e.preventDefault();
+                this.state.isPanning = true;
+                this.state.lastPanX = e.clientX;
+                this.state.lastPanY = e.clientY;
+                App.Renderer.canvas.style.cursor = 'move';
+                return;
+            }
         }
         if(e.button===3) { e.preventDefault(); this.safeNavigateBack(); return; }
         if(e.button===4) { e.preventDefault(); this.enterLinkMode(); return; }
         if(e.button!==0) return;
 
         const node = this.pickNode(e.clientX, e.clientY);
+        // dragNode Logic
         this.state.mouseX = e.clientX; this.state.mouseY = e.clientY;
         this.state.dragNode = node;
-        this.state.click = { start: performance.now(), x: e.clientX, y: e.clientY };
+        this.state.click = {
+            startX: e.clientX, startY: e.clientY,
+            startTime: performance.now(),
+        };
 
         if(node) {
             this.state.hoverNode=null; this.state.previewNode=null; this.hideTooltip();
@@ -2234,21 +2323,77 @@ App.Input = {
             this.state.lastPanY = e.clientY;
             return; // 平移时不处理 hover
         }
+        // 【新增】拖拽连线逻辑
+        if (this.state.dragLink && !this.state.dragLink.locked) {
+            this.state.dragLink.currentX = e.clientX;
+            this.state.dragLink.currentY = e.clientY;
+
+            // 实时检测鼠标下是否有目标节点
+            const target = this.pickNode(e.clientX, e.clientY);
+            // 如果有节点，且不是起点本身，则记录为吸附目标
+            if (target && target.uuid !== this.state.dragLink.source.uuid) {
+                this.state.dragLink.targetNode = target;
+            } else {
+                this.state.dragLink.targetNode = null;
+            }
+            return;
+        }
         if(App.UI.Modal.el.classList.contains('active') || App.UI.Dialog.isActive) return;
         if(this.state.dragNode) return;
 
         const node = this.pickNode(e.clientX, e.clientY);
         if(node) {
-            this.state.hoverNode = node; this.state.previewNode = null;
+            App.Renderer.canvas.style.cursor = 'pointer';
+            this.state.hoverNode = node;
+            this.state.hoverLink = null;
+            this.state.previewNode = null;
             const html = typeof marked!=='undefined' ? marked.parse(node.summary||'') : node.summary;
             this.showTooltip(t('tooltip.nodeHover', {label: node.label, summary: html}), e.clientX, e.clientY, 'mouse');
+        } else if (link = this.pickLink(e.clientX, e.clientY)) {
+            this.state.hoverNode = null;
+            this.state.previewNode = null;
+            this.state.hoverLink = link;
+            App.Renderer.canvas.style.cursor = 'pointer';
+            if(!this.state.previewNode) this.hideTooltip();
         } else {
             this.state.hoverNode = null;
+            this.state.hoverLink = null;
+            App.Renderer.canvas.style.cursor = 'crosshair';
             if(!this.state.previewNode) this.hideTooltip();
         }
     },
 
     onMouseUp(e) {
+        // 【新增】拖拽连线逻辑
+        if (this.state.dragLink && !this.state.dragLink.locked) {
+            const source = this.state.dragLink.source;
+            // 优先使用吸附的目标，如果没有吸附，再尝试 pick 一次（双重保险）
+            // 因为这里会松开后触发行为
+            const target = e.target === App.Renderer.canvas
+                ? (this.state.dragLink.targetNode || this.pickNode(e.clientX, e.clientY))
+                : null;
+            this.state.dragLink.locked = true;
+
+            if (target && target.uuid !== source.uuid) {
+                // 弹出菜单 -> 等待选择 -> 执行连线
+                App.UI.RelationPicker.show(true).then(res => {
+                    if (res.val === 'CUSTOM') {
+                        App.UI.Dialog.prompt(t('linkMode.prompt'), t('linkMode.promptPlaceholder'))
+                        .then(cLabel => { if(cLabel) this.executeLinkAction(source, target, cLabel); });
+                    } else {
+                        this.executeLinkAction(source, target, res.val);
+                    }
+                })
+                .catch(e => console.log(e))
+                .finally(() => {
+                    this.state.dragLink = null;
+                });
+            } else {
+                // [补充] 如果没有命中目标，或者在 UI 上松开，立即清除拖拽状态
+                this.state.dragLink = null;
+            }
+            return;
+        }
         // 【新增】结束平移
         if (e.button === 1) {
             this.state.isPanning = false;
@@ -2264,12 +2409,16 @@ App.Input = {
         }
         this.state.dragNode = null;
 
-        const dist = Math.hypot(e.clientX - this.state.click.x, e.clientY - this.state.click.y);
-        if(performance.now() - this.state.click.start < 200 && dist < 8) {
-            const target = node || this.pickNode(e.clientX, e.clientY);
-            if(target) {
-                if(target !== App.Store.state.focusNode) this.safeNavigate(target);
-                else App.UI.Modal.show();
+        // Click Threshold Logic
+        if (e.target === App.Renderer.canvas) {
+            const {startTime, startX, startY} = this.state.click;
+            move = Math.hypot(e.clientX - startX, e.clientY - startY);
+            if(performance.now() - startTime < 200 && move < 8) {
+                const target = node || this.pickNode(e.clientX, e.clientY);
+                if(target) {
+                    if(target !== App.Store.state.focusNode) this.safeNavigate(target);
+                    else App.UI.Modal.show();
+                }
             }
         }
     },
@@ -2323,7 +2472,7 @@ App.Input = {
         }
         // 2. 核心修正：计算缩放对 viewX/viewY 的补偿
         // 也就是：Zoom Toward Mouse (鼠标指向的世界点不变) 或者 Zoom Toward Center (屏幕中心的世界点不变)
-        
+
         // 获取参考点（这里使用屏幕中心，这在聚焦模式下最自然）
         // 如果你更喜欢“鼠标指哪里缩放哪里”，可以用 e.clientX / e.clientY
         // const rect = App.Renderer.canvas.getBoundingClientRect();
@@ -2341,7 +2490,7 @@ App.Input = {
         // ViewX_New = CenterX - (WorldOffset * K_New)
         App.Renderer.viewX = centerX - (worldOffsetX * newK);
         App.Renderer.viewY = centerY - (worldOffsetY * newK);
-        
+
         // // 【特殊修正】如果是 EnvNode 聚焦或锁定状态
         // // 这一步确保相机目标点（cameraLookAt）同步更新，防止下一帧 render 里的缓动逻辑把画面又拉回去
         // const { focusNode } = App.Store.state;
@@ -2500,6 +2649,22 @@ App.Input = {
             }
         }
         return null; // 没有节点被点击
+    },
+
+    pickLink(sx, sy) {
+        const w = App.Renderer.screenToWorld(sx, sy);
+        const links = App.Store.state.links;
+        for(let l of links) {
+            if(l.alpha < 0.3) continue;
+            const x1 = l.source.x, y1 = l.source.y, x2 = l.target.x, y2 = l.target.y;
+            const A = x2-x1, B = y2-y1;
+            const lenSq = A*A+B*B;
+            let t = ((w.x-x1)*A + (w.y-y1)*B) / lenSq;
+            t = Math.max(0, Math.min(1, t));
+            const dist = Math.hypot(w.x - (x1+t*A), w.y - (y1+t*B));
+            if(dist < 10/App.Renderer.viewK) return l;
+        }
+        return null;
     },
 
     showTooltip(html, x, y, mode) {

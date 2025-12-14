@@ -13,7 +13,8 @@ const translations = {
         "hud.nodes": "nodes",
         "hud.linkMode": "🔗 Link Mode: Jump to connect / Esc to cancel",
         "hud.controls": `
-            <span class="key">L</span> <span class="key">Fwd Btn</span> New Rel. <span class="key">N</span> New Node <span class="key">Tab</span> <span class="key">Dbl Click</span> New & Connect<br>
+            <span class="key">L</span> <span class="key">Fwd Btn</span> <span class="key">Mid Drag Node</span> New Rel <span class="key">Mid Drag</span> Move View<br>
+            <span class="key">N</span> New Node <span class="key">Tab</span> <span class="key">Dbl Click</span> New & Connect<br>
             <span class="key">Del</span> <span class="key">X</span> <span class="key">R Click</span> Del Rel/Node<br>
             <span class="key">(shift)WASD</span> <span class="key">(shift)↑←↓→</span> <span class="key">(/?)</span> <span class="key">L Click</span> (Path Aligned) Move <br>
             <span class="key">Space</span> Edit <span class="key">Enter</span> <span class="key">L Click Focus</span> View<br>
@@ -94,7 +95,8 @@ const translations = {
         "hud.nodes": "节点",
         "hud.linkMode": "🔗 连线模式: 跳转以连接/Esc 取消",
         "hud.controls": `
-            <span class="key">L</span> <span class="key">前侧键</span> 新建关系 <span class="key">N</span> 新建节点 <span class="key">Tab</span> <span class="key">双击</span> 新建并连接节点<br>
+            <span class="key">L</span> <span class="key">前侧键</span> <span class="key">中键拖动节点</span> 新建关系 <span class="key">中键拖动</span> 移动视图<br>
+            <span class="key">N</span> 新建节点 <span class="key">Tab</span> <span class="key">双击</span> 新建并连接节点<br>
             <span class="key">Del</span> <span class="key">X</span> <span class="key">右键</span> 删除关系/节点<br>
             <span class="key">(shift)WASD</span> <span class="key">(shift)↑←↓→</span> <span class="key">(/?)</span> <span class="key">左键</span> (沿路径)移动 <br>
             <span class="key">Space</span> 编辑 <span class="key">Enter</span> <span class="key">左键焦点</span> 查看<br>
