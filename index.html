@@ -723,43 +723,10 @@ App.Store = {
 
     // 核心安全执行器 (Anchor-based Safety Check)
     async executeSafeAction(simulator, onApplied = null) {
-        const { nodes, focusNode, slots, links, envNodes } = this.state;
-
-        // 1. 获取当前锚点集合 (Origin + Focus + Slots)
-        const getAnchorUUIDs = (nList, fNode, sList, eList) => {
-            const root = nList.find(n => n.isRoot);
-            // 过滤空值并提取UUID
-            const sources = [root, fNode, ...sList, ...(eList || [])].filter(n => n);
-            return new Set(sources.map(n => n.uuid));
-        };
-        const currentAnchorUUIDs = getAnchorUUIDs(nodes, focusNode, slots, envNodes);
-
-        // 2. 模拟未来状态
+        // 1. 获取模拟后的状态
         const nextState = simulator();
-        // 注意：simulator 可能没有返回 nextEnvNodes，如果没返回则认为 envNodes 未变
-        const nextEnvNodes = nextState.nextEnvNodes || envNodes;
-        const nextAnchorUUIDs = getAnchorUUIDs(
-            nextState.nodes,
-            nextState.nextFocus,
-            nextState.nextSlots,
-            nextEnvNodes
-        );
-
-        // 3. 快速放行判定
-        // 条件 A: 结构未受损 (节点数未减少 且 连线数未减少)
-        const isStructureIntact = nextState.nodes.length >= nodes.length && nextState.links.length >= links.length;
-
-        // 条件 B: 锚点完整性 (Anchor Integrity)
-        // 原逻辑要求完全相等，现在改为：只要新的锚点集合包含旧集合的所有元素（即锚点没有丢失，只增不减），由于结构也未丢失，则判定为安全。
-        // 这对于 "升舱 (Docking)" 操作特别有效。
-        let isAnchorsSafe = true;
-        for (let id of currentAnchorUUIDs) {
-            if (!nextAnchorUUIDs.has(id)) {
-                isAnchorsSafe = false;
-                break;
-            }
-        }
-
+        const nextEnvNodes = nextState.nextEnvNodes || this.state.envNodes;
+        // 2. 直接定义应用状态的闭包，跳过所有 Reachability (连通性) 检查
         const applyState = () => {
             if (this.state.focusNode !== nextState.nextFocus) {
                 App.Input.onFocusMove(this.state.focusNode, nextState.nextFocus);
@@ -768,51 +735,18 @@ App.Store = {
             this.state.links = nextState.links;
             this.state.focusNode = nextState.nextFocus;
             this.state.slots = nextState.nextSlots;
-            // 如果 simulator 返回了新的 envNodes (例如在删除节点时同步清理了 envNodes)，则更新
             if (nextState.nextEnvNodes) this.state.envNodes = nextState.nextEnvNodes;
-            if (typeof onApplied === 'function') {
-                onApplied();
-            }
+
+            if (typeof onApplied === 'function') onApplied();
+
             App.UI.updateSidebar();
             App.UI.updateSlotUI();
             this.save();
             App.Renderer.restartSim();
         };
-
-        if (isStructureIntact && isAnchorsSafe) {
-            applyState();
-            return true;
-        }
-
-        // 4. 连通性检查 (Reachability)
-        const anchorsObjects = nextState.nodes.filter(n => nextAnchorUUIDs.has(n.uuid));
-        const reachableUUIDs = App.Utils.findReachable(nextState.nodes, nextState.links, anchorsObjects);
-        const lostNodes = nextState.nodes.filter(n => !reachableUUIDs.has(n.uuid));
-
-        if (lostNodes.length > 0) {
-            const names = lostNodes.slice(0, 3).map(n => n.label).join(', ');
-            const msg = t('alert.deleteConfirm', {n: lostNodes.length, label: lostNodes[0].label});
-            if (await App.UI.Dialog.confirm(msg)) {
-                // Apply the simulated state first
-                applyState();
-
-                // Then clean up lost nodes
-                const deadSet = new Set(lostNodes.map(n => n.uuid));
-                this.state.nodes = this.state.nodes.filter(n => !deadSet.has(n.uuid));
-                this.state.links = this.state.links.filter(l => !deadSet.has(l.source.uuid) && !deadSet.has(l.target.uuid));
-                this.state.slots = this.state.slots.map(s => (s && deadSet.has(s.uuid)) ? null : s);
-                this.state.navHistory = this.state.navHistory.filter(n => !deadSet.has(n.uuid));
-                lostNodes.forEach(n => App.Runtime.clearStorage(n.uuid));
-
-                this.save();
-                App.Renderer.restartSim();
-                return true;
-            }
-            return false;
-        } else {
-            applyState();
-            return true;
-        }
+        // 3. 直接执行，不弹出任何警告
+        applyState();
+        return true;
     },
 
     save() {
@@ -1178,7 +1112,15 @@ App.UI = {
 
     updateSidebar() {
         const node = App.Store.state.focusNode;
-        if(!node) return;
+        if(!node) {
+            this.els.label.value = "";
+            this.els.uuid.innerText = "UUID: -";
+            this.els.summary.value = "";
+            this.els.content.value = "";
+            this.els.colorHex.value = "#000000"
+            this.els.linkStatus.innerText = "Links: -";
+            return;
+        }
         this.els.label.value = node.label;
         this.els.uuid.innerText = "UUID: " + node.uuid;
         this.els.summary.value = node.summary || "";
@@ -1524,6 +1466,7 @@ App.Renderer = {
     PROXIMITY_RANGE: 300,       // 鼠标接近时的感应半径
     HOVER_STOP_RANGE: 30,       // 鼠标进入此半径后，节点保持最大放大倍数
     MAX_SCALE_MULT: 1.8,        // 鼠标接近时的最大放大倍数
+    rotDir: 0, // **重要**：旋转方向，仅在预览时`,.`有效，用于强制旋转方向和阻挡鼠标悬浮的取消
 
     // ==========================================
     // 初始化函数
@@ -1540,14 +1483,23 @@ App.Renderer = {
         // forceLink: 连线拉力
         // forceCharge: 节点间的斥力 (负值表示排斥)
         // forceCollide: 防止节点重叠
+        // this.simulation = d3.forceSimulation()
+        //     .force("link", d3.forceLink().id(d => d.uuid).distance(this.LINK_DISTANCE).strength(0.1))
+        //     .force("charge", d3.forceManyBody().strength(-80))
+        //     .force("collide", d3.forceCollide(10))
+        //     // 产生微弱的中心引力，防止图散开太远
+        //     .force("centerX", d3.forceX(0).strength(0.005))
+        //     .force("centerY", d3.forceY(0).strength(0.005))
+        //     .alphaDecay(0.05).alphaMin(0.05); // 衰减系数，决定了物理停止的快慢
+
         this.simulation = d3.forceSimulation()
             .force("link", d3.forceLink().id(d => d.uuid).distance(this.LINK_DISTANCE).strength(0.1))
-            .force("charge", d3.forceManyBody().strength(-80))
+            .force("charge", d3.forceManyBody().strength(-180).distanceMax(2500))
             .force("collide", d3.forceCollide(10))
             // 产生微弱的中心引力，防止图散开太远
-            .force("center", d3.forceX(0).strength(0.005))
-            .force("centerY", d3.forceY(0).strength(0.005))
-            .alphaDecay(0.05).alphaMin(0.05); // 衰减系数，决定了物理停止的快慢
+            // .force("centerX", d3.forceX(0).strength(0.001))
+            // .force("centerY", d3.forceY(0).strength(0.001))
+            // .alphaDecay(0.05).alphaMin(0.05); // 衰减系数，决定了物理停止的快慢
 
         // 4. 自定义鼠标力 (让被拖拽的节点跟随鼠标)
         const force = (() => {
@@ -1608,90 +1560,13 @@ App.Renderer = {
     // ==========================================
     restartSim() {
         const { nodes, links, focusNode, filterNodeStr, filterLinkStr } = App.Store.state;
-
-        // --- 准备筛选规则 ---
-        let nodeRegex = null;
-        if (filterNodeStr && filterNodeStr.trim() !== "") {
-            try { nodeRegex = new RegExp(filterNodeStr, 'i'); } catch (e) { console.warn("Invalid Node Regex"); }
-        }
-        let linkRegex = null;
-        if (filterLinkStr && filterLinkStr.trim() !== "") {
-            try { linkRegex = new RegExp(filterLinkStr, 'i'); } catch (e) { console.warn("Invalid Link Regex"); }
-        }
-        // 节点保留规则：焦点永远保留，或者是环境接口，或者符合正则
-        const isNodeValid = (n) => {
-            if (n === focusNode) return true;
-            if (n.isEnv) return true; // 接口节点通常也保留，或者你可以看情况去掉这行
-            if (!nodeRegex) return true;
-            return nodeRegex.test(n.label);
-        };
-        // 连线保留规则
-        const isLinkValid = (l) => {
-            if (!linkRegex) return true;
-            const preset = this.presetMap.get(l.type);
-            const label = preset ? preset.label : l.type;
-            return linkRegex.test(label);
-        };
-
-        // 固定根节点位置
+        // 固定根节点
         const root = nodes.find(n => n.isRoot);
         if (root) { root.fx = 0; root.fy = 0; }
-
-        // --- 第一阶段：无差别的拓扑搜索 (Reachability) ---
-        // 目的：找出距离内所有的“候选节点”，不管它是否符合正则。
-        // 这样可以确保：“A -> B(被屏蔽) -> C(正常)”，当我们关注 A 时，C 依然能被找到。
-
-        const SIM_LAYERS = Math.max(7, App.Store.state.viewLayers);
-        const targets = new Set();
-
-        // 从 FocusNode 开始，找出周围 N 层节点加入物理模拟
-        if (focusNode) {
-            targets.add(focusNode.uuid);
-            let queue = [{n: focusNode, d: 0}], head = 0;
-
-            // 临时构建邻接表加速查找 (O(Edges))
-            const adj = {};
-            for (let i = 0; i < links.length; i++) {
-                const l = links[i];
-                const s = l.source.uuid;
-                const t = l.target.uuid;
-                if(!adj[s]) adj[s]=[]; adj[s].push(t);
-                if(!adj[t]) adj[t]=[]; adj[t].push(s);
-            }
-
-            // BFS 搜索
-            while(head < queue.length) {
-                const {n, d} = queue[head++];
-                if (d >= SIM_LAYERS) continue;
-                const neighbors = adj[n.uuid] || [];
-                for (let i = 0; i < neighbors.length; i++) {
-                    const nid = neighbors[i];
-                    if(!targets.has(nid)) {
-                        targets.add(nid);
-                        const obj = nodes.find(x=>x.uuid===nid);
-                        if(obj) queue.push({n:obj, d:d+1});
-                    }
-                }
-            }
-        }
-
-        // --- 第二阶段：严格的物理准入筛选 (Admission Control) ---
-        // 目的：在刚才找到的一大堆候选节点中，把不符合正则的踢出物理世界。
-
-        const activeNodes = nodes.filter(n =>
-            targets.has(n.uuid) &&
-            !n.isEnv &&
-            isNodeValid(n)
-        );
-        // 建立一个快速查找表，用于下方筛选连线
-        const activeNodeIds = new Set(activeNodes.map(n => n.uuid));
-        const activeLinks = links.filter(l =>
-            activeNodeIds.has(l.source.uuid) && !l.source.isEnv &&
-            activeNodeIds.has(l.target.uuid) && !l.target.isEnv &&
-            isLinkValid(l)
-        );
-
-        // 将活跃节点注入 D3
+        // 【修改点】不再计算 targets Set，直接使用全量 nodes 和 links
+        const activeNodes = nodes.filter(n => !n.isEnv); 
+        const activeLinks = links.filter(l => !l.source.isEnv && !l.target.isEnv);
+        // 将全量数据注入 D3 模拟器
         this.simulation.nodes(activeNodes);
         this.simulation.force("link").links(activeLinks);
     },
@@ -1703,89 +1578,30 @@ App.Renderer = {
         // 获取筛选正则字符串
         const { filterNodeStr, filterLinkStr } = App.Store.state;
 
-        // 1. 生成状态签名 (Signature)
-        // 包括：关键节点ID、层级、数据长度。如果这些都没变，说明可视范围没变。
-        // 加入 filterNodeStr 和 filterLinkStr 到签名中，以便变化时重新计算
-        const focusId = focusNode ? focusNode.uuid : 'null';
-        const hoverId = hoverNode ? hoverNode.uuid : 'null';
-        const previewId = previewNode ? previewNode.uuid : 'null';
-        const signature = `${focusId}|${hoverId}|${previewId}|${viewLayers}|${links.length}|${nodes.length}|${filterNodeStr}|${filterLinkStr}`;
+        // 1. 初始化可见集合
+        // 由于移除了 BFS 扩散逻辑，我们假设基础范围是所有传入的 nodes 和 links
+        // 如果你的业务逻辑是“仅显示 hoverNode”，请根据实际情况调整这里
+        const visibleNodes = new Set(nodes.map(n => n.uuid));
+        const visibleLinks = new Set(links);
 
-        // 2. 脏检查：如果签名一致，直接复用上次计算结果，跳过 BFS
-        if (this.visCache.lastSignature === signature) {
-            return;
+        // 如果仅仅是为了保留 hoverNode 的特殊处理（比如高亮），可以在这里确保它一定在集合中
+        if (hoverNode) {
+            visibleNodes.add(hoverNode.uuid);
         }
 
-        const visibleNodes = new Set();
-        const visibleLinks = new Set();
-
-        // 3. [优化] 构建临时邻接表
-        // 原生遍历 Links 是 O(N*L)，构建邻接表后是 O(N+L)，在大数据量下快几十倍
-        const adj = new Map();
-        for (let i = 0; i < links.length; i++) {
-            const l = links[i];
-            const src = l.source;
-            const tgt = l.target;
-
-            if (!adj.has(src.uuid)) adj.set(src.uuid, []);
-            if (!adj.has(tgt.uuid)) adj.set(tgt.uuid, []);
-
-            // 保存 Link 对象的引用，以便稍后直接标记 Link 可见
-            adj.get(src.uuid).push({ node: tgt, link: l });
-            adj.get(tgt.uuid).push({ node: src, link: l });
-        }
-
-        // 4. 执行 BFS (广度优先搜索)
-        const queue = [];
-        const runBFS = (startNode, maxDepth) => {
-            if (!startNode) return;
-            visibleNodes.add(startNode.uuid);
-            queue.length = 0;
-            queue.push({ n: startNode, d: 0 });
-
-            let head = 0;
-            while(head < queue.length) {
-                const { n, d } = queue[head++];
-                if (d >= maxDepth) continue;
-
-                const neighbors = adj.get(n.uuid);
-                if (neighbors) {
-                    for (let i = 0; i < neighbors.length; i++) {
-                        const { node: neighbor, link } = neighbors[i];
-
-                        // 只要连到了当前可见节点，这条线就应该显示
-                        visibleLinks.add(link);
-
-                        // 如果邻居还没遍历过，加入队列
-                        if (!visibleNodes.has(neighbor.uuid)) {
-                            visibleNodes.add(neighbor.uuid);
-                            queue.push({ n: neighbor, d: d + 1 });
-                        }
-                    }
-                }
-            }
-        };
-
-        // 对三个关键点分别运行 BFS
-        if(focusNode) runBFS(focusNode, viewLayers);
-        if(hoverNode && hoverNode !== focusNode) runBFS(hoverNode, 1);
-        if(previewNode && previewNode !== focusNode) runBFS(previewNode, 1);
-
         // ==========================================
-        // 新增：基于正则表达式的“减法”筛选
+        // 正则筛选逻辑 (保留)
         // ==========================================
 
-        // 5.1 节点正则筛选
+        // 2. 节点正则筛选
         if (filterNodeStr && filterNodeStr.trim() !== "") {
             try {
                 const nodeRegex = new RegExp(filterNodeStr, 'i'); // 'i' 忽略大小写
-                // 遍历当前可见节点，不符合的剔除
-                // 注意：不能直接在这个循环里删 visibleNodes，因为后面要处理连线
                 const toRemoveNodes = new Set();
                 visibleNodes.forEach(uuid => {
                     const node = nodes.find(n => n.uuid === uuid);
-                    // 如果节点不存在或者不匹配正则 (且不是焦点节点，焦点节点通常不应该被筛选掉)
-                    if (node && node !== focusNode && !nodeRegex.test(node.label)) {
+                    // 即使正则不匹配，通常也不应该隐藏当前的 hoverNode
+                    if (node && node !== hoverNode && !nodeRegex.test(node.label)) {
                         toRemoveNodes.add(uuid);
                     }
                 });
@@ -1793,14 +1609,14 @@ App.Renderer = {
             } catch (e) { console.warn("Invalid Node Regex", e); }
         }
 
-        // 5.2 连线正则筛选
+        // 3. 连线正则筛选
         if (filterLinkStr && filterLinkStr.trim() !== "") {
             try {
                 const linkRegex = new RegExp(filterLinkStr, 'i');
                 const toRemoveLinks = new Set();
                 visibleLinks.forEach(l => {
                     // 获取连线的显示名称 (优先 Preset Label，否则用 raw type)
-                    const preset = this.presetMap.get(l.type);
+                    const preset = this.presetMap ? this.presetMap.get(l.type) : null;
                     const label = preset ? preset.label : l.type;
                     if (!linkRegex.test(label)) {
                         toRemoveLinks.add(l);
@@ -1810,26 +1626,35 @@ App.Renderer = {
             } catch (e) { console.warn("Invalid Link Regex", e); }
         }
 
-        // 5.3 一致性清理：如果节点被隐藏了，连接该节点的线也必须隐藏
-        // 这一步必须最后做
+        // ==========================================
+        // EnvNode 及一致性清理逻辑 (保留)
+        // ==========================================
+
+        // 4. 一致性清理：处理 EnvNode 逻辑以及隐藏节点的连线
         const finalLinksToRemove = new Set();
         visibleLinks.forEach(l => {
-            const canRemove =
-                !this.subjectNodes.has(l.source.uuid) &&
-                !this.subjectNodes.has(l.target.uuid);
+            // 检查逻辑：
+            // 1. EnvNode 相关的特殊移除逻辑 (保留原逻辑中的 isEnv 判断)
+            // 2. 如果连线两端的节点有任何一个不可见，连线也必须隐藏
+
+            // 注意：this.subjectNodes 属于上下文依赖，如果该属性不存在需确认上下文
+            const isSourceSubject = this.subjectNodes ? this.subjectNodes.has(l.source.uuid) : false;
+            const isTargetSubject = this.subjectNodes ? this.subjectNodes.has(l.target.uuid) : false;
+
+            const canRemove = !isSourceSubject && !isTargetSubject;
+
             const shouldRemove =
-                l.source.isEnv && canRemove ||
-                l.target.isEnv && canRemove ||
+                (l.source.isEnv && canRemove) ||
+                (l.target.isEnv && canRemove) ||
                 !visibleNodes.has(l.source.uuid) ||
                 !visibleNodes.has(l.target.uuid);
             if (shouldRemove) finalLinksToRemove.add(l);
         });
         finalLinksToRemove.forEach(l => visibleLinks.delete(l));
 
-        // 6. 更新缓存
+        // 5. 更新缓存 (签名逻辑已简化移除，直接更新结果)
         this.visCache.nodes = visibleNodes;
         this.visCache.links = visibleLinks;
-        this.visCache.lastSignature = signature;
     },
 
     // ==========================================
@@ -1900,8 +1725,14 @@ App.Renderer = {
         // 旋转角度缓动
         let diff = this.targetRotation - this.viewRotation;
         // 确保按最近路径旋转 (比如从 350度 到 10度，只转20度而不是340度)
-        while (diff > Math.PI) diff -= 2 * Math.PI; while (diff < -Math.PI) diff += 2 * Math.PI;
+        while (diff > Math.PI) diff -= 2 * Math.PI;
+        while (diff < -Math.PI) diff += 2 * Math.PI;
+        if (this.rotDir === 1 && diff > 0) diff -= 2 * Math.PI;
+        if (this.rotDir === -1 && diff < 0) diff += 2 * Math.PI;
         this.viewRotation += diff * 0.1;
+        if (Math.abs(diff) < 0.01 && this.rotDir !== 0) {
+            this.clearRotationDirection()
+        }
 
         // --- Canvas 绘制准备 ---
         const ctx = this.ctx;
@@ -2343,6 +2174,16 @@ App.Renderer = {
         // 确保走最短旋转路径
         while (diff > Math.PI) diff -= 2 * Math.PI; while (diff < -Math.PI) diff += 2 * Math.PI;
         this.targetRotation += diff;
+    },
+
+    setRotationDirection(dir) {
+        // 预览时设置旋转方向，这会阻止鼠标悬浮显示并且强制旋转方向
+        this.rotDir = dir;
+    },
+
+    clearRotationDirection() {
+        // 预览时设置旋转方向，这会阻止鼠标悬浮显示并且强制旋转方向
+        this.rotDir = 0;
     }
 };
 
@@ -2362,6 +2203,7 @@ App.Input = {
         mouseX: 0,
         mouseY: 0,
         dragLink: null, // { source: null, currentX: 0, currentY: 0, targetNode: null, locked: false }
+        isManualCam: false,
     },
 
     init() {
@@ -2382,9 +2224,16 @@ App.Input = {
     // --- Action Handlers ---
 
     onFocusMove(src, tgt) {
+        this.state.isManualCam = false;
         if (App.UI.RelationPicker.active) {
             App.UI.RelationPicker.close();
         }
+    },
+
+    clearFocus() {
+        App.Store.state.focusNode = null;
+        this.state.isManualCam = true;
+        App.UI.updateSidebar()
     },
 
     safeNavigate(node, recordHistory = true) {
@@ -2570,10 +2419,11 @@ App.Input = {
 
     // 【新增】核心方法：每帧都会被调用，用于更新悬停状态
     updateHoverState() {
-        // 1. 阻断检查：如果正在拖拽节点或者打开了弹窗，不执行悬停检测
+        // 1. 阻断检查：如果正在拖拽节点或者打开了弹窗，亦或者是还没转完，不执行悬停检测
         if (this.state.dragNode ||
             App.UI.Dialog.isActive ||
-            App.UI.Modal.el.classList.contains('active')) {
+            App.UI.Modal.el.classList.contains('active')||
+            App.Renderer.rotDir) {
             return;
         }
         // 2. 获取当前的鼠标坐标 (由 onMouseMove 更新)
@@ -2682,6 +2532,7 @@ App.Input = {
         this.state.mouseY = e.clientY;
         // 【新增】处理平移
         if (this.state.isPanning) {
+            this.clearFocus()
             const dx = e.clientX - this.state.lastPanX;
             const dy = e.clientY - this.state.lastPanY;
 
@@ -2816,7 +2667,7 @@ App.Input = {
         const scaleFactor = 1.05;
         const delta = e.deltaY < 0 ? scaleFactor : (1 / scaleFactor);
         const newK = Math.min(10, App.Renderer.viewK * delta);
-        if (!App.Store.state.focusNode.isEnv) {
+        if (App.Store.state.focusNode && !App.Store.state.focusNode.isEnv) {
             App.Renderer.viewK = newK;
             return;
         }
@@ -3093,11 +2944,12 @@ App.Input = {
             }
         }
 
-        if(target) this.setPreview(target);
+        if(target) this.setPreview(target, dir);
     },
 
-    setPreview(targetWrapper) {
+    setPreview(targetWrapper, dir) {
         this.state.previewNode = targetWrapper.node;
+        App.Renderer.setRotationDirection(dir);
         App.Renderer.setTargetRotation(-Math.PI/2 - targetWrapper.rawAngle);
         const html = (typeof marked!=='undefined' ? marked.parse(this.state.previewNode.summary||'') : this.state.previewNode.summary) || '';
         this.showTooltip(t('tooltip.preview', {label: this.state.previewNode.label, summary: html}), 0, 0, 'fixed');
