@@ -1464,8 +1464,10 @@ App.Renderer = {
     MIN_NODE_PIXEL_SIZE: 3,     // 节点在屏幕上的最小像素尺寸 (防消失)
     MIN_FOCUS_NODE_PIXEL_SIZE: 6,     // 节点在屏幕上的最小像素尺寸 (防消失)
     PROXIMITY_RANGE: 300,       // 鼠标接近时的感应半径
-    HOVER_STOP_RANGE: 30,       // 鼠标进入此半径后，节点保持最大放大倍数
-    MAX_SCALE_MULT: 1.8,        // 鼠标接近时的最大放大倍数
+    HOVER_STOP_RANGE: 30,       // 鼠标进入此半径后，节点保持最大放大倍数（同时也是放大上限）
+    MAX_SCALE_MULT: 4,        // 鼠标接近时的最大放大倍数
+    MAX_TEXT_SCALE_MULT: 2,        // 鼠标接近时的最大放大倍数
+    FOCUS_SIZE: 20,             // 焦点大小
     rotDir: 0, // **重要**：旋转方向，仅在预览时`,.`有效，用于强制旋转方向和阻挡鼠标悬浮的取消
 
     // ==========================================
@@ -1495,7 +1497,12 @@ App.Renderer = {
         this.simulation = d3.forceSimulation()
             .force("link", d3.forceLink().id(d => d.uuid).distance(this.LINK_DISTANCE).strength(0.1))
             .force("charge", d3.forceManyBody().strength(-180).distanceMax(2500))
-            .force("collide", d3.forceCollide(10))
+            .force("collide", d3.forceCollide(d => {
+                // 这里的逻辑要和渲染逻辑保持一致
+                // 基础半径 + 内容长度开方 + 额外缓冲(如 5 或 10)
+                const base = 20 + Math.sqrt((d.content || "").length / 10);
+                return base; // +10 是为了留出节点间的空隙
+            }))
             // 产生微弱的中心引力，防止图散开太远
             // .force("centerX", d3.forceX(0).strength(0.001))
             // .force("centerY", d3.forceY(0).strength(0.001))
@@ -1925,13 +1932,23 @@ App.Renderer = {
                 // [修改] 高亮检测：如果是吸附的目标节点
                 const isDragTarget = dragLink && dragLink.targetNode && dragLink.targetNode.uuid === n.uuid;
 
+                // 基础大小
+                let baseRadius = this.MIN_NODE_PIXEL_SIZE + Math.sqrt(n.content.length/10)
+                if (baseRadius<this.FOCUS_SIZE && isFocus){
+                    baseRadius = Math.min(this.MAX_SCALE_MULT * baseRadius, this.FOCUS_SIZE);
+                }
                 // --- 鼠标接近放大算法 ---
                 let proximityScale = 1.0;
-                if (isFocus) {
-                    proximityScale = 1.0; // 焦点本身不放大
+
+                if (baseRadius >= this.FOCUS_SIZE) {
+                    proximityScale = 1.0 // 大点不变，注意，这包括了焦点的处理逻辑
                 } else if (isPreview) {
-                    proximityScale = this.MAX_SCALE_MULT; // 键盘选中时最大化
+                    proximityScale = this.FOCUS_SIZE/baseRadius; // 键盘选中时最大化
                 } else {
+                    let maxScaleMult = this.MAX_SCALE_MULT;
+                    if (baseRadius*this.MAX_SCALE_MULT >= this.FOCUS_SIZE) {
+                        maxScaleMult = this.FOCUS_SIZE/baseRadius; //中间点
+                    }
                     // 计算鼠标距离
                     const dx = n._screenX - mouseX;
                     const dy = n._screenY - mouseY;
@@ -1939,18 +1956,17 @@ App.Renderer = {
 
                     if (dist < stopRangeScaled) {
                         // 进入核心区，最大放大
-                        proximityScale = this.MAX_SCALE_MULT;
+                        proximityScale = maxScaleMult;
                     } else if (dist < this.PROXIMITY_RANGE) {
                         // 在感应区，使用插值平滑放大
                         const effectiveDist = dist - stopRangeScaled;
                         const ratio = 1 - (effectiveDist / rangeDiff);
                         // 乘平方让变化曲线更顺滑
-                        proximityScale = 1 + (this.MAX_SCALE_MULT - 1) * (ratio * ratio);
+                        proximityScale = 1 + (maxScaleMult - 1) * (ratio * ratio);
                     }
                 }
 
                 // --- 半径与光晕计算 ---
-                let baseRadius = isFocus ? 20 : 10;
                 let rawRadius = baseRadius * this.viewK;
                 // 确保节点不会缩到看不见
                 let coreRadius = isFocus
@@ -1997,11 +2013,34 @@ App.Renderer = {
 
                 // --- 文字绘制 (性能优化) ---
                 // 只有当节点足够大，或者鼠标靠近时才画字，否则只画圆点
+                proximityScale = 1.0;
+                if (isFocus) {
+                    proximityScale = this.MAX_TEXT_SCALE_MULT; // 焦点时最大化
+                } else if (isPreview) {
+                    proximityScale = this.MAX_TEXT_SCALE_MULT; // 键盘选中时最大化
+                } else {
+                    let maxScaleMult = this.MAX_TEXT_SCALE_MULT;
+                    // 计算鼠标距离
+                    const dx = n._screenX - mouseX;
+                    const dy = n._screenY - mouseY;
+                    const dist = Math.hypot(dx, dy) / this.viewK;
+
+                    if (dist < stopRangeScaled) {
+                        // 进入核心区，最大放大
+                        proximityScale = maxScaleMult;
+                    } else if (dist < this.PROXIMITY_RANGE) {
+                        // 在感应区，使用插值平滑放大
+                        const effectiveDist = dist - stopRangeScaled;
+                        const ratio = 1 - (effectiveDist / rangeDiff);
+                        // 乘平方让变化曲线更顺滑
+                        proximityScale = 1 + (maxScaleMult - 1) * (ratio * ratio);
+                    }
+                }
                 const showText = (this.viewK > 0.4) || (proximityScale > 1.1) || isFocus || isPreview;
                 if (showText) {
                     ctx.fillStyle = (isFocus || isPreview || isHover) ? "#fff" : "rgba(200,200,200,0.8)";
 
-                    let baseFontSize = isFocus ? 22 : 11;
+                    let baseFontSize = 11;
                     const scaledFontSize = baseFontSize * sqrtViewK * proximityScale;
 
                     if(scaledFontSize > 5) { // 字体太小就不渲染了
