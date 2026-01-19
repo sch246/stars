@@ -3080,11 +3080,8 @@ App.Input = {
 // ==========================================
 window.onload = () => {
     // 救命：localStorage 太大直接不加载
-    const raw = localStorage.getItem('stars_v5');
-    if (raw && raw.length > 5 * 1024 * 1024) { // 5MB
-        if (confirm("存档过大，可能导致卡死。是否清空存档重新启动？")) {
-        localStorage.removeItem('stars_v5');
-        }
+    if (confirm("是否清空存档重新启动？")) {
+    localStorage.removeItem('stars_v5');
     }
     App.I18n.init();
     // 1. 初始化 Renderer (确保 simulation 存在)
