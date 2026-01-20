@@ -1504,8 +1504,8 @@ App.Renderer = {
                 return base; // +10 是为了留出节点间的空隙
             }))
             // 产生微弱的中心引力，防止图散开太远
-            // .force("centerX", d3.forceX(0).strength(0.001))
-            // .force("centerY", d3.forceY(0).strength(0.001))
+            .force("centerX", d3.forceX(0).strength(0.001))
+            .force("centerY", d3.forceY(0).strength(0.001))
             // .alphaDecay(0.05).alphaMin(0.05); // 衰减系数，决定了物理停止的快慢
 
         // 4. 自定义鼠标力 (让被拖拽的节点跟随鼠标)
@@ -1811,7 +1811,7 @@ App.Renderer = {
                 ctx.stroke();
 
                 // 绘制文字标签
-                if (l.type && (isFocus || isTarget)) {
+                if (l.type && (isTarget)) {
                      const mx = (src.x+tgt.x)/2, my = (src.y+tgt.y)/2;
                      ctx.save();
                      ctx.translate(mx, my);
@@ -2036,7 +2036,7 @@ App.Renderer = {
                         proximityScale = 1 + (maxScaleMult - 1) * (ratio * ratio);
                     }
                 }
-                const showText = (this.viewK > 0.4) || (proximityScale > 1.1) || isFocus || isPreview;
+                const showText = (this.viewK > 1) || (proximityScale > 1.1) || isFocus || isPreview;
                 if (showText) {
                     ctx.fillStyle = (isFocus || isPreview || isHover) ? "#fff" : "rgba(200,200,200,0.8)";
 
