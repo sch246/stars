@@ -306,7 +306,7 @@ App.I18n = {
             "status.saved": "Stars: Saved.",
             "status.noWorkspace": "Stars: Please open a folder to save data.",
             "input.jump": "Jump to Node (Enter)",
-            "input.filterNode": "Filter Nodes Regex (Enter)",
+            "input.filterNode": "Regex or Func Filter (Enter)",
             "input.filterLink": "Filter Links Regex (Enter)",
         },
         "zh-cn": {
@@ -388,7 +388,7 @@ App.I18n = {
             "status.saved": "星罗: 已保存。",
             "status.noWorkspace": "星罗: 请先打开一个文件夹以保存数据。",
             "input.jump": "按名称跳转 (回车)",
-            "input.filterNode": "正则筛选节点 (回车)",
+            "input.filterNode": "正则或函数筛选 (回车)",
             "input.filterLink": "正则筛选连线 (回车)",
         }
     },
@@ -842,6 +842,7 @@ App.Store.saveDebounced = App.Utils.debounce(App.Store.save, 1000);
 // ==========================================
 App.Runtime = {
     activeInstances: {}, // { uuid: { unmountFn: ... } }
+    globalContext: {}, // 全局共享上下文
     mount(node, containerId) {
         // 1. 清理旧实例
         this.unmount(node.uuid);
@@ -877,7 +878,12 @@ App.Runtime = {
             document: document,
 
             // 辅助工具
-            container: container
+            container: container,
+
+            // 导出到全局上下文 (供筛选器等使用)
+            export: (name, val) => {
+                App.Runtime.globalContext[name] = val;
+            }
         };
         // 4. 注册销毁函数
         this.activeInstances[node.uuid] = {
@@ -898,6 +904,12 @@ App.Runtime = {
                 this._renderError(container, e.message);
             }
         });
+
+        // 如果是根节点，脚本执行后可能导出了全局函数，触发一次筛选刷新
+        if (node.isRoot) {
+            App.Renderer.visCache.lastSignature = null;
+            App.Renderer.restartSim();
+        }
     },
     unmount(uuid) {
         if (this.activeInstances[uuid]) {
@@ -1571,7 +1583,7 @@ App.Renderer = {
         const root = nodes.find(n => n.isRoot);
         if (root) { root.fx = 0; root.fy = 0; }
         // 【修改点】不再计算 targets Set，直接使用全量 nodes 和 links
-        const activeNodes = nodes.filter(n => !n.isEnv); 
+        const activeNodes = nodes.filter(n => !n.isEnv);
         const activeLinks = links.filter(l => !l.source.isEnv && !l.target.isEnv);
         // 将全量数据注入 D3 模拟器
         this.simulation.nodes(activeNodes);
@@ -1603,17 +1615,43 @@ App.Renderer = {
         // 2. 节点正则筛选
         if (filterNodeStr && filterNodeStr.trim() !== "") {
             try {
-                const nodeRegex = new RegExp(filterNodeStr, 'i'); // 'i' 忽略大小写
+                const str = filterNodeStr.trim();
+                let predicate;
+
+                // 支持 (node) -> ... 语法
+                if (str.includes("->")) {
+                    const [argsPart, body] = str.split("->").map(s => s.trim());
+                    const argName = argsPart.replace(/[()]/g, "").trim();
+
+                    // 注入全局上下文中的函数 (由节点脚本通过 api.export 导出)
+                    const context = App.Runtime.globalContext || {};
+                    const funcNames = Object.keys(context);
+
+                    predicate = (node) => {
+                        try {
+                            // 构造一个能访问 context 的函数
+                            const fn = new Function(argName, ...funcNames, `return (${body})`);
+                            return fn(node, ...funcNames.map(n => context[n]));
+                        } catch (e) {
+                            return false;
+                        }
+                    };
+                } else {
+                    const nodeRegex = new RegExp(str, 'i');
+                    predicate = (node) => nodeRegex.test(node.label) ||
+                                         (node.summary && nodeRegex.test(node.summary)) ||
+                                         (node.content && nodeRegex.test(node.content));
+                }
+
                 const toRemoveNodes = new Set();
                 visibleNodes.forEach(uuid => {
                     const node = nodes.find(n => n.uuid === uuid);
-                    // 即使正则不匹配，通常也不应该隐藏当前的 hoverNode
-                    if (node && node !== hoverNode && !nodeRegex.test(node.label)) {
+                    if (node && node !== hoverNode && !predicate(node)) {
                         toRemoveNodes.add(uuid);
                     }
                 });
                 toRemoveNodes.forEach(uuid => visibleNodes.delete(uuid));
-            } catch (e) { console.warn("Invalid Node Regex", e); }
+            } catch (e) { console.warn("Invalid Node Filter", e); }
         }
 
         // 3. 连线正则筛选
