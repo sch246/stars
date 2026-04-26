@@ -2,7 +2,8 @@ import { derived, get, writable } from 'svelte/store';
 import { createInitialDocument } from '../core/defaults';
 import { applyGraphOperation, type GraphOperation } from '../core/operations';
 import { DEFAULT_USER_PREFERENCES, mergeUserPreferences } from '../core/preferences';
-import type { LinkedFileOpenMode, StarsActionId, StarsKeyBinding, StarsUserPreferences } from '../core/preferences';
+import type { LinkedFileOpenMode, StarsUserPreferences } from '../core/preferences';
+import type { StarsInputTree } from '../input/inputTree';
 import {
   assertGraphDocumentConfig,
   resolveNodeAction,
@@ -251,13 +252,10 @@ export function createGraphController(repository: GraphRepository = createDefaul
     preferences.set(mergeUserPreferences(nextPreferences));
   }
 
-  async function updateKeyBinding(actionId: StarsActionId, binding: StarsKeyBinding) {
+  async function updateInputTree(inputTree: StarsInputTree) {
     const nextPreferences = mergeUserPreferences({
       ...get(preferences),
-      keymap: {
-        ...get(preferences).keymap,
-        [actionId]: binding,
-      },
+      inputTree,
     });
     preferences.set(nextPreferences);
 
@@ -269,26 +267,7 @@ export function createGraphController(repository: GraphRepository = createDefaul
       await repository.savePreferences(nextPreferences);
       error.set(null);
     } catch (reason) {
-      error.set(reason instanceof Error ? reason.message : '保存快捷键失败');
-    }
-  }
-
-  async function resetKeymap() {
-    const nextPreferences = mergeUserPreferences({
-      ...get(preferences),
-      keymap: structuredClone(DEFAULT_USER_PREFERENCES.keymap),
-    });
-    preferences.set(nextPreferences);
-
-    if (!repository.savePreferences) {
-      return;
-    }
-
-    try {
-      await repository.savePreferences(nextPreferences);
-      error.set(null);
-    } catch (reason) {
-      error.set(reason instanceof Error ? reason.message : '重置快捷键失败');
+      error.set(reason instanceof Error ? reason.message : '保存输入树失败');
     }
   }
 
@@ -552,6 +531,16 @@ export function createGraphController(repository: GraphRepository = createDefaul
     }
 
     deleteNode(selectedNodeId);
+  }
+
+  function deleteSelectedLink() {
+    const current = get(document);
+    const selectedEdgeId = current.view.selectedEdgeId;
+    if (!selectedEdgeId) {
+      return;
+    }
+
+    deleteEdge(selectedEdgeId);
   }
 
   function deleteNode(nodeId: string) {
@@ -835,8 +824,7 @@ export function createGraphController(repository: GraphRepository = createDefaul
     submit,
     replaceFromHost,
     replacePreferences,
-    updateKeyBinding,
-    resetKeymap,
+    updateInputTree,
     updateLinkedFileOpenMode,
     selectNode,
     selectEdge,
@@ -854,6 +842,7 @@ export function createGraphController(repository: GraphRepository = createDefaul
     createEdge,
     deleteNode,
     deleteSelectedNode,
+    deleteSelectedLink,
     deleteFocusedTarget,
     deleteEdge,
     openSelectedFile,

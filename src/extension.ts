@@ -26,53 +26,76 @@ interface WorkspaceFileInfo {
   };
 }
 
-type StarsActionId =
-  | 'createLinkedNode'
-  | 'deleteSelectedNode'
-  | 'openSelectedFile'
-  | 'editSelectedNode'
-  | 'navigateBack'
-  | 'navigateUp'
-  | 'navigateDown'
-  | 'navigateLeft'
-  | 'navigateRight'
-  | 'focusRoot'
-  | 'togglePreferencesPanel'
-  | 'toggleCreatePanel'
-  | 'toggleInfoPanel'
-  | 'toggleSidebarPanel'
-  | 'undo'
-  | 'redo'
-  | 'resetGraph';
-
-type StarsKeyBinding = string | string[];
-
 type LinkedFileOpenMode = 'manual' | 'existingColumn' | 'always';
 
+interface InputRouteNode {
+  trigger: string;
+  children?: InputRouteNode[];
+  command?: string;
+}
+
+type StarsInputTree = InputRouteNode[];
+
 interface StarsUserPreferences {
-  keymap: Partial<Record<StarsActionId, StarsKeyBinding>>;
+  inputTree: StarsInputTree;
   linkedFileOpenMode: LinkedFileOpenMode;
 }
 
-const DEFAULT_KEYMAP: Record<StarsActionId, StarsKeyBinding> = {
-  createLinkedNode: 'tab',
-  deleteSelectedNode: ['d', 'delete'],
-  openSelectedFile: 'enter',
-  editSelectedNode: ['space', 'f2'],
-  navigateBack: 'b',
-  navigateUp: 'arrowup',
-  navigateDown: 'arrowdown',
-  navigateLeft: 'arrowleft',
-  navigateRight: 'arrowright',
-  focusRoot: 'h',
-  togglePreferencesPanel: 'p',
-  toggleCreatePanel: 'n',
-  toggleInfoPanel: 'i',
-  toggleSidebarPanel: 'o',
-  undo: 'ctrl+z',
-  redo: ['ctrl+y', 'ctrl+shift+z'],
-  resetGraph: 'ctrl+shift+r',
-};
+const DEFAULT_INPUT_TREE: StarsInputTree = [
+  { trigger: 'tab', command: 'createLinkedNode' },
+  { trigger: 'b', command: 'navigateBack' },
+  { trigger: 'h', command: 'focusRoot' },
+  { trigger: 'p', command: 'togglePreferencesPanel' },
+  { trigger: 'n', command: 'toggleCreatePanel' },
+  { trigger: 'i', command: 'toggleInfoPanel' },
+  { trigger: 'o', command: 'toggleSidebarPanel' },
+  { trigger: 'focusNode', children: [
+    { trigger: 'd', command: 'deleteSelectedNode' },
+    { trigger: 'delete', command: 'deleteSelectedNode' },
+    { trigger: 'enter', command: 'openSelectedFile' },
+    { trigger: 'space', command: 'editSelectedNode' },
+    { trigger: 'f2', command: 'editSelectedNode' },
+    { trigger: 'arrowup', command: 'navigateUp' },
+    { trigger: 'arrowdown', command: 'navigateDown' },
+    { trigger: 'arrowleft', command: 'navigateLeft' },
+    { trigger: 'arrowright', command: 'navigateRight' },
+  ] },
+  { trigger: 'focusLink', children: [
+    { trigger: 'd', command: 'deleteSelectedLink' },
+    { trigger: 'delete', command: 'deleteSelectedLink' },
+  ] },
+  { trigger: 'ctrl', children: [
+    { trigger: 'z', command: 'undo' },
+    { trigger: 'y', command: 'redo' },
+    { trigger: 'shift', children: [
+      { trigger: 'z', command: 'redo' },
+      { trigger: 'r', command: 'resetGraph' },
+    ] },
+  ] },
+  { trigger: 'click1', children: [
+    { trigger: 'node', command: 'selectNode' },
+    { trigger: 'link', command: 'selectEdge' },
+    { trigger: 'background', command: 'clearFocus' },
+  ] },
+  { trigger: 'click4', children: [{ trigger: 'any', command: 'navigateBack' }] },
+  { trigger: 'dblclick1', children: [{ trigger: 'node', command: 'openNodeTarget' }] },
+  { trigger: 'shift', children: [
+    { trigger: 'click2', children: [
+      { trigger: 'node', command: 'deleteNode' },
+      { trigger: 'link', command: 'deleteLink' },
+    ] },
+  ] },
+  { trigger: 'drag1', children: [
+    { trigger: 'background', children: [{ trigger: 'any', command: 'rotateCanvas' }] },
+    { trigger: 'link', children: [{ trigger: 'any', command: 'rotateCanvas' }] },
+    { trigger: 'node', children: [{ trigger: 'any', command: 'dragNode' }] },
+  ] },
+  { trigger: 'drag2', children: [
+    { trigger: 'background', children: [{ trigger: 'any', command: 'panCanvas' }] },
+    { trigger: 'node', children: [{ trigger: 'node', command: 'createEdge' }] },
+  ] },
+  { trigger: 'drag3', children: [{ trigger: 'any', children: [{ trigger: 'any', command: 'panCanvas' }] }] },
+];
 
 export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
@@ -107,7 +130,8 @@ class StarsPanel {
       void this.postActiveWorkspaceFile(editor);
     }, null, this.disposables);
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration('stars.keymap') || event.affectsConfiguration('stars.linkedFileOpenMode')) {
+      if (event.affectsConfiguration('stars.inputTree')
+        || event.affectsConfiguration('stars.linkedFileOpenMode')) {
         void this.postUserPreferences();
       }
     }, null, this.disposables);
@@ -271,8 +295,8 @@ class StarsPanel {
           }
 
           await vscode.workspace.getConfiguration('stars').update(
-            'keymap',
-            sanitizeKeymap(message.preferences.keymap as Record<string, unknown>),
+            'inputTree',
+            sanitizeInputTree(message.preferences.inputTree),
             vscode.ConfigurationTarget.Workspace
           );
           await vscode.workspace.getConfiguration('stars').update(
@@ -766,14 +790,11 @@ function sanitizeView(view: RuntimeViewState | undefined, graph: GraphFile): Run
 }
 
 function getUserPreferences(): StarsUserPreferences {
-  const configuredKeymap = vscode.workspace.getConfiguration('stars').get<Record<string, unknown>>('keymap') ?? {};
+  const inputTree = vscode.workspace.getConfiguration('stars').get<unknown>('inputTree');
   const linkedFileOpenMode = vscode.workspace.getConfiguration('stars').get<unknown>('linkedFileOpenMode');
 
   return {
-    keymap: {
-      ...DEFAULT_KEYMAP,
-      ...sanitizeKeymap(configuredKeymap),
-    },
+    inputTree: sanitizeInputTree(inputTree),
     linkedFileOpenMode: sanitizeLinkedFileOpenMode(linkedFileOpenMode),
   };
 }
@@ -786,44 +807,42 @@ function sanitizeLinkedFileOpenMode(value: unknown): LinkedFileOpenMode {
   return isLinkedFileOpenMode(value) ? value : 'existingColumn';
 }
 
-function sanitizeKeymap(rawKeymap: Record<string, unknown>): Partial<Record<StarsActionId, StarsKeyBinding>> {
-  const nextKeymap: Partial<Record<StarsActionId, StarsKeyBinding>> = {};
-  const actionIds = new Set<StarsActionId>([
-    'createLinkedNode',
-    'deleteSelectedNode',
-    'openSelectedFile',
-    'editSelectedNode',
-    'navigateBack',
-    'navigateUp',
-    'navigateDown',
-    'navigateLeft',
-    'navigateRight',
-    'focusRoot',
-    'togglePreferencesPanel',
-    'toggleCreatePanel',
-    'toggleInfoPanel',
-    'toggleSidebarPanel',
-    'undo',
-    'redo',
-    'resetGraph',
-  ]);
+function sanitizeInputTree(rawTree: unknown): StarsInputTree {
+  if (!Array.isArray(rawTree)) {
+    return structuredClone(DEFAULT_INPUT_TREE);
+  }
 
-  Object.entries(rawKeymap).forEach(([actionId, binding]) => {
-    if (!actionIds.has(actionId as StarsActionId)) {
-      return;
+  const nodes = rawTree.map(sanitizeInputRouteNode).filter((node): node is InputRouteNode => Boolean(node));
+  return nodes.length > 0 ? nodes : structuredClone(DEFAULT_INPUT_TREE);
+}
+
+function sanitizeInputRouteNode(rawNode: unknown): InputRouteNode | null {
+  if (!rawNode || typeof rawNode !== 'object' || Array.isArray(rawNode)) {
+    return null;
+  }
+
+  const record = rawNode as Record<string, unknown>;
+  if (typeof record.trigger !== 'string' || !record.trigger.trim()) {
+    return null;
+  }
+
+  const trigger = record.trigger.trim();
+  const children = Array.isArray(record.children)
+    ? record.children.map(sanitizeInputRouteNode).filter((node): node is InputRouteNode => Boolean(node))
+    : undefined;
+  const command = typeof record.command === 'string' && record.command.trim()
+    ? record.command.trim()
+    : undefined;
+
+  if (Array.isArray(record.children)) {
+    if ((children?.length ?? 0) > 0 || !command) {
+      return { trigger, children: children ?? [] };
     }
-
-    if (typeof binding === 'string') {
-      nextKeymap[actionId as StarsActionId] = binding;
-      return;
-    }
-
-    if (Array.isArray(binding) && binding.every((item) => typeof item === 'string')) {
-      nextKeymap[actionId as StarsActionId] = binding;
-    }
-  });
-
-  return nextKeymap;
+  }
+  if (command) {
+    return { trigger, command };
+  }
+  return { trigger, command: '' };
 }
 
 function createDefaultGraphFile(): GraphFile {

@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { GraphDocument } from '../core/schema';
+  import type { StarsInputTree } from '../input/inputTree';
   import { GraphRuntime } from '../runtime/graphRuntime';
 
   export let getDocument: () => GraphDocument;
+  export let inputTree: StarsInputTree;
   export let onSelectNode: (nodeId: string) => void;
   export let onSelectEdge: (edgeId: string) => void;
   export let onClearFocus: () => void;
@@ -16,6 +18,7 @@
 
   type NavigableGraphRuntime = GraphRuntime & {
     navigateDirection: (targetAngle: number, rotateView?: boolean) => void;
+    setInputTree: (inputTree: StarsInputTree) => void;
   };
 
   let canvas: HTMLCanvasElement;
@@ -25,9 +28,12 @@
     runtime?.navigateDirection(targetAngle, rotateView);
   }
 
+  $: runtime?.setInputTree(inputTree);
+
   onMount(() => {
     const runtimeOptions = {
       getDocument,
+      getInputTree: () => inputTree,
       onSelectNode,
       onSelectEdge,
       onClearFocus,

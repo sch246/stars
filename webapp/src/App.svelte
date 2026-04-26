@@ -1,8 +1,8 @@
 <script lang="ts">
   import { get } from 'svelte/store';
   import { onMount, tick } from 'svelte';
-  import type { StarsActionId, StarsKeyBinding, StarsUserPreferences } from './lib/core/preferences';
-  import { resolveKeymapAction } from './lib/input/keymap';
+  import { isStarsActionId, type StarsActionId, type StarsUserPreferences } from './lib/core/preferences';
+  import { getFocusToken, resolveKeyboardInputTreeAction, type StarsInputTree } from './lib/input/inputTree';
   import CanvasStage from './lib/ui/CanvasStage.svelte';
   import CreatePanel from './lib/ui/CreatePanel.svelte';
   import Hud from './lib/ui/Hud.svelte';
@@ -17,8 +17,7 @@
     importWorkspaceFile: (pathOrUri: string) => Promise<void>;
     createFileNode: (path: string) => Promise<void>;
     createTypedNode: (type: string, label: string, linkToFocus?: boolean) => void;
-    updateKeyBinding: (actionId: StarsActionId, binding: StarsKeyBinding) => Promise<void>;
-    resetKeymap: () => Promise<void>;
+    updateInputTree: (inputTree: StarsInputTree) => Promise<void>;
     updateLinkedFileOpenMode: (mode: StarsUserPreferences['linkedFileOpenMode']) => Promise<void>;
   };
 
@@ -46,7 +45,10 @@
         controller.createLinkedNode();
         break;
       case 'deleteSelectedNode':
-        controller.deleteFocusedTarget();
+        controller.deleteSelectedNode();
+        break;
+      case 'deleteSelectedLink':
+        controller.deleteSelectedLink();
         break;
       case 'openSelectedFile':
         void controller.openSelectedTarget();
@@ -101,8 +103,8 @@
     void controller.hydrate();
 
     const onKeydown = (event: KeyboardEvent) => {
-      const actionId = resolveKeymapAction(event, get(preferences).keymap);
-      if (!actionId) {
+      const actionId = resolveKeyboardInputTreeAction(event, get(preferences).inputTree, getFocusToken(get(document).view));
+      if (!isStarsActionId(actionId)) {
         return;
       }
 
@@ -139,6 +141,7 @@
   <CanvasStage
     bind:this={canvasStage}
     getDocument={getDocument}
+    inputTree={$preferences.inputTree}
     onSelectNode={controller.selectNode}
     onSelectEdge={controller.selectEdge}
     onClearFocus={controller.clearFocus}
@@ -186,8 +189,7 @@
       config={$document.graph.config}
       preferences={$preferences}
       onPatchConfig={controller.updateGraphConfig}
-      onUpdateBinding={(actionId: StarsActionId, binding: StarsKeyBinding) => void controller.updateKeyBinding(actionId, binding)}
-      onResetKeymap={() => void controller.resetKeymap()}
+      onUpdateInputTree={(inputTree: StarsInputTree) => void controller.updateInputTree(inputTree)}
       onUpdateLinkedFileOpenMode={(mode) => void controller.updateLinkedFileOpenMode(mode)}
       onClose={() => (showPreferencesPanel = false)}
     />

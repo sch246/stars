@@ -11,10 +11,20 @@ import {
 } from 'd3-force';
 import { quadtree, type Quadtree } from 'd3-quadtree';
 import { escapeHtml, renderSummaryMarkdown } from '../core/markdown';
+import { isStarsPointerActionId, type PointerButton, type PointerModifier, type PointerTargetRef, type StarsPointerActionId } from '../core/preferences';
 import type { EdgeMeta, GraphDocument, GraphConfig, NodeMeta } from '../core/schema';
+import {
+  getFocusToken,
+  getPointerModifiers,
+  normalizeMouseButton,
+  resolvePointerInputTreeAction,
+  resolvePointerInputTreeStartAction,
+  type StarsInputTree,
+} from '../input/inputTree';
 
 interface GraphRuntimeOptions {
   getDocument: () => GraphDocument;
+  getInputTree: () => StarsInputTree;
   onSelectNode: (nodeId: string) => void;
   onSelectEdge: (edgeId: string) => void;
   onClearFocus: () => void;
@@ -55,8 +65,17 @@ interface DoubleClickCandidate {
   timestamp: number;
 }
 
+interface PointerDownState {
+  button: PointerButton;
+  modifiers: PointerModifier[];
+  start: PointerTargetRef;
+  clientX: number;
+  clientY: number;
+}
+
 const DOUBLE_CLICK_TARGET_MAX_AGE_MS = 700;
 const DOUBLE_CLICK_TARGET_RADIUS_PX = 8;
+const DRAG_START_THRESHOLD_PX = 5;
 
 export class GraphRuntime {
   private readonly canvas: HTMLCanvasElement;
@@ -80,6 +99,8 @@ export class GraphRuntime {
   private linkDragSourceId: string | null = null;
   private pendingClickNodeId: string | null = null;
   private pendingClickEdgeId: string | null = null;
+  private pointerDownState: PointerDownState | null = null;
+  private activePointerAction: StarsPointerActionId | null = null;
   private doubleClickCandidate: DoubleClickCandidate | null = null;
   private pointer: ScreenPoint | null = null;
   private lastPointer = { x: 0, y: 0 };
@@ -191,6 +212,10 @@ export class GraphRuntime {
     this.options.onSelectNode(bestNodeId);
   }
 
+  setInputTree(_inputTree: StarsInputTree) {
+    // The tree is read lazily through options so the runtime follows Svelte store updates.
+  }
+
   private resize() {
     const rect = this.canvas.getBoundingClientRect();
     this.dpr = window.devicePixelRatio || 1;
@@ -228,83 +253,86 @@ export class GraphRuntime {
     this.pendingClickNodeId = null;
     this.pendingClickEdgeId = null;
     this.lastPointer = { x: event.clientX, y: event.clientY };
+    this.activePointerAction = null;
 
-    if (event.button === 0) {
+    const button = normalizeMouseButton(event.button);
+    if (!button) {
+      return;
+    }
+
+    const modifiers = getPointerModifiers(event);
+    const start = this.pickPointerTarget(event.offsetX, event.offsetY);
+    this.pointerDownState = {
+      button,
+      modifiers,
+      start,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    };
+
+    const clickAction = this.resolvePointerAction('click', button, modifiers, start, start);
+    if (clickAction === 'deleteNode' && start.kind === 'node') {
+      event.preventDefault();
+      this.deletePointerTarget(start);
+      this.pointerDownState = null;
+      return;
+    }
+    if (clickAction === 'deleteLink' && start.kind === 'link') {
+      event.preventDefault();
+      this.deletePointerTarget(start);
+      this.pointerDownState = null;
+      return;
+    }
+    if (clickAction === 'navigateBack') {
+      event.preventDefault();
+      this.options.onNavigateBack();
+      this.pointerDownState = null;
+      return;
+    }
+
+    if (button === 'left') {
       const repeatedNodeId = this.getDoubleClickCandidateNodeId(event);
       if (repeatedNodeId) {
         event.preventDefault();
         this.pendingClickNodeId = repeatedNodeId;
-        this.options.onSelectNode(repeatedNodeId);
         this.canvas.style.cursor = 'pointer';
         return;
       }
 
-      const hit = this.pickNode(event.offsetX, event.offsetY);
-      if (!hit) {
-        const edge = this.pickEdge(event.offsetX, event.offsetY);
-        this.pendingClickEdgeId = edge?.id ?? null;
+      if (start.kind === 'link') {
+        this.pendingClickEdgeId = start.id ?? null;
+      }
+
+      const dragAction = this.resolvePointerStartAction('drag', button, modifiers, start);
+      if (dragAction === 'rotateCanvas') {
         event.preventDefault();
-        this.isRotating = true;
         this.canvas.style.cursor = 'alias';
         return;
       }
 
+      if (dragAction !== 'dragNode' || start.kind !== 'node' || !start.id) {
+        return;
+      }
+
       event.preventDefault();
-      this.rememberDoubleClickCandidate(hit.nodeId, event);
-      this.pendingClickNodeId = hit.nodeId;
-      this.draggedNodeId = hit.nodeId;
-      this.dragTarget = this.screenToWorld(event.offsetX, event.offsetY);
-      this.options.onSelectNode(hit.nodeId);
-      this.canvas.style.cursor = 'grabbing';
-      this.simulation?.alpha(0.3).restart();
+      this.rememberDoubleClickCandidate(start.id, event);
+      this.pendingClickNodeId = start.id;
+      this.canvas.style.cursor = 'pointer';
       return;
     }
 
-    if (event.button === 1) {
+    const dragAction = this.resolvePointerStartAction('drag', button, modifiers, start);
+    if (dragAction === 'panCanvas') {
       event.preventDefault();
-      this.isPanning = true;
-      this.panButton = event.button;
       this.canvas.style.cursor = 'move';
       return;
     }
 
-    if (event.button === 2) {
-      if (event.shiftKey) {
-        event.preventDefault();
-        const hit = this.pickNode(event.offsetX, event.offsetY);
-        if (hit) {
-          this.options.onDeleteNode(hit.nodeId);
-          return;
-        }
-
-        const edge = this.pickEdge(event.offsetX, event.offsetY);
-        if (edge) {
-          this.options.onDeleteEdge(edge.id);
-        }
-        return;
-      }
-
-      const hit = this.pickNode(event.offsetX, event.offsetY);
-      if (!hit) {
-        event.preventDefault();
-        this.isPanning = true;
-        this.panButton = event.button;
-        this.canvas.style.cursor = 'move';
-        return;
-      }
-
+    if (dragAction === 'createEdge' && start.kind === 'node' && start.id) {
       event.preventDefault();
-      this.linkDragSourceId = hit.nodeId;
-      this.hoveredNodeId = hit.nodeId;
+      this.hoveredNodeId = start.id;
       this.hoveredEdgeId = null;
       this.canvas.style.cursor = 'grabbing';
-      this.simulation?.alpha(0.3).restart();
-      return;
-    }
-
-    if (event.button === 3) {
-      event.preventDefault();
-      this.options.onNavigateBack();
     }
   };
 
@@ -335,6 +363,66 @@ export class GraphRuntime {
       return;
     }
 
+    if (this.pointerDownState && !this.activePointerAction) {
+      const distance = Math.hypot(
+        event.clientX - this.pointerDownState.clientX,
+        event.clientY - this.pointerDownState.clientY,
+      );
+      if (distance < DRAG_START_THRESHOLD_PX) {
+        return;
+      }
+
+      const dragAction = this.resolvePointerStartAction(
+        'drag',
+        this.pointerDownState.button,
+        this.pointerDownState.modifiers,
+        this.pointerDownState.start,
+      );
+      if (!dragAction) {
+        return;
+      }
+
+      this.didPan = true;
+      this.activePointerAction = dragAction;
+      this.lastPointer = { x: event.clientX, y: event.clientY };
+      const point = this.clientToCanvasPoint(event.clientX, event.clientY);
+
+      if (dragAction === 'dragNode' && this.pointerDownState.start.kind === 'node' && this.pointerDownState.start.id) {
+        this.draggedNodeId = this.pointerDownState.start.id;
+        this.dragTarget = this.screenToWorld(point.x, point.y);
+        this.options.onSelectNode(this.pointerDownState.start.id);
+        this.canvas.style.cursor = 'grabbing';
+        this.simulation?.alpha(0.3).restart();
+        return;
+      }
+
+      if (dragAction === 'createEdge' && this.pointerDownState.start.kind === 'node' && this.pointerDownState.start.id) {
+        this.linkDragSourceId = this.pointerDownState.start.id;
+        this.hoveredNodeId = this.pointerDownState.start.id;
+        this.hoveredEdgeId = null;
+        this.canvas.style.cursor = 'grabbing';
+        this.simulation?.alpha(0.3).restart();
+        return;
+      }
+
+      if (dragAction === 'rotateCanvas') {
+        this.isRotating = true;
+        this.canvas.style.cursor = 'alias';
+        return;
+      }
+
+      if (dragAction === 'panCanvas') {
+        this.isPanning = true;
+        this.panButton = this.pointerDownState.button === 'middle' ? 1 : this.pointerDownState.button === 'right' ? 2 : 0;
+        if (!this.didClearFocusForPan) {
+          this.didClearFocusForPan = true;
+          this.options.onClearFocus();
+        }
+        this.canvas.style.cursor = 'move';
+        return;
+      }
+    }
+
     if (!this.isPanning) {
       return;
     }
@@ -356,10 +444,16 @@ export class GraphRuntime {
       const sourceId = this.linkDragSourceId;
       const point = this.clientToCanvasPoint(event.clientX, event.clientY);
       const target = this.pickNode(point.x, point.y);
-      if (target && target.nodeId !== sourceId) {
+      const end = this.pickPointerTarget(point.x, point.y);
+      const shouldCreateEdge = this.pointerDownState
+        && this.activePointerAction === 'createEdge'
+        && this.resolvePointerAction('drag', this.pointerDownState.button, this.pointerDownState.modifiers, this.pointerDownState.start, end) === 'createEdge';
+      if (shouldCreateEdge && target && target.nodeId !== sourceId) {
         this.options.onCreateEdge(sourceId, target.nodeId);
       }
       this.linkDragSourceId = null;
+      this.activePointerAction = null;
+      this.pointerDownState = null;
       this.hoveredNodeId = target?.nodeId ?? null;
       this.canvas.style.cursor = this.hoveredNodeId || this.hoveredEdgeId ? 'pointer' : 'crosshair';
       return;
@@ -367,6 +461,8 @@ export class GraphRuntime {
 
     if (this.draggedNodeId) {
       this.draggedNodeId = null;
+      this.activePointerAction = null;
+      this.pointerDownState = null;
       this.dragTarget = null;
       this.canvas.style.cursor = this.hoveredNodeId || this.hoveredEdgeId ? 'pointer' : 'crosshair';
       return;
@@ -374,6 +470,8 @@ export class GraphRuntime {
 
     if (this.isRotating) {
       this.isRotating = false;
+      this.activePointerAction = null;
+      this.pointerDownState = null;
       this.canvas.style.cursor = this.hoveredNodeId || this.hoveredEdgeId ? 'pointer' : 'crosshair';
       return;
     }
@@ -388,6 +486,8 @@ export class GraphRuntime {
 
     this.isPanning = false;
     this.panButton = null;
+    this.activePointerAction = null;
+    this.pointerDownState = null;
     this.canvas.style.cursor = this.hoveredNodeId || this.hoveredEdgeId ? 'pointer' : 'crosshair';
   };
 
@@ -424,10 +524,18 @@ export class GraphRuntime {
       this.pendingClickNodeId = null;
       this.pendingClickEdgeId = null;
       this.doubleClickCandidate = null;
+      this.pointerDownState = null;
       return;
     }
 
-    if (this.pendingClickNodeId && this.runtimeNodes.has(this.pendingClickNodeId)) {
+    const button = normalizeMouseButton(event.button) ?? this.pointerDownState?.button ?? 'left';
+    const modifiers = this.pointerDownState?.modifiers ?? getPointerModifiers(event);
+    const start = this.pointerDownState?.start ?? this.pickPointerTarget(event.offsetX, event.offsetY);
+    const end = this.pickPointerTarget(event.offsetX, event.offsetY);
+    const action = this.resolvePointerAction('click', button, modifiers, start, end);
+    this.pointerDownState = null;
+
+    if (action === 'selectNode' && this.pendingClickNodeId && this.runtimeNodes.has(this.pendingClickNodeId)) {
       this.options.onSelectNode(this.pendingClickNodeId);
       this.pendingClickNodeId = null;
       this.pendingClickEdgeId = null;
@@ -435,7 +543,7 @@ export class GraphRuntime {
     }
 
     const document = this.options.getDocument();
-    if (this.pendingClickEdgeId && document.graph.edges[this.pendingClickEdgeId]) {
+    if (action === 'selectEdge' && this.pendingClickEdgeId && document.graph.edges[this.pendingClickEdgeId]) {
       this.options.onSelectEdge(this.pendingClickEdgeId);
       this.pendingClickNodeId = null;
       this.pendingClickEdgeId = null;
@@ -443,24 +551,22 @@ export class GraphRuntime {
     }
 
     const repeatedNodeId = this.getDoubleClickCandidateNodeId(event);
-    if (repeatedNodeId) {
+    if (action === 'selectNode' && repeatedNodeId) {
       this.options.onSelectNode(repeatedNodeId);
       this.pendingClickNodeId = null;
       this.pendingClickEdgeId = null;
       return;
     }
 
-    const hit = this.pickNode(event.offsetX, event.offsetY);
-    if (hit) {
-      this.options.onSelectNode(hit.nodeId);
+    if (action === 'selectNode' && start.kind === 'node' && start.id) {
+      this.options.onSelectNode(start.id);
       this.pendingClickNodeId = null;
       this.pendingClickEdgeId = null;
       return;
     }
 
-    const edge = this.pickEdge(event.offsetX, event.offsetY);
-    if (edge) {
-      this.options.onSelectEdge(edge.id);
+    if (action === 'selectEdge' && start.kind === 'link' && start.id) {
+      this.options.onSelectEdge(start.id);
       this.pendingClickNodeId = null;
       this.pendingClickEdgeId = null;
       return;
@@ -471,13 +577,18 @@ export class GraphRuntime {
     if (event.detail < 2) {
       this.doubleClickCandidate = null;
     }
-    this.options.onClearFocus();
+    if (action === 'clearFocus') {
+      this.options.onClearFocus();
+    }
   };
 
   private readonly handleDoubleClick = (event: MouseEvent) => {
     const hit = this.pickNode(event.offsetX, event.offsetY);
     const nodeId = hit?.nodeId ?? this.getDoubleClickCandidateNodeId(event);
-    if (!nodeId) {
+    const target = nodeId ? { kind: 'node', id: nodeId } satisfies PointerTargetRef : this.pickPointerTarget(event.offsetX, event.offsetY);
+    const button = normalizeMouseButton(event.button) ?? 'left';
+    const action = this.resolvePointerAction('dblclick', button, getPointerModifiers(event), target, target);
+    if (action !== 'openNodeTarget' || !nodeId) {
       return;
     }
 
@@ -485,6 +596,67 @@ export class GraphRuntime {
     this.doubleClickCandidate = null;
     this.options.onOpenNode(nodeId);
   };
+
+  private resolvePointerAction(
+    gesture: 'click' | 'dblclick' | 'drag',
+    button: PointerButton,
+    modifiers: PointerModifier[],
+    start: PointerTargetRef,
+    end: PointerTargetRef,
+  ): StarsPointerActionId | null {
+    const document = this.options.getDocument();
+    const command = resolvePointerInputTreeAction({
+      gesture,
+      button,
+      modifiers,
+      start,
+      end,
+      focus: getFocusToken(document.view),
+    }, this.options.getInputTree());
+    return isStarsPointerActionId(command) ? command : null;
+  }
+
+  private resolvePointerStartAction(
+    gesture: 'drag',
+    button: PointerButton,
+    modifiers: PointerModifier[],
+    start: PointerTargetRef,
+  ): StarsPointerActionId | null {
+    const document = this.options.getDocument();
+    const command = resolvePointerInputTreeStartAction({
+      gesture,
+      button,
+      modifiers,
+      start,
+      focus: getFocusToken(document.view),
+    }, this.options.getInputTree());
+    return isStarsPointerActionId(command) ? command : null;
+  }
+
+  private pickPointerTarget(screenX: number, screenY: number): PointerTargetRef {
+    const node = this.pickNode(screenX, screenY);
+    if (node) {
+      return { kind: 'node', id: node.nodeId };
+    }
+
+    const edge = this.pickEdge(screenX, screenY);
+    if (edge) {
+      return { kind: 'link', id: edge.id };
+    }
+
+    return { kind: 'background' };
+  }
+
+  private deletePointerTarget(target: PointerTargetRef) {
+    if (target.kind === 'node' && target.id) {
+      this.options.onDeleteNode(target.id);
+      return;
+    }
+
+    if (target.kind === 'link' && target.id) {
+      this.options.onDeleteEdge(target.id);
+    }
+  }
 
   private rememberDoubleClickCandidate(nodeId: string, event: MouseEvent) {
     this.doubleClickCandidate = {

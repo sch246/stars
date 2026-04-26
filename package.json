@@ -27,49 +27,71 @@
     "configuration": {
       "title": "Stars",
       "properties": {
-        "stars.keymap": {
-          "type": "object",
-          "markdownDescription": "Stars Webview 内部动作快捷键。值可以是单个快捷键字符串，也可以是快捷键字符串数组。",
-          "default": {
-            "createLinkedNode": "tab",
-            "deleteSelectedNode": [
-              "d",
-              "delete"
-            ],
-            "openSelectedFile": "enter",
-            "editSelectedNode": [
-              "space",
-              "f2"
-            ],
-            "navigateBack": "b",
-            "navigateUp": "arrowup",
-            "navigateDown": "arrowdown",
-            "navigateLeft": "arrowleft",
-            "navigateRight": "arrowright",
-            "focusRoot": "h",
-            "togglePreferencesPanel": "p",
-            "toggleCreatePanel": "n",
-            "toggleInfoPanel": "i",
-            "toggleSidebarPanel": "o",
-            "undo": "ctrl+z",
-            "redo": [
-              "ctrl+y",
-              "ctrl+shift+z"
-            ],
-            "resetGraph": "ctrl+shift+r"
-          },
-          "additionalProperties": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              }
-            ]
+        "stars.inputTree": {
+          "type": "array",
+          "markdownDescription": "Stars Webview 输入路由树。每个节点只有 trigger、children 或 command；children 与 command 互斥。",
+          "default": [
+            { "trigger": "tab", "command": "createLinkedNode" },
+            { "trigger": "b", "command": "navigateBack" },
+            { "trigger": "h", "command": "focusRoot" },
+            { "trigger": "p", "command": "togglePreferencesPanel" },
+            { "trigger": "n", "command": "toggleCreatePanel" },
+            { "trigger": "i", "command": "toggleInfoPanel" },
+            { "trigger": "o", "command": "toggleSidebarPanel" },
+            { "trigger": "focusNode", "children": [
+              { "trigger": "d", "command": "deleteSelectedNode" },
+              { "trigger": "delete", "command": "deleteSelectedNode" },
+              { "trigger": "enter", "command": "openSelectedFile" },
+              { "trigger": "space", "command": "editSelectedNode" },
+              { "trigger": "f2", "command": "editSelectedNode" },
+              { "trigger": "arrowup", "command": "navigateUp" },
+              { "trigger": "arrowdown", "command": "navigateDown" },
+              { "trigger": "arrowleft", "command": "navigateLeft" },
+              { "trigger": "arrowright", "command": "navigateRight" }
+            ] },
+            { "trigger": "focusLink", "children": [
+              { "trigger": "d", "command": "deleteSelectedNode" },
+              { "trigger": "delete", "command": "deleteSelectedNode" }
+            ] },
+            { "trigger": "ctrl", "children": [
+              { "trigger": "z", "command": "undo" },
+              { "trigger": "y", "command": "redo" },
+              { "trigger": "shift", "children": [
+                { "trigger": "z", "command": "redo" },
+                { "trigger": "r", "command": "resetGraph" }
+              ] }
+            ] },
+            { "trigger": "click1", "children": [
+              { "trigger": "node", "command": "selectNode" },
+              { "trigger": "link", "command": "selectEdge" },
+              { "trigger": "background", "command": "clearFocus" }
+            ] },
+            { "trigger": "click4", "children": [{ "trigger": "any", "command": "navigateBack" }] },
+            { "trigger": "dblclick1", "children": [{ "trigger": "node", "command": "openNodeTarget" }] },
+            { "trigger": "shift", "children": [{ "trigger": "click2", "children": [
+              { "trigger": "node", "command": "deleteTarget" },
+              { "trigger": "link", "command": "deleteTarget" }
+            ] }] },
+            { "trigger": "drag1", "children": [
+              { "trigger": "background", "children": [{ "trigger": "any", "command": "rotateCanvas" }] },
+              { "trigger": "link", "children": [{ "trigger": "any", "command": "rotateCanvas" }] },
+              { "trigger": "node", "children": [{ "trigger": "any", "command": "dragNode" }] }
+            ] },
+            { "trigger": "drag2", "children": [
+              { "trigger": "background", "children": [{ "trigger": "any", "command": "panCanvas" }] },
+              { "trigger": "node", "children": [{ "trigger": "node", "command": "createEdge" }] }
+            ] },
+            { "trigger": "drag3", "children": [{ "trigger": "any", "children": [{ "trigger": "any", "command": "panCanvas" }] }] }
+          ],
+          "items": {
+            "type": "object",
+            "required": ["trigger"],
+            "properties": {
+              "trigger": { "type": "string" },
+              "command": { "type": "string" },
+              "children": { "type": "array" }
+            },
+            "additionalProperties": false
           }
         },
         "stars.linkedFileOpenMode": {
@@ -88,7 +110,7 @@
   "scripts": {
     "vscode:prepublish": "pnpm run package",
     "build:webapp": "pnpm --dir webapp build",
-    "compile": "pnpm run build:webapp && pnpm run check-types && pnpm run lint && node esbuild.js",
+    "compile": "pnpm run build:webapp && pnpm run check-types:webapp && pnpm run check-types && pnpm run lint && node esbuild.js",
     "watch": "npm-run-all -p watch:*",
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
@@ -97,6 +119,7 @@
     "watch-tests": "tsc -p . -w --outDir out",
     "pretest": "pnpm run compile-tests && pnpm run compile && pnpm run lint",
     "check-types": "tsc --noEmit",
+    "check-types:webapp": "pnpm --dir webapp check-types",
     "lint": "eslint src",
     "test": "vscode-test"
   },
