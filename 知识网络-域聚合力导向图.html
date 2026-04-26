@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>域边界约束 - 凸包圆角 + 强排斥力</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://d3js.org/d3-delaunay.v6.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: Arial, sans-serif;
+      background: #f5f5f5;
+    }
+
+    #container {
+      display: flex;
+      gap: 20px;
+    }
+
+    #controls {
+      width: 380px;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+    }
+
+    .control-group {
+      margin-bottom: 20px;
+    }
+
+    .control-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+      color: #333;
+      font-size: 13px;
+    }
+
+    .control-group input[type="range"] {
+      width: 100%;
+    }
+
+    .value {
+      display: inline-block;
+      min-width: 60px;
+      text-align: right;
+      color: #666;
+    }
+
+    #graph {
+      flex: 1;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .domain-hull {
+      fill-opacity: 0.15;
+      stroke-width: 3;
+      stroke-opacity: 0.8;
+    }
+
+    .voronoi-cell {
+      fill-opacity: 0.08;
+      stroke-width: 2;
+      stroke-dasharray: 5,5;pointer-events: none;
+    }
+
+    .domain-center {
+      fill: #333;
+      stroke: #fff;
+      stroke-width: 3;
+    }
+
+    .center-label {
+      font-size: 12px;
+      font-weight: bold;
+      fill: #333;
+      text-anchor: middle;
+      pointer-events: none;
+    }
+
+    .node {
+      cursor: pointer;
+      stroke: #fff;
+      stroke-width: 2px;
+    }
+
+    .node.constrained {
+      stroke: #f44336;
+      stroke-width: 4px;
+      animation: pulse 0.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { stroke-opacity: 1; }
+      50% { stroke-opacity: 0.5; }
+    }
+
+    .link {
+      stroke: #999;
+      stroke-opacity: 0.4;
+      stroke-width: 1.5px;
+    }
+
+    .link.cross-domain {
+      stroke: #e91e63;
+      stroke-opacity: 0.6;
+      stroke-width: 2px;stroke-dasharray: 4,4;
+    }
+
+    .boundary-force-vector {
+      stroke: #f44336;
+      stroke-width: 3;
+      stroke-opacity: 0.9;
+      marker-end: url(#arrowhead-red);
+    }
+
+    .info-box {
+      background: #f9f9f9;
+      padding: 15px;
+      border-radius: 4px;
+      margin-top: 20px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .info-box h4 {
+      margin-top: 0;
+      color: #2196F3;
+    }
+
+    .toggle-btn {
+      padding: 8px 16px;
+      margin: 5px 0;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      background: #2196F3;
+      color: white;
+      width: 100%;
+      font-size: 13px;
+    }
+
+    .toggle-btn.active {
+      background: #4CAF50;
+    }
+
+    .stats {
+      background: #fff3cd;
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 10px;
+      font-size: 12px;
+    }
+
+    .stats-item {
+      display: flex;
+      justify-content: space-between;
+      margin: 5px 0;
+    }
+
+    .section-title {
+      font-size: 14px;
+      font-weight: bold;
+      color: #666;
+      margin: 15px 0 10px 0;
+      padding-bottom: 5px;border-bottom: 2px solid #e0e0e0;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <div id="controls">
+      <h2>域边界约束系统</h2>
+      
+      <div class="section-title">🎨 边界渲染</div>
+      
+      <div class="control-group">
+        <label>缓冲区半径: <span class="value" id="bufferRadiusValue">40</span>
+        </label>
+        <input type="range" id="bufferRadius" min="20" max="100" step="5" value="40">
+        <small style="color: #666;">节点周围的圆角半径</small>
+      </div>
+
+      <div class="section-title">⚡ 物理力参数</div>
+
+      <div class="control-group">
+        <label>
+          边界排斥力: <span class="value" id="boundaryStrengthValue">25</span>
+        </label>
+        <input type="range" id="boundaryStrength" min="0" max="50" step="1" value="25">
+        <small style="color: #666;">进入其他域时的排斥力强度</small>
+      </div>
+
+<div class="control-group">
+  <label>
+    边界软化距离: <span class="value" id="boundarySoftnessValue">50</span>
+  </label>
+  <input type="range" id="boundarySoftness" min="0" max="100" step="5" value="50">
+  <small style="color: #666;">距离边界多远开始施加渐进力</small>
+</div>
+      <div class="control-group">
+        <label>
+          连接强度: <span class="value" id="linkStrengthValue">0.1</span>
+        </label>
+        <input type="range" id="linkStrength" min="0" max="1" step="0.05" value="0.1"></div>
+
+      <div class="control-group">
+        <label>
+          连接距离: <span class="value" id="linkDistanceValue">80</span>
+        </label>
+        <input type="range" id="linkDistance" min="40" max="200" step="10" value="80">
+      </div>
+
+      <div class="control-group">
+        <label>
+          节点斥力: <span class="value" id="chargeStrengthValue">-80</span>
+        </label>
+        <input type="range" id="chargeStrength" min="-200" max="0" step="10" value="-80">
+      </div>
+
+      <div class="control-group">
+        <label>
+          碰撞半径: <span class="value" id="collideRadiusValue">15</span>
+        </label>
+        <input type="range" id="collideRadius" min="10" max="40" step="2" value="15">
+      </div>
+
+      <div class="section-title">👁️ 可视化选项</div>
+      <button class="toggle-btn active" id="toggleHull">显示凸包边界（圆角）</button>
+      <button class="toggle-btn" id="toggleVoronoi">显示 Voronoi 边界</button>
+      <button class="toggle-btn" id="toggleForceVectors">显示排斥力向量</button>
+      <button class="toggle-btn active" id="toggleCenters">显示域中心</button>
+
+      <div class="stats" id="stats">
+        <strong>📊 实时统计：</strong>
+        <div class="stats-item">
+          <span>受排斥节点：</span>
+          <span id="constrainedCount">0</span>
+        </div>
+        <div class="stats-item">
+          <span>平均排斥力：</span>
+          <span id="avgForce">0</span>
+        </div>
+        <div class="stats-item">
+          <span>跨域连接数：</span>
+          <span id="crossDomainLinks">0</span>
+        </div>
+      </div>
+
+      <div class="info-box">
+        <h4>💡 工作原理</h4>
+        <ol>
+          <li><strong>凸包+圆角：</strong>为每个节点添加缓冲半径，计算凸包形成圆角边界</li>
+          <li><strong>入侵检测：</strong>检测节点是否进入其他域的凸包内</li>
+          <li><strong>强排斥力：</strong>入侵时施加 20+ 的强力推向最近边界</li>
+          <li><strong>动态更新：</strong>边界随节点移动实时重新计算</li>
+        </ol>
+        <h4>🎯 推荐参数</h4>
+        <ul>
+          <li>边界排斥力：20-30</li>
+          <li>缓冲区半径：30-50</li>
+          <li>连接强度：0.1-0.2</li>
+        </ul>
+      </div>
+    </div>
+
+    <svg id="graph"></svg>
+  </div>
+
+  <script>
+    // 数据 - 增加跨域连接，减少域内连接
+    const nodes = [
+      // 域 A
+      {id: 'a1', label: 'A1', domain: 'A'},
+      {id: 'a2', label: 'A2', domain: 'A'},
+      {id: 'a3', label: 'A3', domain: 'A'},
+      {id: 'a4', label: 'A4', domain: 'A'},
+      {id: 'a5', label: 'A5', domain: 'A'},
+      {id: 'a6', label: 'A6', domain: 'A'},
+      
+      // 域 B
+      {id: 'b1', label: 'B1', domain: 'B'},
+      {id: 'b2', label: 'B2', domain: 'B'},
+      {id: 'b3', label: 'B3', domain: 'B'},
+      {id: 'b4', label: 'B4', domain: 'B'},
+      {id: 'b5', label: 'B5', domain: 'B'},
+      {id: 'b6', label: 'B6', domain: 'B'},
+      
+      // 域 C
+      {id: 'c1', label: 'C1', domain: 'C'},
+      {id: 'c2', label: 'C2', domain: 'C'},
+      {id: 'c3', label: 'C3', domain: 'C'},
+      {id: 'c4', label: 'C4', domain: 'C'},
+      {id: 'c5', label: 'C5', domain: 'C'},
+      {id: 'c6', label: 'C6', domain: 'C'},
+
+      // 域 D
+      {id: 'd1', label: 'D1', domain: 'D'},
+      {id: 'd2', label: 'D2', domain: 'D'},
+      {id: 'd3', label: 'D3', domain: 'D'},
+      {id: 'd4', label: 'D4', domain: 'D'},
+      {id: 'd5', label: 'D5', domain: 'D'},
+    ];
+
+    const links = [
+      // 域 A 内部 - 减少连接
+      {source: 'a1', target: 'a2'},
+      {source: 'a2', target: 'a3'},
+      {source: 'a3', target: 'a4'},
+      {source: 'a4', target: 'a5'},
+      {source: 'a5', target: 'a6'},
+      
+      // 域 B 内部 - 减少连接
+      {source: 'b1', target: 'b2'},
+      {source: 'b2', target: 'b3'},
+      {source: 'b3', target: 'b4'},
+      {source: 'b4', target: 'b5'},
+      {source: 'b5', target: 'b6'},
+      
+      // 域 C 内部 - 减少连接
+      {source: 'c1', target: 'c2'},
+      {source: 'c2', target: 'c3'},
+      {source: 'c3', target: 'c4'},
+      {source: 'c4', target: 'c5'},
+      {source: 'c5', target: 'c6'},
+
+      // 域 D 内部 - 减少连接
+      {source: 'd1', target: 'd2'},
+      {source: 'd2', target: 'd3'},
+      {source: 'd3', target: 'd4'},
+      {source: 'd4', target: 'd5'},
+      
+      // 跨域连接 - 大幅增加
+      {source: 'a1', target: 'b2', crossDomain: true},
+      {source: 'a3', target: 'b4', crossDomain: true},
+      {source: 'a5', target: 'c1', crossDomain: true},
+      {source: 'a6', target: 'd2', crossDomain: true},
+      {source: 'b1', target: 'c3', crossDomain: true},
+      {source: 'b3', target: 'd1', crossDomain: true},
+      {source: 'b5', target: 'a2', crossDomain: true},
+      {source: 'b6', target: 'c5', crossDomain: true},
+      
+      {source: 'c2', target: 'd4', crossDomain: true},
+      {source: 'c4', target: 'a4', crossDomain: true},
+      {source: 'c6', target: 'b1', crossDomain: true},
+      
+      {source: 'd3', target: 'a1', crossDomain: true},
+      {source: 'd5', target: 'b2', crossDomain: true},
+    ];
+
+    // 统计跨域连接数
+    const crossDomainCount = links.filter(l => l.crossDomain).length;
+    d3.select('#crossDomainLinks').text(crossDomainCount);
+
+    const domainColors = {
+      'A': '#4CAF50',
+      'B': '#2196F3',
+      'C': '#FF9800',
+      'D': '#9C27B0'
+    };
+
+    const width = window.innerWidth - 460;
+    const height = window.innerHeight - 40;
+    const svg = d3.select('#graph')
+      .attr('width', width)
+      .attr('height', height);
+
+    // 定义箭头
+    svg.append('defs').append('marker')
+      .attr('id', 'arrowhead-red')
+      .attr('viewBox', '-0 -5 10 10')
+      .attr('refX', 8)
+      .attr('refY', 0)
+      .attr('orient', 'auto')
+      .attr('markerWidth', 8)
+      .attr('markerHeight', 8)
+      .append('path')
+      .attr('d', 'M 0,-5 L 10,0 L 0,5')
+      .attr('fill', '#f44336');
+
+    const g = svg.append('g');
+
+    // 缩放
+    const zoom = d3.zoom()
+      .scaleExtent([0.1, 4])
+      .on('zoom', (event) => {
+        g.attr('transform', event.transform);
+      });
+    svg.call(zoom);
+
+    // 图层
+    const hullLayer = g.append("g").attr("class", "hull-layer");
+    const voronoiLayer = g.append("g").attr("class", "voronoi-layer");
+    const forceVectorLayer = g.append("g").attr("class", "force-vectors");
+    const linkLayer = g.append("g").attr("class", "links");
+    const nodeLayer = g.append("g").attr("class", "nodes");
+    const centerLayer = g.append("g").attr("class", "centers");
+
+    // ========== 动态计算域中心 ==========
+    let domainCenters = {};
+    function updateDomainCenters() {
+      const domains = ['A', 'B', 'C', 'D'];
+      
+      domains.forEach(domain => {
+        const domainNodes = nodes.filter(n => n.domain === domain);
+        if (domainNodes.length === 0) return;
+        
+        const centerX = d3.mean(domainNodes, n => n.x);
+        const centerY = d3.mean(domainNodes, n => n.y);
+        
+        domainCenters[domain] = {
+          x: centerX,
+          y: centerY,
+          domain: domain
+        };
+      });
+    }
+
+    // ========== Voronoi 计算 ==========
+    let voronoi, delaunay;
+    
+    function updateVoronoi() {
+      const domains = ['A', 'B', 'C', 'D'];
+      const centerPoints = domains.map(d => {
+        const center = domainCenters[d];
+        return center ? [center.x, center.y] : [width/2, height/2];
+      });
+      
+      delaunay = d3.Delaunay.from(centerPoints);
+      voronoi = delaunay.voronoi([0, 0, width, height]);
+    }
+
+    // ========== 凸包计算（带缓冲区）==========
+    let domainHulls = {};
+    let bufferRadius = 40;
+
+    function computeBufferedHull(points, radius) {
+      if (points.length < 3) return null;
+      
+      // 为每个点创建圆形采样点
+      const bufferedPoints = [];
+      points.forEach(p => {
+        // 在每个节点周围采样多个点形成圆
+        const samples = 16;
+        for (let i = 0; i < samples; i++) {
+          const angle = (i / samples) * Math.PI * 2;
+          bufferedPoints.push([
+            p[0] + Math.cos(angle) * radius,
+            p[1] + Math.sin(angle) * radius
+          ]);
+        }
+      });
+      
+      // 计算缓冲点的凸包
+      return d3.polygonHull(bufferedPoints);
+    }
+
+    function updateDomainHulls() {
+      const domains = ['A', 'B', 'C', 'D'];
+      
+      domains.forEach(domain => {
+        const domainNodes = nodes.filter(n => n.domain === domain);
+        const points = domainNodes.map(n => [n.x, n.y]);
+        const hull = computeBufferedHull(points, bufferRadius);
+        domainHulls[domain] = hull;
+      });
+    }
+
+    // ========== 检查点是否在多边形内 ==========
+    function isPointInPolygon(px, py, polygon) {
+      if (!polygon) return false;
+      let inside = false;
+      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i][0], yi = polygon[i][1];
+        const xj = polygon[j][0], yj = polygon[j][1];
+        
+        const intersect = ((yi > py) !== (yj > py))
+          && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    }
+
+    // ========== 点到线段的距离 ==========
+    function pointToSegmentDistance(px, py, x1, y1, x2, y2) {
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const lengthSquared = dx * dx + dy * dy;
+      
+      if (lengthSquared === 0) {
+        return {
+          distance: Math.hypot(px - x1, py - y1),
+          projX: x1,
+          projY: y1
+        };
+      }
+      
+      let t = ((px - x1) * dx + (py - y1) * dy) / lengthSquared;
+      t = Math.max(0, Math.min(1, t));
+      
+      const projX = x1 + t * dx;
+      const projY = y1 + t * dy;
+      
+      return {
+        distance: Math.hypot(px - projX, py - projY),
+        projX,
+        projY
+      };
+    }
+
+    // ========== 边界排斥力（强力版）==========
+function forceBoundaryRepulsion() {
+  let nodes;
+  let strength = 25;
+  let softness = 50;
+  let centerDecayDistance = 30; // 👈 新增：中心衰减距离
+  
+  function force(alpha) {
+    const domains = ['A', 'B', 'C', 'D'];
+    let constrainedCount = 0;
+    let totalForce = 0;
+    
+    nodes.forEach(node => {
+      let maxForce = 0;
+      let totalFx = 0;
+      let totalFy = 0;
+      let isConstrained = false;
+      
+      const ownCenter = domainCenters[node.domain];
+      if (!ownCenter) return;
+      
+      domains.forEach(domain => {
+        if (domain === node.domain) return;
+        
+        const hull = domainHulls[domain];
+        if (!hull) return;
+        
+        const isInside = isPointInPolygon(node.x, node.y, hull);
+        
+        let minDistance = Infinity;
+        let closestProj = null;
+        
+        for (let i = 0; i < hull.length; i++) {
+          const j = (i + 1) % hull.length;
+          const result = pointToSegmentDistance(
+            node.x, node.y,
+            hull[i][0], hull[i][1],
+            hull[j][0], hull[j][1]
+          );
+          
+          if (result.distance < minDistance) {
+            minDistance = result.distance;
+            closestProj = {x: result.projX, y: result.projY};
+          }
+        }
+        
+        const signedDistance = isInside ? -minDistance : minDistance;
+        
+        if (signedDistance < softness && closestProj) {
+          const ratio = Math.max(0, (softness - signedDistance) / softness);
+          const forceMagnitude = strength * ratio;
+          
+          // ===== 方向1: 指向自己域的中心（带衰减）=====
+          const dx1 = ownCenter.x - node.x;
+          const dy1 = ownCenter.y - node.y;
+          const dist1 = Math.hypot(dx1, dy1);
+          
+          // 👇 计算中心力的衰减系数
+          // dist1 = 0 时，centerWeight = 0（无力）
+          // dist1 = centerDecayDistance 时，centerWeight = 1（满力）
+          // dist1 > centerDecayDistance 时，centerWeight = 1（满力）
+          const centerWeight = Math.min(1, dist1 / centerDecayDistance);
+          
+          // ===== 方向2: 远离边界 =====
+          let dx2 = closestProj.x - node.x;
+          let dy2 = closestProj.y - node.y;
+          if (!isInside) {
+            dx2 = -dx2;
+            dy2 = -dy2;
+          }
+          const dist2 = Math.hypot(dx2, dy2);
+          
+          // ===== 混合两个方向（中心力带衰减）=====
+          let finalDx = 0;
+          let finalDy = 0;
+          
+          // 👇 中心方向乘以衰减系数
+          if (dist1 > 0) {
+            finalDx += (dx1 / dist1) * 0.5 * centerWeight;
+            finalDy += (dy1 / dist1) * 0.5 * centerWeight;
+          }
+          
+          // 边界方向保持不变
+          if (dist2 > 0) {
+            finalDx += (dx2 / dist2) * 0.5;
+            finalDy += (dy2 / dist2) * 0.5;
+          }
+          
+          const finalDist = Math.hypot(finalDx, finalDy);
+          if (finalDist > 0) {
+            const fx = (finalDx / finalDist) * forceMagnitude * alpha;
+            const fy = (finalDy / finalDist) * forceMagnitude * alpha;
+            
+            totalFx += fx;
+            totalFy += fy;
+            maxForce = Math.max(maxForce, forceMagnitude);
+            isConstrained = true;
+          }
+        }
+      });
+      
+      if (isConstrained) {
+        node.vx += totalFx;
+        node.vy += totalFy;
+        
+        node.boundaryForce = {
+          x: totalFx * 100,
+          y: totalFy * 100,
+          magnitude: maxForce
+        };
+        node.isConstrained = true;
+        constrainedCount++;
+        totalForce += maxForce;
+      } else {
+        node.boundaryForce = null;
+        node.isConstrained = false;
+      }
+    });
+    
+    d3.select('#constrainedCount').text(constrainedCount);
+    d3.select('#avgForce').text(constrainedCount > 0 ? (totalForce / constrainedCount).toFixed(1) : '0');
+  }
+  
+  force.initialize = _ => nodes = _;
+  force.strength = _ => (strength = _, force);
+  force.softness = _ => (softness = _, force);
+  force.centerDecayDistance = _ => (centerDecayDistance = _, force); // 👈 新增
+  
+  return force;
+}
+
+
+    // ========== 创建仿真（参考你的参数）==========
+    const simulation = d3.forceSimulation(nodes)
+      .force("link", d3.forceLink(links)
+        .id(d => d.id)
+        .distance(80)
+        .strength(0.1)
+      )
+      .force("charge", d3.forceManyBody().strength(-80))
+      .force("collide", d3.forceCollide(15))
+      .force("centerX", d3.forceX(width / 2).strength(0.005))
+      .force("centerY", d3.forceY(height / 2).strength(0.005))
+      .force("boundary", forceBoundaryRepulsion()
+        .strength(25)
+        .softness(50)  // 👈 新增
+      )
+      .alphaDecay(0.05)
+      .alphaMin(0.1);
+
+    // ========== 绘制凸包边界 ==========
+    function drawHulls() {
+      hullLayer.selectAll("*").remove();
+      
+      if (!showHull) return;
+      
+      const domains = ['A', 'B', 'C', 'D'];
+      domains.forEach(domain => {
+        const hull = domainHulls[domain];
+        if (!hull || hull.length < 3) return;
+        
+        hullLayer.append("path")
+          .datum(hull)
+          .attr("class", "domain-hull")
+          .attr("d", d3.line()
+            .x(d => d[0])
+            .y(d => d[1])
+            .curve(d3.curveCatmullRomClosed.alpha(0.5)) // 圆角效果
+          )
+          .attr("fill", domainColors[domain])
+          .attr("stroke", domainColors[domain]);
+      });
+    }
+
+    // ========== 绘制 Voronoi 边界 ==========
+    function drawVoronoi() {
+      voronoiLayer.selectAll("*").remove();
+      
+      if (!showVoronoi) return;
+      
+      const domains = ['A', 'B', 'C', 'D'];
+      domains.forEach((domain, i) => {
+        const cell = voronoi.cellPolygon(i);
+        if (!cell) return;
+        
+        voronoiLayer.append("path")
+          .datum(cell)
+          .attr("class", "voronoi-cell")
+          .attr("d", d3.line()
+            .x(d => d[0])
+            .y(d => d[1])
+            .curve(d3.curveLinearClosed))
+          .attr("fill", domainColors[domain])
+          .attr("stroke", domainColors[domain]);
+      });
+    }
+
+    // ========== 绘制域中心 ==========
+    function drawCenters() {
+      centerLayer.selectAll("*").remove();
+      
+      if (!showCenters) return;
+      
+      Object.entries(domainCenters).forEach(([domain, center]) => {
+        const g = centerLayer.append("g");
+        g.append("circle")
+          .attr("class", "domain-center")
+          .attr("cx", center.x)
+          .attr("cy", center.y)
+          .attr("r", 8);
+        
+        g.append("text")
+          .attr("class", "center-label")
+          .attr("x", center.x)
+          .attr("y", center.y - 15)
+          .text(`域 ${domain}`);
+      });
+    }
+
+    // ========== 绘制连接线 ==========
+    const link = linkLayer
+      .selectAll("line")
+      .data(links)
+      .join("line")
+      .attr("class", d => d.crossDomain ? "link cross-domain" : "link");
+
+    // ========== 绘制节点 ==========
+    const node = nodeLayer
+      .selectAll("g")
+      .data(nodes)
+      .join("g")
+      .call(d3.drag()
+        .on("start", dragstarted)
+        .on("drag", dragged)
+        .on("end", dragended));
+
+    node.append("circle")
+      .attr("class", "node")
+      .attr("r", 12)
+      .attr("fill", d => domainColors[d.domain]);
+
+    node.append("text")
+      .attr("text-anchor", "middle")
+      .attr("dy", 4)
+      .text(d => d.label)
+      .style("font-size", "10px")
+      .style("fill", "white")
+      .style("font-weight", "bold")
+      .style("pointer-events", "none");
+
+    // ========== 绘制排斥力向量 ==========
+    function drawForceVectors() {
+      forceVectorLayer.selectAll("*").remove();
+      
+      if (!showForceVectors) return;
+      
+      nodes.forEach(node => {
+        if (node.boundaryForce) {
+          forceVectorLayer.append("line")
+            .attr("class", "boundary-force-vector")
+            .attr("x1", node.x)
+            .attr("y1", node.y)
+            .attr("x2", node.x + node.boundaryForce.x)
+            .attr("y2", node.y + node.boundaryForce.y)
+            .attr("stroke-width", 2 + node.boundaryForce.magnitude * 0.2);
+        }
+      });
+    }
+
+    // ========== 更新位置 ==========
+    simulation.on("tick", () => {
+      if (simulation.alpha() < 0.1) {
+        simulation.alpha(0.1);
+      }
+      // 每次 tick 更新
+      updateDomainCenters();
+      updateVoronoi();
+      updateDomainHulls();
+      
+      link
+        .attr("x1", d => d.source.x)
+        .attr("y1", d => d.source.y)
+        .attr("x2", d => d.target.x)
+        .attr("y2", d => d.target.y);
+
+      node
+        .attr("transform", d => `translate(${d.x},${d.y})`)
+        .select("circle")
+        .classed("constrained", d => d.isConstrained);
+      drawHulls();
+      drawVoronoi();
+      drawCenters();
+      drawForceVectors();
+    });
+
+    // ========== 拖拽 ==========
+    function dragstarted(event) {
+      if (!event.active) simulation.alphaTarget(0.3).restart();
+      event.subject.fx = event.subject.x;
+      event.subject.fy = event.subject.y;
+    }
+
+    function dragged(event) {
+      event.subject.fx = event.x;
+      event.subject.fy = event.y;
+    }
+
+    function dragended(event) {
+      event.subject.fx = null;
+      event.subject.fy = null;
+    }
+
+    // ========== 控制器 ==========
+    d3.select('#bufferRadius').on('input', function() {
+      bufferRadius = +this.value;
+      d3.select('#bufferRadiusValue').text(bufferRadius);updateDomainHulls();drawHulls();
+    });
+
+    d3.select('#boundaryStrength').on('input', function() {
+      const value = +this.value;
+      d3.select('#boundaryStrengthValue').text(value);
+      simulation.force("boundary").strength(value);
+      simulation.alpha(0.3).restart();
+    });
+d3.select('#boundarySoftness').on('input', function() {
+  const value = +this.value;
+  d3.select('#boundarySoftnessValue').text(value);
+  simulation.force("boundary").softness(value);
+  simulation.alpha(0.3).restart();
+});
+
+    d3.select('#linkStrength').on('input', function() {
+      const value = +this.value;
+      d3.select('#linkStrengthValue').text(value.toFixed(2));
+      simulation.force("link").strength(value);
+      simulation.alpha(0.3).restart();
+    });
+
+    d3.select('#linkDistance').on('input', function() {
+      const value = +this.value;
+      d3.select('#linkDistanceValue').text(value);
+      simulation.force("link").distance(value);
+      simulation.alpha(0.3).restart();
+    });
+
+    d3.select('#chargeStrength').on('input', function() {
+      const value = +this.value;
+      d3.select('#chargeStrengthValue').text(value);
+      simulation.force("charge").strength(value);
+      simulation.alpha(0.3).restart();
+    });
+
+    d3.select('#collideRadius').on('input', function() {
+      const value = +this.value;
+      d3.select('#collideRadiusValue').text(value);
+      simulation.force("collide").radius(value);
+      simulation.alpha(0.3).restart();
+    });
+
+    // ========== 可视化切换 ==========
+    let showHull = true;
+    let showVoronoi = false;
+    let showForceVectors = false;
+    let showCenters = true;
+
+    d3.select('#toggleHull').on('click', function() {
+      showHull = !showHull;
+      this.classList.toggle('active');
+      drawHulls();
+    });
+
+    d3.select('#toggleVoronoi').on('click', function() {
+      showVoronoi = !showVoronoi;
+      this.classList.toggle('active');
+      drawVoronoi();
+    });
+
+    d3.select('#toggleForceVectors').on('click', function() {
+      showForceVectors = !showForceVectors;
+      this.classList.toggle('active');
+      drawForceVectors();
+    });
+
+    d3.select('#toggleCenters').on('click', function() {
+      showCenters = !showCenters;
+      this.classList.toggle('active');
+      drawCenters();
+    });
+
+    // 初始化
+    updateDomainCenters();
+    updateVoronoi();
+    updateDomainHulls();
+    drawHulls();
+    drawCenters();
+  </script>
+</body>
+</html>
