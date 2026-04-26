@@ -5,7 +5,7 @@ const DIGIT_KEYS = '0123456789'.split('');
 const FUNCTION_KEYS = Array.from({ length: 12 }, (_value, index) => `f${index + 1}`);
 const NAVIGATION_KEYS = ['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'home', 'end', 'pageup', 'pagedown'];
 const CONTROL_KEYS = ['tab', 'enter', 'space', 'escape', 'backspace', 'delete', 'insert'];
-const PUNCTUATION_KEYS = ['`', '-', '=', '[', ']', '\\', ';', "'", ',', '.', '/'];
+const PUNCTUATION_KEYS = ['\`', '-', '=', '[', ']', '\\', ';', "'", ',', '.', '/'];
 
 export const INPUT_TOKEN_GROUPS = {
   modifiers: ['ctrl', 'alt', 'shift', 'meta'],
@@ -40,11 +40,19 @@ export interface CommandConstraint {
   patterns: string[][];
 }
 
+interface ParsedInteractionPath {
+  decorators: string[];
+  pointer?: string;
+  key?: string;
+  targets: string[];
+  valid: boolean;
+}
+
 export const COMMANDS: CommandConstraint[] = [
   { id: 'selectNode', label: '选择节点', patterns: [['node']] },
   { id: 'selectEdge', label: '选择关系', patterns: [['link']] },
   { id: 'clearFocus', label: '清空焦点', patterns: [['background']] },
-  { id: 'rotateCanvas', label: '旋转视角', patterns: [['drag', 'background'], ['drag', 'link'], ['drag', 'any']] },
+  { id: 'rotateCanvas', label: '旋转视角', patterns: [['drag']] },
   { id: 'panCanvas', label: '拖动画布', patterns: [['drag']] },
   { id: 'dragNode', label: '拖动节点', patterns: [['node']] },
   { id: 'createEdge', label: '创建关系', patterns: [['node', 'node']] },
@@ -70,14 +78,6 @@ export const COMMANDS: CommandConstraint[] = [
   { id: 'redo', label: '重做', patterns: [[]] },
   { id: 'resetGraph', label: '重置图谱', patterns: [[]] },
 ];
-
-interface ParsedInteractionPath {
-  decorators: string[];
-  pointer?: string;
-  key?: string;
-  targets: string[];
-  valid: boolean;
-}
 
 export function getValidNextTokens(path: string[]): string[] {
   const parsedPath = parseInteractionPath(path);

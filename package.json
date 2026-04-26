@@ -50,8 +50,8 @@
               { "trigger": "arrowright", "command": "navigateRight" }
             ] },
             { "trigger": "focusLink", "children": [
-              { "trigger": "d", "command": "deleteSelectedNode" },
-              { "trigger": "delete", "command": "deleteSelectedNode" }
+              { "trigger": "d", "command": "deleteSelectedLink" },
+              { "trigger": "delete", "command": "deleteSelectedLink" }
             ] },
             { "trigger": "ctrl", "children": [
               { "trigger": "z", "command": "undo" },
@@ -69,8 +69,8 @@
             { "trigger": "click4", "children": [{ "trigger": "any", "command": "navigateBack" }] },
             { "trigger": "dblclick1", "children": [{ "trigger": "node", "command": "openNodeTarget" }] },
             { "trigger": "shift", "children": [{ "trigger": "click2", "children": [
-              { "trigger": "node", "command": "deleteTarget" },
-              { "trigger": "link", "command": "deleteTarget" }
+              { "trigger": "node", "command": "deleteNode" },
+              { "trigger": "link", "command": "deleteLink" }
             ] }] },
             { "trigger": "drag1", "children": [
               { "trigger": "background", "children": [{ "trigger": "any", "command": "rotateCanvas" }] },
