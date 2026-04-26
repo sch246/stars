@@ -50,12 +50,12 @@ interface ParsedInteractionPath {
 
 export const COMMANDS: CommandConstraint[] = [
   { id: 'selectNode', label: '选择节点', patterns: [['node']] },
-  { id: 'selectEdge', label: '选择关系', patterns: [['link']] },
+  { id: 'selectLink', label: '选择关系', patterns: [['link']] },
   { id: 'clearFocus', label: '清空焦点', patterns: [['background']] },
   { id: 'rotateCanvas', label: '旋转视角', patterns: [['drag']] },
   { id: 'panCanvas', label: '拖动画布', patterns: [['drag']] },
   { id: 'dragNode', label: '拖动节点', patterns: [['node']] },
-  { id: 'createEdge', label: '创建关系', patterns: [['node', 'node']] },
+  { id: 'createLink', label: '创建关系', patterns: [['node', 'node']] },
   { id: 'deleteNode', label: '删除节点', patterns: [['node']] },
   { id: 'deleteLink', label: '删除关系', patterns: [['link']] },
   { id: 'openNodeTarget', label: '打开节点目标', patterns: [['dblclick', 'node']] },

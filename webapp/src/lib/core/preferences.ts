@@ -24,12 +24,12 @@ export type LinkedFileOpenMode = 'manual' | 'existingColumn' | 'always';
 
 export type StarsPointerActionId =
   | 'selectNode'
-  | 'selectEdge'
+  | 'selectLink'
   | 'clearFocus'
   | 'rotateCanvas'
   | 'panCanvas'
   | 'dragNode'
-  | 'createEdge'
+  | 'createLink'
   | 'deleteNode'
   | 'deleteLink'
   | 'openNodeTarget'
@@ -74,12 +74,12 @@ export const STARS_ACTION_IDS: StarsActionId[] = [
 
 export const STARS_POINTER_ACTION_IDS: StarsPointerActionId[] = [
   'selectNode',
-  'selectEdge',
+  'selectLink',
   'clearFocus',
   'rotateCanvas',
   'panCanvas',
   'dragNode',
-  'createEdge',
+  'createLink',
   'deleteNode',
   'deleteLink',
   'openNodeTarget',

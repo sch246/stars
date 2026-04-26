@@ -1,6 +1,6 @@
 <script lang="ts">
   export let nodeCount = 0;
-  export let edgeCount = 0;
+  export let linkCount = 0;
   export let revision = 0;
   export let selectedLabel = '-';
   export let saving = false;
@@ -15,7 +15,7 @@
     <div class="meta-block">
       <div>当前节点: <strong>{selectedLabel}</strong></div>
       <div>节点总数: <strong>{nodeCount}</strong></div>
-      <div>关系总数: <strong>{edgeCount}</strong></div>
+      <div>关系总数: <strong>{linkCount}</strong></div>
       <div>修订号: <strong>{revision}</strong></div>
       <div>存储模式: <strong>VS Code 图元文件 / IndexedDB 备用</strong></div>
       <div>写入状态: <strong>{saving ? '保存中' : '空闲'}</strong></div>

@@ -24,8 +24,8 @@
   const controller = createGraphController() as GraphController;
   const document = controller.document;
   const selectedNode = controller.selectedNode;
-  const selectedEdge = controller.selectedEdge;
-  const selectedEdges = controller.selectedEdges;
+  const selectedLink = controller.selectedLink;
+  const selectedLinks = controller.selectedLinks;
   const preferences = controller.preferences;
   const ready = controller.ready;
   const saving = controller.saving;
@@ -143,20 +143,20 @@
     getDocument={getDocument}
     inputTree={$preferences.inputTree}
     onSelectNode={controller.selectNode}
-    onSelectEdge={controller.selectEdge}
+    onSelectLink={controller.selectLink}
     onClearFocus={controller.clearFocus}
-    onCreateEdge={controller.createEdge}
+    onCreateLink={controller.createLink}
     onDeleteNode={controller.deleteNode}
-    onDeleteEdge={controller.deleteEdge}
+    onDeleteLink={controller.deleteLink}
     onOpenNode={controller.openNodeTarget}
     onNavigateBack={controller.navigateBack}
     onImportFile={(pathOrUri) => void controller.importWorkspaceFile(pathOrUri)}
   />
   <Hud
     nodeCount={Object.keys($document.graph.nodes).length}
-    edgeCount={Object.keys($document.graph.edges).length}
+    linkCount={Object.keys($document.graph.links).length}
     revision={$document.graph.revision}
-    selectedLabel={$selectedNode?.label ?? ($selectedEdge ? `关系: ${$selectedEdge.label ?? $selectedEdge.type}` : '-')}
+    selectedLabel={$selectedNode?.label ?? ($selectedLink ? `关系: ${$selectedLink.label ?? $selectedLink.type}` : '-')}
     saving={$saving}
     showInfo={showHudInfo}
     onTogglePreferences={() => (showPreferencesPanel = !showPreferencesPanel)}
@@ -166,13 +166,13 @@
     <Sidebar
       bind:this={sidebar}
       node={$selectedNode}
-      edges={$selectedEdges}
+      links={$selectedLinks}
       onPatch={controller.updateSelectedNode}
       onRenameLabel={(label: string) => void controller.renameSelectedNodeLabel(label)}
       onOpenFile={controller.openSelectedTarget}
       onCreateLinkedNode={controller.createLinkedNode}
       onDeleteNode={controller.deleteFocusedTarget}
-      onDeleteEdge={controller.deleteEdge}
+      onDeleteLink={controller.deleteLink}
     />
   {/if}
 

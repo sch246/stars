@@ -1,14 +1,14 @@
 <script lang="ts">
-  import type { EdgeMeta, NodeMeta } from '../core/schema';
+  import type { LinkMeta, NodeMeta } from '../core/schema';
 
   export let node: NodeMeta | null;
-  export let edges: EdgeMeta[] = [];
+  export let links: LinkMeta[] = [];
   export let onPatch: (patch: Partial<NodeMeta>) => void;
   export let onRenameLabel: (label: string) => void;
   export let onOpenFile: () => void;
   export let onCreateLinkedNode: () => void;
   export let onDeleteNode: () => void;
-  export let onDeleteEdge: (edgeId: string) => void;
+  export let onDeleteLink: (linkId: string) => void;
 
   let labelInput: HTMLInputElement;
 
@@ -125,18 +125,18 @@
     <div>更新: {node ? new Date(node.updatedAt).toLocaleString() : '-'}</div>
   </div>
 
-  <div class="edges-panel">
+  <div class="links-panel">
     <div class="panel-title">关系</div>
-    {#if edges.length}
-      {#each edges as edge (edge.id)}
-        <div class="edge-row">
-          <span>{edge.type}</span>
-          <code>{edge.sourceId} -> {edge.targetId}</code>
-          <button aria-label="删除关系" on:click={() => onDeleteEdge(edge.id)}>删除</button>
+    {#if links.length}
+      {#each links as link (link.id)}
+        <div class="link-row">
+          <span>{link.type}</span>
+          <code>{link.sourceId} -> {link.targetId}</code>
+          <button aria-label="删除关系" on:click={() => onDeleteLink(link.id)}>删除</button>
         </div>
       {/each}
     {:else}
-      <div class="empty-edge">暂无关系</div>
+      <div class="empty-link">暂无关系</div>
     {/if}
   </div>
 
@@ -285,7 +285,7 @@
     margin-bottom: 8px;
   }
 
-  .edges-panel {
+  .links-panel {
     margin-top: 14px;
     padding: 12px;
     border: 1px solid #222;
@@ -300,7 +300,7 @@
     font-weight: 700;
   }
 
-  .edge-row {
+  .link-row {
     display: grid;
     grid-template-columns: 54px 1fr auto;
     gap: 8px;
@@ -311,7 +311,7 @@
     color: #777;
   }
 
-  .edge-row code {
+  .link-row code {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -319,11 +319,11 @@
     color: #555;
   }
 
-  .edge-row button {
+  .link-row button {
     padding: 4px 8px;
   }
 
-  .empty-edge {
+  .empty-link {
     color: #555;
     font-size: 12px;
   }

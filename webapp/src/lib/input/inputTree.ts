@@ -64,7 +64,7 @@ export const DEFAULT_INPUT_TREE: StarsInputTree = [
   ] },
   { trigger: 'click1', children: [
     { trigger: 'node', command: 'selectNode' satisfies StarsPointerActionId },
-    { trigger: 'link', command: 'selectEdge' satisfies StarsPointerActionId },
+    { trigger: 'link', command: 'selectLink' satisfies StarsPointerActionId },
     { trigger: 'background', command: 'clearFocus' satisfies StarsPointerActionId },
   ] },
   { trigger: 'click4', children: [{ trigger: 'any', command: 'navigateBack' satisfies StarsPointerActionId }] },
@@ -82,7 +82,7 @@ export const DEFAULT_INPUT_TREE: StarsInputTree = [
   ] },
   { trigger: 'drag2', children: [
     { trigger: 'background', children: [{ trigger: 'any', command: 'panCanvas' satisfies StarsPointerActionId }] },
-    { trigger: 'node', children: [{ trigger: 'node', command: 'createEdge' satisfies StarsPointerActionId }] },
+    { trigger: 'node', children: [{ trigger: 'node', command: 'createLink' satisfies StarsPointerActionId }] },
   ] },
   { trigger: 'drag3', children: [{ trigger: 'any', children: [{ trigger: 'any', command: 'panCanvas' satisfies StarsPointerActionId }] }] },
 ];
@@ -287,7 +287,7 @@ export function getFocusToken(view: RuntimeViewState): InputFocusToken {
   if (view.selectedNodeId) {
     return 'focusNode';
   }
-  if (view.selectedEdgeId) {
+  if (view.selectedLinkId) {
     return 'focusLink';
   }
   return 'focusNone';

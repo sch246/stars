@@ -94,12 +94,12 @@
 
   const pointerActions: Array<{ id: StarsPointerActionId; label: string }> = [
     { id: 'selectNode', label: '选择节点' },
-    { id: 'selectEdge', label: '选择关系' },
+    { id: 'selectLink', label: '选择关系' },
     { id: 'clearFocus', label: '清空焦点' },
     { id: 'rotateCanvas', label: '旋转视角' },
     { id: 'panCanvas', label: '拖动画布' },
     { id: 'dragNode', label: '拖动节点' },
-    { id: 'createEdge', label: '创建关系' },
+    { id: 'createLink', label: '创建关系' },
     { id: 'deleteNode', label: '删除节点' },
     { id: 'deleteLink', label: '删除关系' },
     { id: 'openNodeTarget', label: '打开节点目标' },
@@ -493,10 +493,10 @@
           </div>
           <div class="control-row">
             <div class="control-heading">
-              <span>关系命中距离 {config.rendering.edgeHoverDistance}</span>
-              <button on:click={() => resetRendering('edgeHoverDistance')}>重置</button>
+              <span>关系命中距离 {config.rendering.linkHoverDistance}</span>
+              <button on:click={() => resetRendering('linkHoverDistance')}>重置</button>
             </div>
-            <input type="range" min="4" max="24" step="1" value={config.rendering.edgeHoverDistance} on:change={(event) => patchRendering('edgeHoverDistance', event.currentTarget.valueAsNumber)} />
+            <input type="range" min="4" max="24" step="1" value={config.rendering.linkHoverDistance} on:change={(event) => patchRendering('linkHoverDistance', event.currentTarget.valueAsNumber)} />
           </div>
           <div class="control-row">
             <div class="control-heading">

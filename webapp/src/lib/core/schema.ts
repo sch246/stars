@@ -1,8 +1,8 @@
-export type GraphFormat = 'stars.graph.v1';
+export type GraphFormat = 'stars.graph.v2';
 export type NodeId = string;
-export type EdgeId = string;
+export type LinkId = string;
 export type NodeTypeId = string;
-export type EdgeTypeId = string;
+export type LinkTypeId = string;
 
 export interface WorkspaceFileRef {
   kind: 'workspace-file';
@@ -29,11 +29,11 @@ export interface NodeMeta {
   updatedAt: number;
 }
 
-export interface EdgeMeta {
-  id: EdgeId;
+export interface LinkMeta {
+  id: LinkId;
   sourceId: NodeId;
   targetId: NodeId;
-  type: EdgeTypeId;
+  type: LinkTypeId;
   label?: string;
   createdAt: number;
   updatedAt: number;
@@ -45,7 +45,7 @@ export interface NodeTypeStyle {
   labelVisible?: 'always' | 'hover' | 'focus' | 'auto';
 }
 
-export interface EdgeTypeStyle {
+export interface LinkTypeStyle {
   color?: string;
   width?: number;
   dash?: number[];
@@ -59,10 +59,10 @@ export interface NodeTypeDefinition {
   style: NodeTypeStyle;
 }
 
-export interface EdgeTypeDefinition {
-  id: EdgeTypeId;
+export interface LinkTypeDefinition {
+  id: LinkTypeId;
   label: string;
-  style: EdgeTypeStyle;
+  style: LinkTypeStyle;
 }
 
 export type GraphTargetAction = 'selectNode' | 'openLinkedFile' | 'enterSubgraph' | 'noop';
@@ -76,7 +76,7 @@ export interface GraphTargetActionBindings {
 export interface GraphBehaviorConfig {
   defaults?: GraphTargetActionBindings;
   nodeTypes?: Record<NodeTypeId, GraphTargetActionBindings>;
-  edgeTypes?: Record<EdgeTypeId, GraphTargetActionBindings>;
+  linkTypes?: Record<LinkTypeId, GraphTargetActionBindings>;
 }
 
 export interface GraphConfig {
@@ -102,7 +102,7 @@ export interface GraphConfig {
     focusRadius: number;
     proximityRange: number;
     hoverStopRange: number;
-    edgeHoverDistance: number;
+    linkHoverDistance: number;
     maxNodeScaleMultiplier: number;
     maxTextScaleMultiplier: number;
     baseLabelFontSize: number;
@@ -126,17 +126,17 @@ export interface GraphFile {
   revision: number;
   rootNodeId: NodeId;
   nodes: Record<NodeId, NodeMeta>;
-  edges: Record<EdgeId, EdgeMeta>;
-  adjacency: Record<NodeId, EdgeId[]>;
+  links: Record<LinkId, LinkMeta>;
+  adjacency: Record<NodeId, LinkId[]>;
   nodeTypes: Record<NodeTypeId, NodeTypeDefinition>;
-  edgeTypes: Record<EdgeTypeId, EdgeTypeDefinition>;
+  linkTypes: Record<LinkTypeId, LinkTypeDefinition>;
   config: GraphConfig;
   meta: GraphFileMeta;
 }
 
 export interface RuntimeViewState {
   selectedNodeId: NodeId | null;
-  selectedEdgeId: EdgeId | null;
+  selectedLinkId: LinkId | null;
   sidebarWidth: number;
 }
 
@@ -200,7 +200,7 @@ export function assertGraphDocumentConfig(document: GraphDocument): void {
       'focusRadius',
       'proximityRange',
       'hoverStopRange',
-      'edgeHoverDistance',
+      'linkHoverDistance',
       'maxNodeScaleMultiplier',
       'maxTextScaleMultiplier',
       'baseLabelFontSize',

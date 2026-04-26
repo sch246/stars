@@ -7,8 +7,8 @@ import type { StarsInputTree } from '../input/inputTree';
 import {
   assertGraphDocumentConfig,
   resolveNodeAction,
-  type EdgeId,
-  type EdgeMeta,
+  type LinkId,
+  type LinkMeta,
   type GraphDocument,
   type GraphFile,
   type NodeId,
@@ -22,7 +22,7 @@ import type { WorkspaceFileInfo } from '../persistence/repository';
 
 type NodePatch = Partial<Pick<NodeMeta, 'label' | 'summary' | 'type' | 'color' | 'subgraph'>>;
 type GraphConfigPatch = Extract<GraphOperation, { kind: 'patchGraphConfig' }>['patch'];
-type FocusTarget = { kind: 'node'; id: NodeId } | { kind: 'edge'; id: EdgeId };
+type FocusTarget = { kind: 'node'; id: NodeId } | { kind: 'link'; id: LinkId };
 
 const NAVIGATION_STACK_LIMIT = 50;
 
@@ -45,19 +45,19 @@ export function createGraphController(repository: GraphRepository = createDefaul
     return selectedNodeId ? ($document.graph.nodes[selectedNodeId] ?? null) : null;
   });
 
-  const selectedEdge = derived(document, ($document) => {
-    const selectedEdgeId = $document.view.selectedEdgeId;
-    return selectedEdgeId ? ($document.graph.edges[selectedEdgeId] ?? null) : null;
+  const selectedLink = derived(document, ($document) => {
+    const selectedLinkId = $document.view.selectedLinkId;
+    return selectedLinkId ? ($document.graph.links[selectedLinkId] ?? null) : null;
   });
 
-  const selectedEdges = derived(document, ($document) => {
+  const selectedLinks = derived(document, ($document) => {
     const selectedNodeId = $document.view.selectedNodeId;
     if (!selectedNodeId) {
       return [];
     }
     return ($document.graph.adjacency[selectedNodeId] ?? [])
-      .map((edgeId) => $document.graph.edges[edgeId])
-      .filter((edge): edge is EdgeMeta => Boolean(edge));
+      .map((linkId) => $document.graph.links[linkId])
+      .filter((link): link is LinkMeta => Boolean(link));
   });
 
   async function hydrate() {
@@ -173,18 +173,18 @@ export function createGraphController(repository: GraphRepository = createDefaul
     }
   }
 
-  function selectEdge(edgeId: string, recordHistory = true) {
+  function selectLink(linkId: string, recordHistory = true) {
     const current = get(document);
-    if (!current.graph.edges[edgeId]) {
+    if (!current.graph.links[linkId]) {
       return;
     }
 
-    focusTarget({ kind: 'edge', id: edgeId }, recordHistory);
+    focusTarget({ kind: 'link', id: linkId }, recordHistory);
   }
 
   function clearFocus(recordHistory = true) {
     const current = get(document);
-    if (!current.view.selectedNodeId && !current.view.selectedEdgeId) {
+    if (!current.view.selectedNodeId && !current.view.selectedLinkId) {
       return;
     }
 
@@ -198,7 +198,7 @@ export function createGraphController(repository: GraphRepository = createDefaul
       view: {
         ...current.view,
         selectedNodeId: null,
-        selectedEdgeId: null,
+        selectedLinkId: null,
       },
     });
   }
@@ -389,7 +389,7 @@ export function createGraphController(repository: GraphRepository = createDefaul
 
     if (existing) {
       if (sourceNodeId && sourceNodeId !== existing.id) {
-        createEdge(sourceNodeId, existing.id);
+        createLink(sourceNodeId, existing.id);
       }
       selectNode(existing.id);
       return;
@@ -413,7 +413,7 @@ export function createGraphController(repository: GraphRepository = createDefaul
     });
 
     if (sourceNodeId && current.graph.nodes[sourceNodeId]) {
-      const edge: EdgeMeta = {
+      const link: LinkMeta = {
         id: crypto.randomUUID(),
         sourceId: sourceNodeId,
         targetId: node.id,
@@ -423,8 +423,8 @@ export function createGraphController(repository: GraphRepository = createDefaul
       };
 
       submit({
-        kind: 'createEdge',
-        edge,
+        kind: 'createLink',
+        link,
       });
     }
 
@@ -457,7 +457,7 @@ export function createGraphController(repository: GraphRepository = createDefaul
     });
 
     if (linkToFocus && sourceNodeId && current.graph.nodes[sourceNodeId]) {
-      const edge: EdgeMeta = {
+      const link: LinkMeta = {
         id: crypto.randomUUID(),
         sourceId: sourceNodeId,
         targetId: node.id,
@@ -467,8 +467,8 @@ export function createGraphController(repository: GraphRepository = createDefaul
       };
 
       submit({
-        kind: 'createEdge',
-        edge,
+        kind: 'createLink',
+        link,
       });
     }
 
@@ -478,7 +478,7 @@ export function createGraphController(repository: GraphRepository = createDefaul
     void operationQueue;
   }
 
-  function createEdge(sourceId: string, targetId: string, type = 'related') {
+  function createLink(sourceId: string, targetId: string, type = 'related') {
     const current = get(document);
     if (sourceId === targetId) {
       error.set('不能创建自环关系');
@@ -489,17 +489,17 @@ export function createGraphController(repository: GraphRepository = createDefaul
       return;
     }
 
-    const existingEdge = Object.values(current.graph.edges).find((edge) => {
-      return edge.type === type
-        && ((edge.sourceId === sourceId && edge.targetId === targetId)
-          || (edge.sourceId === targetId && edge.targetId === sourceId));
+    const existingLink = Object.values(current.graph.links).find((link) => {
+      return link.type === type
+        && ((link.sourceId === sourceId && link.targetId === targetId)
+          || (link.sourceId === targetId && link.targetId === sourceId));
     });
-    if (existingEdge) {
+    if (existingLink) {
       return;
     }
 
     const createdAt = Date.now();
-    const edge: EdgeMeta = {
+    const link: LinkMeta = {
       id: crypto.randomUUID(),
       sourceId,
       targetId,
@@ -509,8 +509,8 @@ export function createGraphController(repository: GraphRepository = createDefaul
     };
 
     submit({
-      kind: 'createEdge',
-      edge,
+      kind: 'createLink',
+      link,
     });
 
     void operationQueue;
@@ -535,12 +535,12 @@ export function createGraphController(repository: GraphRepository = createDefaul
 
   function deleteSelectedLink() {
     const current = get(document);
-    const selectedEdgeId = current.view.selectedEdgeId;
-    if (!selectedEdgeId) {
+    const selectedLinkId = current.view.selectedLinkId;
+    if (!selectedLinkId) {
       return;
     }
 
-    deleteEdge(selectedEdgeId);
+    deleteLink(selectedLinkId);
   }
 
   function deleteNode(nodeId: string) {
@@ -561,18 +561,18 @@ export function createGraphController(repository: GraphRepository = createDefaul
 
   function deleteFocusedTarget() {
     const current = get(document);
-    if (current.view.selectedEdgeId) {
-      deleteEdge(current.view.selectedEdgeId);
+    if (current.view.selectedLinkId) {
+      deleteLink(current.view.selectedLinkId);
       return;
     }
 
     deleteSelectedNode();
   }
 
-  function deleteEdge(edgeId: string) {
+  function deleteLink(linkId: string) {
     submit({
-      kind: 'deleteEdge',
-      edgeId,
+      kind: 'deleteLink',
+      linkId,
     });
   }
 
@@ -762,7 +762,7 @@ export function createGraphController(repository: GraphRepository = createDefaul
         view: {
           ...nextDocument.view,
           selectedNodeId: null,
-          selectedEdgeId: null,
+          selectedLinkId: null,
         },
       };
     }
@@ -814,8 +814,8 @@ export function createGraphController(repository: GraphRepository = createDefaul
     document,
     navigationStack,
     selectedNode,
-    selectedEdge,
-    selectedEdges,
+    selectedLink,
+    selectedLinks,
     preferences,
     ready,
     saving,
@@ -827,7 +827,7 @@ export function createGraphController(repository: GraphRepository = createDefaul
     updateInputTree,
     updateLinkedFileOpenMode,
     selectNode,
-    selectEdge,
+    selectLink,
     clearFocus,
     focusRoot,
     navigateBack,
@@ -839,12 +839,12 @@ export function createGraphController(repository: GraphRepository = createDefaul
     createFileNode,
     createLinkedNode,
     createTypedNode,
-    createEdge,
+    createLink,
     deleteNode,
     deleteSelectedNode,
     deleteSelectedLink,
     deleteFocusedTarget,
-    deleteEdge,
+    deleteLink,
     openSelectedFile,
     openSelectedTarget,
     openNodeTarget,
@@ -858,8 +858,8 @@ function getFocusTarget(view: RuntimeViewState): FocusTarget | null {
   if (view.selectedNodeId) {
     return { kind: 'node', id: view.selectedNodeId };
   }
-  if (view.selectedEdgeId) {
-    return { kind: 'edge', id: view.selectedEdgeId };
+  if (view.selectedLinkId) {
+    return { kind: 'link', id: view.selectedLinkId };
   }
   return null;
 }
@@ -868,14 +868,14 @@ function viewWithFocus(view: RuntimeViewState, target: FocusTarget): RuntimeView
   return {
     ...view,
     selectedNodeId: target.kind === 'node' ? target.id : null,
-    selectedEdgeId: target.kind === 'edge' ? target.id : null,
+    selectedLinkId: target.kind === 'link' ? target.id : null,
   };
 }
 
 function targetExists(graph: GraphFile, target: FocusTarget): boolean {
   return target.kind === 'node'
     ? Boolean(graph.nodes[target.id])
-    : Boolean(graph.edges[target.id]);
+    : Boolean(graph.links[target.id]);
 }
 
 function targetsEqual(left: FocusTarget | null, right: FocusTarget | null): boolean {

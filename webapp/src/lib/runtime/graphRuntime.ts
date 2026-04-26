@@ -12,7 +12,7 @@ import {
 import { quadtree, type Quadtree } from 'd3-quadtree';
 import { escapeHtml, renderSummaryMarkdown } from '../core/markdown';
 import { isStarsPointerActionId, type PointerButton, type PointerModifier, type PointerTargetRef, type StarsPointerActionId } from '../core/preferences';
-import type { EdgeMeta, GraphDocument, GraphConfig, NodeMeta } from '../core/schema';
+import type { LinkMeta, GraphDocument, GraphConfig, NodeMeta } from '../core/schema';
 import {
   getFocusToken,
   getPointerModifiers,
@@ -26,11 +26,11 @@ interface GraphRuntimeOptions {
   getDocument: () => GraphDocument;
   getInputTree: () => StarsInputTree;
   onSelectNode: (nodeId: string) => void;
-  onSelectEdge: (edgeId: string) => void;
+  onSelectLink: (linkId: string) => void;
   onClearFocus: () => void;
-  onCreateEdge: (sourceId: string, targetId: string) => void;
+  onCreateLink: (sourceId: string, targetId: string) => void;
   onDeleteNode: (nodeId: string) => void;
-  onDeleteEdge: (edgeId: string) => void;
+  onDeleteLink: (linkId: string) => void;
   onOpenNode: (nodeId: string) => void;
   onNavigateBack: () => void;
   onImportFile: (pathOrUri: string) => void;
@@ -42,7 +42,7 @@ interface RuntimeNodeState extends SimulationNodeDatum {
 }
 
 interface RuntimeLinkState extends SimulationLinkDatum<RuntimeNodeState> {
-  edgeId: string;
+  linkId: string;
   type: string;
 }
 
@@ -93,12 +93,12 @@ export class GraphRuntime {
   private panButton: number | null = null;
   private isRotating = false;
   private hoveredNodeId: string | null = null;
-  private hoveredEdgeId: string | null = null;
+  private hoveredLinkId: string | null = null;
   private draggedNodeId: string | null = null;
   private dragTarget: ScreenPoint | null = null;
   private linkDragSourceId: string | null = null;
   private pendingClickNodeId: string | null = null;
-  private pendingClickEdgeId: string | null = null;
+  private pendingClickLinkId: string | null = null;
   private pointerDownState: PointerDownState | null = null;
   private activePointerAction: StarsPointerActionId | null = null;
   private doubleClickCandidate: DoubleClickCandidate | null = null;
@@ -177,13 +177,13 @@ export class GraphRuntime {
     let bestRawAngle = 0;
     let bestDiff = 1.2;
 
-    (document.graph.adjacency[selectedNodeId] ?? []).forEach((edgeId) => {
-      const edge = document.graph.edges[edgeId];
-      if (!edge) {
+    (document.graph.adjacency[selectedNodeId] ?? []).forEach((linkId) => {
+      const link = document.graph.links[linkId];
+      if (!link) {
         return;
       }
 
-      const otherNodeId = edge.sourceId === selectedNodeId ? edge.targetId : edge.sourceId;
+      const otherNodeId = link.sourceId === selectedNodeId ? link.targetId : link.sourceId;
       const target = this.runtimeNodes.get(otherNodeId);
       if (!target) {
         return;
@@ -233,13 +233,13 @@ export class GraphRuntime {
     }
 
     this.refreshHoverState();
-    this.canvas.style.cursor = this.hoveredNodeId || this.hoveredEdgeId ? 'pointer' : 'crosshair';
+    this.canvas.style.cursor = this.hoveredNodeId || this.hoveredLinkId ? 'pointer' : 'crosshair';
   };
 
   private readonly handlePointerLeave = () => {
     this.pointer = null;
     this.hoveredNodeId = null;
-    this.hoveredEdgeId = null;
+    this.hoveredLinkId = null;
     if (!this.isPanning && !this.isRotating && !this.draggedNodeId && !this.linkDragSourceId) {
       this.canvas.style.cursor = 'crosshair';
     }
@@ -251,7 +251,7 @@ export class GraphRuntime {
     this.didPan = false;
     this.didClearFocusForPan = false;
     this.pendingClickNodeId = null;
-    this.pendingClickEdgeId = null;
+    this.pendingClickLinkId = null;
     this.lastPointer = { x: event.clientX, y: event.clientY };
     this.activePointerAction = null;
 
@@ -300,7 +300,7 @@ export class GraphRuntime {
       }
 
       if (start.kind === 'link') {
-        this.pendingClickEdgeId = start.id ?? null;
+        this.pendingClickLinkId = start.id ?? null;
       }
 
       const dragAction = this.resolvePointerStartAction('drag', button, modifiers, start);
@@ -328,10 +328,10 @@ export class GraphRuntime {
       return;
     }
 
-    if (dragAction === 'createEdge' && start.kind === 'node' && start.id) {
+    if (dragAction === 'createLink' && start.kind === 'node' && start.id) {
       event.preventDefault();
       this.hoveredNodeId = start.id;
-      this.hoveredEdgeId = null;
+      this.hoveredLinkId = null;
       this.canvas.style.cursor = 'grabbing';
     }
   };
@@ -396,10 +396,10 @@ export class GraphRuntime {
         return;
       }
 
-      if (dragAction === 'createEdge' && this.pointerDownState.start.kind === 'node' && this.pointerDownState.start.id) {
+      if (dragAction === 'createLink' && this.pointerDownState.start.kind === 'node' && this.pointerDownState.start.id) {
         this.linkDragSourceId = this.pointerDownState.start.id;
         this.hoveredNodeId = this.pointerDownState.start.id;
-        this.hoveredEdgeId = null;
+        this.hoveredLinkId = null;
         this.canvas.style.cursor = 'grabbing';
         this.simulation?.alpha(0.3).restart();
         return;
@@ -445,17 +445,17 @@ export class GraphRuntime {
       const point = this.clientToCanvasPoint(event.clientX, event.clientY);
       const target = this.pickNode(point.x, point.y);
       const end = this.pickPointerTarget(point.x, point.y);
-      const shouldCreateEdge = this.pointerDownState
-        && this.activePointerAction === 'createEdge'
-        && this.resolvePointerAction('drag', this.pointerDownState.button, this.pointerDownState.modifiers, this.pointerDownState.start, end) === 'createEdge';
-      if (shouldCreateEdge && target && target.nodeId !== sourceId) {
-        this.options.onCreateEdge(sourceId, target.nodeId);
+      const shouldCreateLink = this.pointerDownState
+        && this.activePointerAction === 'createLink'
+        && this.resolvePointerAction('drag', this.pointerDownState.button, this.pointerDownState.modifiers, this.pointerDownState.start, end) === 'createLink';
+      if (shouldCreateLink && target && target.nodeId !== sourceId) {
+        this.options.onCreateLink(sourceId, target.nodeId);
       }
       this.linkDragSourceId = null;
       this.activePointerAction = null;
       this.pointerDownState = null;
       this.hoveredNodeId = target?.nodeId ?? null;
-      this.canvas.style.cursor = this.hoveredNodeId || this.hoveredEdgeId ? 'pointer' : 'crosshair';
+      this.canvas.style.cursor = this.hoveredNodeId || this.hoveredLinkId ? 'pointer' : 'crosshair';
       return;
     }
 
@@ -464,7 +464,7 @@ export class GraphRuntime {
       this.activePointerAction = null;
       this.pointerDownState = null;
       this.dragTarget = null;
-      this.canvas.style.cursor = this.hoveredNodeId || this.hoveredEdgeId ? 'pointer' : 'crosshair';
+      this.canvas.style.cursor = this.hoveredNodeId || this.hoveredLinkId ? 'pointer' : 'crosshair';
       return;
     }
 
@@ -472,7 +472,7 @@ export class GraphRuntime {
       this.isRotating = false;
       this.activePointerAction = null;
       this.pointerDownState = null;
-      this.canvas.style.cursor = this.hoveredNodeId || this.hoveredEdgeId ? 'pointer' : 'crosshair';
+      this.canvas.style.cursor = this.hoveredNodeId || this.hoveredLinkId ? 'pointer' : 'crosshair';
       return;
     }
 
@@ -488,7 +488,7 @@ export class GraphRuntime {
     this.panButton = null;
     this.activePointerAction = null;
     this.pointerDownState = null;
-    this.canvas.style.cursor = this.hoveredNodeId || this.hoveredEdgeId ? 'pointer' : 'crosshair';
+    this.canvas.style.cursor = this.hoveredNodeId || this.hoveredLinkId ? 'pointer' : 'crosshair';
   };
 
   private readonly handleContextMenu = (event: MouseEvent) => {
@@ -522,7 +522,7 @@ export class GraphRuntime {
     if (this.didPan) {
       this.didPan = false;
       this.pendingClickNodeId = null;
-      this.pendingClickEdgeId = null;
+      this.pendingClickLinkId = null;
       this.doubleClickCandidate = null;
       this.pointerDownState = null;
       return;
@@ -538,15 +538,15 @@ export class GraphRuntime {
     if (action === 'selectNode' && this.pendingClickNodeId && this.runtimeNodes.has(this.pendingClickNodeId)) {
       this.options.onSelectNode(this.pendingClickNodeId);
       this.pendingClickNodeId = null;
-      this.pendingClickEdgeId = null;
+      this.pendingClickLinkId = null;
       return;
     }
 
     const document = this.options.getDocument();
-    if (action === 'selectEdge' && this.pendingClickEdgeId && document.graph.edges[this.pendingClickEdgeId]) {
-      this.options.onSelectEdge(this.pendingClickEdgeId);
+    if (action === 'selectLink' && this.pendingClickLinkId && document.graph.links[this.pendingClickLinkId]) {
+      this.options.onSelectLink(this.pendingClickLinkId);
       this.pendingClickNodeId = null;
-      this.pendingClickEdgeId = null;
+      this.pendingClickLinkId = null;
       return;
     }
 
@@ -554,26 +554,26 @@ export class GraphRuntime {
     if (action === 'selectNode' && repeatedNodeId) {
       this.options.onSelectNode(repeatedNodeId);
       this.pendingClickNodeId = null;
-      this.pendingClickEdgeId = null;
+      this.pendingClickLinkId = null;
       return;
     }
 
     if (action === 'selectNode' && start.kind === 'node' && start.id) {
       this.options.onSelectNode(start.id);
       this.pendingClickNodeId = null;
-      this.pendingClickEdgeId = null;
+      this.pendingClickLinkId = null;
       return;
     }
 
-    if (action === 'selectEdge' && start.kind === 'link' && start.id) {
-      this.options.onSelectEdge(start.id);
+    if (action === 'selectLink' && start.kind === 'link' && start.id) {
+      this.options.onSelectLink(start.id);
       this.pendingClickNodeId = null;
-      this.pendingClickEdgeId = null;
+      this.pendingClickLinkId = null;
       return;
     }
 
     this.pendingClickNodeId = null;
-    this.pendingClickEdgeId = null;
+    this.pendingClickLinkId = null;
     if (event.detail < 2) {
       this.doubleClickCandidate = null;
     }
@@ -639,9 +639,9 @@ export class GraphRuntime {
       return { kind: 'node', id: node.nodeId };
     }
 
-    const edge = this.pickEdge(screenX, screenY);
-    if (edge) {
-      return { kind: 'link', id: edge.id };
+    const link = this.pickLink(screenX, screenY);
+    if (link) {
+      return { kind: 'link', id: link.id };
     }
 
     return { kind: 'background' };
@@ -654,7 +654,7 @@ export class GraphRuntime {
     }
 
     if (target.kind === 'link' && target.id) {
-      this.options.onDeleteEdge(target.id);
+      this.options.onDeleteLink(target.id);
     }
   }
 
@@ -807,13 +807,13 @@ export class GraphRuntime {
   private rebuildSimulation(document: GraphDocument) {
     const layout = document.graph.config.layout;
     const nodes = [...this.runtimeNodes.values()];
-    const links: RuntimeLinkState[] = Object.values(document.graph.edges)
-      .filter((edge) => this.runtimeNodes.has(edge.sourceId) && this.runtimeNodes.has(edge.targetId))
-      .map((edge) => ({
-        edgeId: edge.id,
-        type: edge.type,
-        source: edge.sourceId,
-        target: edge.targetId,
+    const links: RuntimeLinkState[] = Object.values(document.graph.links)
+      .filter((link) => this.runtimeNodes.has(link.sourceId) && this.runtimeNodes.has(link.targetId))
+      .map((link) => ({
+        linkId: link.id,
+        type: link.type,
+        source: link.sourceId,
+        target: link.targetId,
       }));
 
     this.simulation?.stop();
@@ -861,13 +861,13 @@ export class GraphRuntime {
   private refreshHoverState() {
     if (!this.pointer) {
       this.hoveredNodeId = null;
-      this.hoveredEdgeId = null;
+      this.hoveredLinkId = null;
       return;
     }
 
     const node = this.pickNode(this.pointer.x, this.pointer.y);
     this.hoveredNodeId = node?.nodeId ?? null;
-    this.hoveredEdgeId = node ? null : this.pickEdge(this.pointer.x, this.pointer.y)?.id ?? null;
+    this.hoveredLinkId = node ? null : this.pickLink(this.pointer.x, this.pointer.y)?.id ?? null;
   }
 
   private drawNoise(ctx: CanvasRenderingContext2D) {
@@ -890,24 +890,24 @@ export class GraphRuntime {
 
     ctx.save();
 
-    Object.values(document.graph.edges).forEach((edge) => {
-      const source = this.runtimeNodes.get(edge.sourceId);
-      const target = this.runtimeNodes.get(edge.targetId);
+    Object.values(document.graph.links).forEach((link) => {
+      const source = this.runtimeNodes.get(link.sourceId);
+      const target = this.runtimeNodes.get(link.targetId);
       if (!source || !target) {
         return;
       }
 
       const from = this.worldToScreen(source.x ?? 0, source.y ?? 0);
       const to = this.worldToScreen(target.x ?? 0, target.y ?? 0);
-      const sourceIsSubject = subjects.has(edge.sourceId);
-      const targetIsSubject = subjects.has(edge.targetId);
-      const sourceIsRelated = related.has(edge.sourceId);
-      const targetIsRelated = related.has(edge.targetId);
+      const sourceIsSubject = subjects.has(link.sourceId);
+      const targetIsSubject = subjects.has(link.targetId);
+      const sourceIsRelated = related.has(link.sourceId);
+      const targetIsRelated = related.has(link.targetId);
       const isDirectFocus = sourceIsSubject || targetIsSubject;
-      const focused = edge.id === document.view.selectedEdgeId;
-      const isTarget = focused || edge.id === this.hoveredEdgeId;
+      const focused = link.id === document.view.selectedLinkId;
+      const isTarget = focused || link.id === this.hoveredLinkId;
       const isNearby = isDirectFocus || sourceIsRelated || targetIsRelated;
-      const style = document.graph.edgeTypes[edge.type]?.style;
+      const style = document.graph.linkTypes[link.type]?.style;
       const color = style?.color ?? '#666666';
       const opacity = isTarget
         ? 1
@@ -930,8 +930,8 @@ export class GraphRuntime {
       ctx.lineTo(to.x, to.y);
       ctx.stroke();
 
-      if (this.shouldDrawEdgeLabel(edge, style?.labelVisible, isTarget)) {
-        this.drawEdgeLabel(ctx, edge, from, to, color);
+      if (this.shouldDrawLinkLabel(link, style?.labelVisible, isTarget)) {
+        this.drawLinkLabel(ctx, link, from, to, color);
       }
     });
 
@@ -961,8 +961,8 @@ export class GraphRuntime {
     ctx.restore();
   }
 
-  private shouldDrawEdgeLabel(edge: EdgeMeta, labelVisible: string | undefined, isDirectFocus: boolean): boolean {
-    if (!edge.label && !edge.type) {
+  private shouldDrawLinkLabel(link: LinkMeta, labelVisible: string | undefined, isDirectFocus: boolean): boolean {
+    if (!link.label && !link.type) {
       return false;
     }
     if (labelVisible === 'never') {
@@ -974,9 +974,9 @@ export class GraphRuntime {
     return isDirectFocus;
   }
 
-  private drawEdgeLabel(
+  private drawLinkLabel(
     ctx: CanvasRenderingContext2D,
-    edge: EdgeMeta,
+    link: LinkMeta,
     from: ScreenPoint,
     to: ScreenPoint,
     color: string,
@@ -987,7 +987,7 @@ export class GraphRuntime {
     ctx.fillStyle = color;
     ctx.font = '11px Segoe UI';
     ctx.textAlign = 'center';
-    ctx.fillText(edge.label ?? edge.type, (from.x + to.x) / 2, ((from.y + to.y) / 2) - 8);
+    ctx.fillText(link.label ?? link.type, (from.x + to.x) / 2, ((from.y + to.y) / 2) - 8);
     ctx.restore();
   }
 
@@ -1149,12 +1149,12 @@ export class GraphRuntime {
   private getRelatedNodeIds(document: GraphDocument, subjects: Set<string>): Set<string> {
     const related = new Set<string>();
     subjects.forEach((nodeId) => {
-      (document.graph.adjacency[nodeId] ?? []).forEach((edgeId) => {
-        const edge = document.graph.edges[edgeId];
-        if (!edge) {
+      (document.graph.adjacency[nodeId] ?? []).forEach((linkId) => {
+        const link = document.graph.links[linkId];
+        if (!link) {
           return;
         }
-        related.add(edge.sourceId === nodeId ? edge.targetId : edge.sourceId);
+        related.add(link.sourceId === nodeId ? link.targetId : link.sourceId);
       });
     });
     return related;
@@ -1245,10 +1245,10 @@ export class GraphRuntime {
       return node ? { x: node.x ?? 0, y: node.y ?? 0 } : null;
     }
 
-    if (document.view.selectedEdgeId) {
-      const edge = document.graph.edges[document.view.selectedEdgeId];
-      const source = edge ? this.runtimeNodes.get(edge.sourceId) : null;
-      const target = edge ? this.runtimeNodes.get(edge.targetId) : null;
+    if (document.view.selectedLinkId) {
+      const link = document.graph.links[document.view.selectedLinkId];
+      const source = link ? this.runtimeNodes.get(link.sourceId) : null;
+      const target = link ? this.runtimeNodes.get(link.targetId) : null;
       if (source && target) {
         return {
           x: ((source.x ?? 0) + (target.x ?? 0)) / 2,
@@ -1284,14 +1284,14 @@ export class GraphRuntime {
     return (dx * dx) + (dy * dy) <= hitRadius * hitRadius ? nearest : null;
   }
 
-  private pickEdge(screenX: number, screenY: number): EdgeMeta | null {
+  private pickLink(screenX: number, screenY: number): LinkMeta | null {
     const document = this.options.getDocument();
     const world = this.screenToWorld(screenX, screenY);
-    const hitDistance = document.graph.config.rendering.edgeHoverDistance / Math.max(this.camera.scale, 0.001);
+    const hitDistance = document.graph.config.rendering.linkHoverDistance / Math.max(this.camera.scale, 0.001);
 
-    for (const edge of Object.values(document.graph.edges)) {
-      const source = this.runtimeNodes.get(edge.sourceId);
-      const target = this.runtimeNodes.get(edge.targetId);
+    for (const link of Object.values(document.graph.links)) {
+      const source = this.runtimeNodes.get(link.sourceId);
+      const target = this.runtimeNodes.get(link.targetId);
       if (!source || !target) {
         continue;
       }
@@ -1305,7 +1305,7 @@ export class GraphRuntime {
         target.y ?? 0,
       );
       if (distance <= hitDistance) {
-        return edge;
+        return link;
       }
     }
 
@@ -1318,15 +1318,15 @@ function createGraphSignature(document: GraphDocument): string {
     .map((node) => `${node.id}:${node.type ?? ''}:${node.metrics?.contentLength ?? 0}`)
     .sort()
     .join('|');
-  const edgePart = Object.values(document.graph.edges)
-    .map((edge) => `${edge.id}:${edge.sourceId}->${edge.targetId}:${edge.type}`)
+  const linkPart = Object.values(document.graph.links)
+    .map((link) => `${link.id}:${link.sourceId}->${link.targetId}:${link.type}`)
     .sort()
     .join('|');
   const layout = document.graph.config.layout;
   const rendering = document.graph.config.rendering;
   return [
     nodePart,
-    edgePart,
+    linkPart,
     layout.linkDistance,
     layout.linkStrength,
     layout.chargeStrength,

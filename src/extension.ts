@@ -74,7 +74,7 @@ const DEFAULT_INPUT_TREE: StarsInputTree = [
   ] },
   { trigger: 'click1', children: [
     { trigger: 'node', command: 'selectNode' },
-    { trigger: 'link', command: 'selectEdge' },
+    { trigger: 'link', command: 'selectLink' },
     { trigger: 'background', command: 'clearFocus' },
   ] },
   { trigger: 'click4', children: [{ trigger: 'any', command: 'navigateBack' }] },
@@ -92,7 +92,7 @@ const DEFAULT_INPUT_TREE: StarsInputTree = [
   ] },
   { trigger: 'drag2', children: [
     { trigger: 'background', children: [{ trigger: 'any', command: 'panCanvas' }] },
-    { trigger: 'node', children: [{ trigger: 'node', command: 'createEdge' }] },
+    { trigger: 'node', children: [{ trigger: 'node', command: 'createLink' }] },
   ] },
   { trigger: 'drag3', children: [{ trigger: 'any', children: [{ trigger: 'any', command: 'panCanvas' }] }] },
 ];
@@ -187,7 +187,7 @@ class StarsPanel {
             graph: await this.withDerivedFileMetadata(graph),
             view: {
               selectedNodeId: graph.rootNodeId,
-              selectedEdgeId: null,
+              selectedLinkId: null,
               sidebarWidth: 340,
             },
           } satisfies GraphDocument);
@@ -368,7 +368,7 @@ class StarsPanel {
             graph: await this.withDerivedFileMetadata(graph),
             view: {
               selectedNodeId: graph.rootNodeId,
-              selectedEdgeId: null,
+              selectedLinkId: null,
               sidebarWidth: 340,
             },
           } satisfies GraphDocument,
@@ -389,7 +389,7 @@ class StarsPanel {
       const text = new TextDecoder().decode(bytes);
       const graph = JSON.parse(text) as GraphFile;
 
-      if (graph.format !== 'stars.graph.v1') {
+      if (graph.format !== 'stars.graph.v2') {
         throw new Error(`不支持的 Stars 图格式: ${String(graph.format)}`);
       }
 
@@ -618,7 +618,7 @@ class StarsPanel {
         graph: await this.withDerivedFileMetadata(graph),
         view: {
           selectedNodeId: graph.rootNodeId,
-          selectedEdgeId: null,
+          selectedLinkId: null,
           sidebarWidth: 340,
         },
       } satisfies GraphDocument,
@@ -778,13 +778,13 @@ function sanitizeView(view: RuntimeViewState | undefined, graph: GraphFile): Run
   const selectedNodeId = view?.selectedNodeId && graph.nodes[view.selectedNodeId]
     ? view.selectedNodeId
     : null;
-  const selectedEdgeId = view?.selectedEdgeId && graph.edges[view.selectedEdgeId]
-    ? view.selectedEdgeId
+  const selectedLinkId = view?.selectedLinkId && graph.links[view.selectedLinkId]
+    ? view.selectedLinkId
     : null;
 
   return {
     selectedNodeId,
-    selectedEdgeId: selectedNodeId ? null : selectedEdgeId,
+    selectedLinkId: selectedNodeId ? null : selectedLinkId,
     sidebarWidth: view?.sidebarWidth ?? 340,
   };
 }
@@ -850,7 +850,7 @@ function createDefaultGraphFile(): GraphFile {
   const rootNodeId = 'origin-root';
 
   return {
-    format: 'stars.graph.v1',
+    format: 'stars.graph.v2',
     graphId: 'main',
     revision: 0,
     rootNodeId,
@@ -865,7 +865,7 @@ function createDefaultGraphFile(): GraphFile {
         updatedAt: now,
       },
     },
-    edges: {},
+    links: {},
     adjacency: {
       [rootNodeId]: [],
     },
@@ -898,7 +898,7 @@ function createDefaultGraphFile(): GraphFile {
         },
       },
     },
-    edgeTypes: {
+    linkTypes: {
       related: {
         id: 'related',
         label: '关联',
@@ -944,7 +944,7 @@ function createDefaultGraphFile(): GraphFile {
         focusRadius: 20,
         proximityRange: 300,
         hoverStopRange: 30,
-        edgeHoverDistance: 10,
+        linkHoverDistance: 10,
         maxNodeScaleMultiplier: 4,
         maxTextScaleMultiplier: 2,
         baseLabelFontSize: 11,

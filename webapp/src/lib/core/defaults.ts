@@ -1,4 +1,4 @@
-import type { EdgeTypeDefinition, GraphConfig, GraphDocument, GraphFile, NodeTypeDefinition } from './schema';
+import type { LinkTypeDefinition, GraphConfig, GraphDocument, GraphFile, NodeTypeDefinition } from './schema';
 
 const now = () => Date.now();
 
@@ -32,7 +32,7 @@ export const DEFAULT_NODE_TYPES: Record<string, NodeTypeDefinition> = {
   },
 };
 
-export const DEFAULT_EDGE_TYPES: Record<string, EdgeTypeDefinition> = {
+export const DEFAULT_LINK_TYPES: Record<string, LinkTypeDefinition> = {
   related: {
     id: 'related',
     label: '关联',
@@ -79,7 +79,7 @@ export const DEFAULT_GRAPH_CONFIG: GraphConfig = {
     focusRadius: 20,
     proximityRange: 300,
     hoverStopRange: 30,
-    edgeHoverDistance: 10,
+    linkHoverDistance: 10,
     maxNodeScaleMultiplier: 4,
     maxTextScaleMultiplier: 2,
     baseLabelFontSize: 11,
@@ -113,7 +113,7 @@ export function createInitialGraph(): GraphFile {
   const rootNodeId = 'origin-root';
 
   return {
-    format: 'stars.graph.v1',
+    format: 'stars.graph.v2',
     graphId: 'main',
     revision: 0,
     rootNodeId,
@@ -128,12 +128,12 @@ export function createInitialGraph(): GraphFile {
         updatedAt: createdAt,
       },
     },
-    edges: {},
+    links: {},
     adjacency: {
       [rootNodeId]: [],
     },
     nodeTypes: DEFAULT_NODE_TYPES,
-    edgeTypes: DEFAULT_EDGE_TYPES,
+    linkTypes: DEFAULT_LINK_TYPES,
     config: structuredClone(DEFAULT_GRAPH_CONFIG),
     meta: {
       createdAt,
@@ -149,7 +149,7 @@ export function createInitialDocument(): GraphDocument {
     graph,
     view: {
       selectedNodeId: graph.rootNodeId,
-      selectedEdgeId: null,
+      selectedLinkId: null,
       sidebarWidth: 340,
     },
   };

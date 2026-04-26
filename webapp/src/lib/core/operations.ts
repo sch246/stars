@@ -1,4 +1,4 @@
-import type { EdgeId, EdgeMeta, GraphConfig, GraphFile, NodeId, NodeMeta, WorkspaceFileRef, SubgraphRef } from './schema';
+import type { LinkId, LinkMeta, GraphConfig, GraphFile, NodeId, NodeMeta, WorkspaceFileRef, SubgraphRef } from './schema';
 
 export type GraphConfigPatch = {
   layout?: Partial<GraphConfig['layout']>;
@@ -8,11 +8,11 @@ export type GraphConfigPatch = {
 
 export type GraphOperation =
   | { kind: 'createNode'; node: NodeMeta }
-  | { kind: 'restoreNode'; node: NodeMeta; edges: EdgeMeta[] }
-  | { kind: 'deleteNode'; nodeId: NodeId; deletedNode?: NodeMeta; deletedEdges?: EdgeMeta[] }
+  | { kind: 'restoreNode'; node: NodeMeta; links: LinkMeta[] }
+  | { kind: 'deleteNode'; nodeId: NodeId; deletedNode?: NodeMeta; deletedLinks?: LinkMeta[] }
   | { kind: 'patchNode'; nodeId: NodeId; patch: Partial<Pick<NodeMeta, 'label' | 'summary' | 'type' | 'color' | 'file' | 'subgraph' | 'metrics'>>; previous?: Partial<NodeMeta> }
-  | { kind: 'createEdge'; edge: EdgeMeta }
-  | { kind: 'deleteEdge'; edgeId: EdgeId; deletedEdge?: EdgeMeta }
+  | { kind: 'createLink'; link: LinkMeta }
+  | { kind: 'deleteLink'; linkId: LinkId; deletedLink?: LinkMeta }
   | { kind: 'attachFile'; nodeId: NodeId; file: WorkspaceFileRef; previous?: WorkspaceFileRef }
   | { kind: 'detachFile'; nodeId: NodeId; previous?: WorkspaceFileRef }
   | { kind: 'attachSubgraph'; nodeId: NodeId; subgraph: SubgraphRef; previous?: SubgraphRef }
@@ -62,13 +62,13 @@ function applyToDraft(graph: GraphFile, operation: GraphOperation): GraphOperati
 
       graph.nodes[operation.node.id] = operation.node;
       graph.adjacency[operation.node.id] = [];
-      operation.edges.forEach((edge) => {
-        if (!graph.nodes[edge.sourceId] || !graph.nodes[edge.targetId]) {
-          throw new GraphOperationConflict(`无法恢复关系，端点不存在: ${edge.id}`);
+      operation.links.forEach((link) => {
+        if (!graph.nodes[link.sourceId] || !graph.nodes[link.targetId]) {
+          throw new GraphOperationConflict(`无法恢复关系，端点不存在: ${link.id}`);
         }
-        graph.edges[edge.id] = edge;
-        addAdjacency(graph, edge.sourceId, edge.id);
-        addAdjacency(graph, edge.targetId, edge.id);
+        graph.links[link.id] = link;
+        addAdjacency(graph, link.sourceId, link.id);
+        addAdjacency(graph, link.targetId, link.id);
       });
 
       return { kind: 'deleteNode', nodeId: operation.node.id };
@@ -83,15 +83,15 @@ function applyToDraft(graph: GraphFile, operation: GraphOperation): GraphOperati
         throw new GraphOperationConflict('不能删除根节点');
       }
 
-      const incidentEdges = Object.values(graph.edges).filter((edge) => {
-        return edge.sourceId === operation.nodeId || edge.targetId === operation.nodeId;
+      const incidentLinks = Object.values(graph.links).filter((link) => {
+        return link.sourceId === operation.nodeId || link.targetId === operation.nodeId;
       });
 
-      incidentEdges.forEach((edge) => removeEdge(graph, edge.id));
+      incidentLinks.forEach((link) => removeLink(graph, link.id));
       delete graph.nodes[operation.nodeId];
       delete graph.adjacency[operation.nodeId];
 
-      return { kind: 'restoreNode', node, edges: incidentEdges };
+      return { kind: 'restoreNode', node, links: incidentLinks };
     }
 
     case 'patchNode': {
@@ -110,31 +110,31 @@ function applyToDraft(graph: GraphFile, operation: GraphOperation): GraphOperati
       return { kind: 'patchNode', nodeId: operation.nodeId, patch: previous };
     }
 
-    case 'createEdge': {
-      if (graph.edges[operation.edge.id]) {
-        throw new GraphOperationConflict(`关系已存在: ${operation.edge.id}`);
+    case 'createLink': {
+      if (graph.links[operation.link.id]) {
+        throw new GraphOperationConflict(`关系已存在: ${operation.link.id}`);
       }
-      if (!graph.nodes[operation.edge.sourceId]) {
-        throw new GraphOperationConflict(`关系起点不存在: ${operation.edge.sourceId}`);
+      if (!graph.nodes[operation.link.sourceId]) {
+        throw new GraphOperationConflict(`关系起点不存在: ${operation.link.sourceId}`);
       }
-      if (!graph.nodes[operation.edge.targetId]) {
-        throw new GraphOperationConflict(`关系终点不存在: ${operation.edge.targetId}`);
+      if (!graph.nodes[operation.link.targetId]) {
+        throw new GraphOperationConflict(`关系终点不存在: ${operation.link.targetId}`);
       }
 
-      graph.edges[operation.edge.id] = operation.edge;
-      addAdjacency(graph, operation.edge.sourceId, operation.edge.id);
-      addAdjacency(graph, operation.edge.targetId, operation.edge.id);
-      return { kind: 'deleteEdge', edgeId: operation.edge.id };
+      graph.links[operation.link.id] = operation.link;
+      addAdjacency(graph, operation.link.sourceId, operation.link.id);
+      addAdjacency(graph, operation.link.targetId, operation.link.id);
+      return { kind: 'deleteLink', linkId: operation.link.id };
     }
 
-    case 'deleteEdge': {
-      const edge = graph.edges[operation.edgeId];
-      if (!edge) {
-        throw new GraphOperationConflict(`关系不存在: ${operation.edgeId}`);
+    case 'deleteLink': {
+      const link = graph.links[operation.linkId];
+      if (!link) {
+        throw new GraphOperationConflict(`关系不存在: ${operation.linkId}`);
       }
 
-      removeEdge(graph, operation.edgeId);
-      return { kind: 'createEdge', edge };
+      removeLink(graph, operation.linkId);
+      return { kind: 'createLink', link };
     }
 
     case 'attachFile': {
@@ -226,20 +226,20 @@ function requireNode(graph: GraphFile, nodeId: NodeId): NodeMeta {
   return node;
 }
 
-function addAdjacency(graph: GraphFile, nodeId: NodeId, edgeId: EdgeId) {
+function addAdjacency(graph: GraphFile, nodeId: NodeId, linkId: LinkId) {
   graph.adjacency[nodeId] ??= [];
-  if (!graph.adjacency[nodeId].includes(edgeId)) {
-    graph.adjacency[nodeId].push(edgeId);
+  if (!graph.adjacency[nodeId].includes(linkId)) {
+    graph.adjacency[nodeId].push(linkId);
   }
 }
 
-function removeEdge(graph: GraphFile, edgeId: EdgeId) {
-  const edge = graph.edges[edgeId];
-  if (!edge) {
+function removeLink(graph: GraphFile, linkId: LinkId) {
+  const link = graph.links[linkId];
+  if (!link) {
     return;
   }
 
-  graph.adjacency[edge.sourceId] = (graph.adjacency[edge.sourceId] ?? []).filter((id) => id !== edgeId);
-  graph.adjacency[edge.targetId] = (graph.adjacency[edge.targetId] ?? []).filter((id) => id !== edgeId);
-  delete graph.edges[edgeId];
+  graph.adjacency[link.sourceId] = (graph.adjacency[link.sourceId] ?? []).filter((id) => id !== linkId);
+  graph.adjacency[link.targetId] = (graph.adjacency[link.targetId] ?? []).filter((id) => id !== linkId);
+  delete graph.links[linkId];
 }

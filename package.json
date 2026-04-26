@@ -63,7 +63,7 @@
             ] },
             { "trigger": "click1", "children": [
               { "trigger": "node", "command": "selectNode" },
-              { "trigger": "link", "command": "selectEdge" },
+              { "trigger": "link", "command": "selectLink" },
               { "trigger": "background", "command": "clearFocus" }
             ] },
             { "trigger": "click4", "children": [{ "trigger": "any", "command": "navigateBack" }] },
@@ -79,7 +79,7 @@
             ] },
             { "trigger": "drag2", "children": [
               { "trigger": "background", "children": [{ "trigger": "any", "command": "panCanvas" }] },
-              { "trigger": "node", "children": [{ "trigger": "node", "command": "createEdge" }] }
+              { "trigger": "node", "children": [{ "trigger": "node", "command": "createLink" }] }
             ] },
             { "trigger": "drag3", "children": [{ "trigger": "any", "children": [{ "trigger": "any", "command": "panCanvas" }] }] }
           ],

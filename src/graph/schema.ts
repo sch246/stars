@@ -1,5 +1,5 @@
 export type NodeId = string;
-export type EdgeId = string;
+export type LinkId = string;
 
 export interface WorkspaceFileRef {
   kind: 'workspace-file';
@@ -26,8 +26,8 @@ export interface NodeMeta {
   updatedAt: number;
 }
 
-export interface EdgeMeta {
-  id: EdgeId;
+export interface LinkMeta {
+  id: LinkId;
   sourceId: NodeId;
   targetId: NodeId;
   type: string;
@@ -59,7 +59,7 @@ export interface GraphConfig {
     focusRadius: number;
     proximityRange: number;
     hoverStopRange: number;
-    edgeHoverDistance: number;
+    linkHoverDistance: number;
     maxNodeScaleMultiplier: number;
     maxTextScaleMultiplier: number;
     baseLabelFontSize: number;
@@ -73,15 +73,15 @@ export interface GraphConfig {
 }
 
 export interface GraphFile {
-  format: 'stars.graph.v1';
+  format: 'stars.graph.v2';
   graphId: string;
   revision: number;
   rootNodeId: NodeId;
   nodes: Record<NodeId, NodeMeta>;
-  edges: Record<EdgeId, EdgeMeta>;
-  adjacency: Record<NodeId, EdgeId[]>;
+  links: Record<LinkId, LinkMeta>;
+  adjacency: Record<NodeId, LinkId[]>;
   nodeTypes: Record<string, unknown>;
-  edgeTypes: Record<string, unknown>;
+  linkTypes: Record<string, unknown>;
   config: GraphConfig;
   meta: {
     createdAt: number;
@@ -91,7 +91,7 @@ export interface GraphFile {
 
 export interface RuntimeViewState {
   selectedNodeId: NodeId | null;
-  selectedEdgeId: EdgeId | null;
+  selectedLinkId: LinkId | null;
   sidebarWidth: number;
 }
 

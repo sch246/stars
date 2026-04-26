@@ -7,11 +7,11 @@
   export let getDocument: () => GraphDocument;
   export let inputTree: StarsInputTree;
   export let onSelectNode: (nodeId: string) => void;
-  export let onSelectEdge: (edgeId: string) => void;
+  export let onSelectLink: (linkId: string) => void;
   export let onClearFocus: () => void;
-  export let onCreateEdge: (sourceId: string, targetId: string) => void;
+  export let onCreateLink: (sourceId: string, targetId: string) => void;
   export let onDeleteNode: (nodeId: string) => void;
-  export let onDeleteEdge: (edgeId: string) => void;
+  export let onDeleteLink: (linkId: string) => void;
   export let onOpenNode: (nodeId: string) => void;
   export let onNavigateBack: () => void;
   export let onImportFile: (pathOrUri: string) => void;
@@ -35,11 +35,11 @@
       getDocument,
       getInputTree: () => inputTree,
       onSelectNode,
-      onSelectEdge,
+      onSelectLink,
       onClearFocus,
-      onCreateEdge,
+      onCreateLink,
       onDeleteNode,
-      onDeleteEdge,
+      onDeleteLink,
       onOpenNode,
       onNavigateBack,
       onImportFile,
