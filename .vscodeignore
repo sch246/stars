@@ -12,3 +12,9 @@ vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 **/.vscode-test.*
+webapp/node_modules/**
+webapp/src/**
+webapp/package.json
+webapp/pnpm-lock.yaml
+webapp/vite.config.ts
+webapp/tsconfig.json

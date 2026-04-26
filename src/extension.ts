@@ -1,52 +1,78 @@
+import * as fs from 'node:fs';
+import { TextDecoder, TextEncoder } from 'node:util';
 import * as vscode from 'vscode';
-import { getUri } from './utilities/getUri'; // 假设存在
-import { getNonce } from './utilities/getNonce'; // 假设存在
-import { TextDecoder, TextEncoder } from 'util';
+import { applyGraphOperation, type GraphOperation } from './graph/operations';
+import type { GraphDocument, GraphFile, RuntimeViewState } from './graph/schema';
+import { getNonce } from './utilities/nonce';
 
-// ==============================
-// 扩展内部的翻译字典 (为了和 Webview 端保持一致)
-// 在实际项目中，这部分可能会从一个统一的 i18n.ts 文件导入
-// ==============================
-const extensionTranslations = {
-    "en": {
-        "status.noWorkspace": "Please open a folder to save data.",
-        "status.saved": "Stars: Saved.",
-        "fallback.origin": "Origin",
-        "fallback.summary": "Workspace Root",
-        "fallback.content": "Welcome to Stars in VSCode. Start exploring!",
-        "preset.default.includes": "Includes...",
-        "preset.default.definedAs": "Defined as...",
-        "preset.default.intuitive": "Intuitive understanding",
-        "preset.default.calculates": "Calculates...",
-        "preset.default.implies": "Implies...",
-        "preset.default.orthogonalTo": "Orthogonal to...",
-    },
-    "zh-cn": {
-        "status.noWorkspace": "星罗: 请先打开一个文件夹以保存数据。",
-        "status.saved": "星罗: 已保存。",
-        "fallback.origin": "起源",
-        "fallback.summary": "工作区根节点",
-        "fallback.content": "欢迎使用 VSCode 中的星罗系统。",
-        "preset.default.includes": "包含...",
-        "preset.default.definedAs": "定义为...",
-        "preset.default.intuitive": "直观理解",
-        "preset.default.calculates": "计算...",
-        "preset.default.implies": "意味着...",
-        "preset.default.orthogonalTo": "与...正交",
-    }
-};
-
-function t(key: string): string {
-    const langCode = vscode.env.language.toLowerCase();
-    let currentLang = 'en';
-    if (langCode.startsWith('zh')) {
-        currentLang = 'zh-cn';
-    }
-
-    const dict = extensionTranslations[currentLang as keyof typeof extensionTranslations] || extensionTranslations['en'];
-    return dict[key as keyof typeof dict] || key;
+interface WebviewRequest {
+  command: string;
+  requestId?: string;
+  document?: GraphDocument;
+  operation?: GraphOperation;
+  baseRevision?: number;
+  view?: RuntimeViewState;
+  path?: string;
+  mode?: LinkedFileOpenMode;
+  name?: string;
+  preferences?: StarsUserPreferences;
 }
-// ==============================
+
+interface WorkspaceFileInfo {
+  path: string;
+  label: string;
+  metrics: {
+    contentLength: number;
+  };
+}
+
+type StarsActionId =
+  | 'createLinkedNode'
+  | 'deleteSelectedNode'
+  | 'openSelectedFile'
+  | 'editSelectedNode'
+  | 'navigateBack'
+  | 'navigateUp'
+  | 'navigateDown'
+  | 'navigateLeft'
+  | 'navigateRight'
+  | 'focusRoot'
+  | 'togglePreferencesPanel'
+  | 'toggleCreatePanel'
+  | 'toggleInfoPanel'
+  | 'toggleSidebarPanel'
+  | 'undo'
+  | 'redo'
+  | 'resetGraph';
+
+type StarsKeyBinding = string | string[];
+
+type LinkedFileOpenMode = 'manual' | 'existingColumn' | 'always';
+
+interface StarsUserPreferences {
+  keymap: Partial<Record<StarsActionId, StarsKeyBinding>>;
+  linkedFileOpenMode: LinkedFileOpenMode;
+}
+
+const DEFAULT_KEYMAP: Record<StarsActionId, StarsKeyBinding> = {
+  createLinkedNode: 'tab',
+  deleteSelectedNode: ['d', 'delete'],
+  openSelectedFile: 'enter',
+  editSelectedNode: ['space', 'f2'],
+  navigateBack: 'b',
+  navigateUp: 'arrowup',
+  navigateDown: 'arrowdown',
+  navigateLeft: 'arrowleft',
+  navigateRight: 'arrowright',
+  focusRoot: 'h',
+  togglePreferencesPanel: 'p',
+  toggleCreatePanel: 'n',
+  toggleInfoPanel: 'i',
+  toggleSidebarPanel: 'o',
+  undo: 'ctrl+z',
+  redo: ['ctrl+y', 'ctrl+shift+z'],
+  resetGraph: 'ctrl+shift+r',
+};
 
 export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
@@ -56,149 +82,48 @@ export function activate(context: vscode.ExtensionContext) {
   );
 }
 
+export function deactivate() {}
+
 class StarsPanel {
   public static currentPanel: StarsPanel | undefined;
-  private readonly _panel: vscode.WebviewPanel;
-  private readonly _extensionUri: vscode.Uri;
-  private _disposables: vscode.Disposable[] = [];
-  private _storageUri: vscode.Uri | undefined;
-  private _fileWatcher: vscode.FileSystemWatcher | undefined;
-  private _isSaving: boolean = false;
+
+  private readonly panel: vscode.WebviewPanel;
+  private readonly extensionUri: vscode.Uri;
+  private readonly disposables: vscode.Disposable[] = [];
+  private fileWatcher: vscode.FileSystemWatcher | undefined;
+  private isSaving = false;
+  private linkedFileViewColumn: vscode.ViewColumn | undefined;
 
   private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
-      this._panel = panel;
-      this._extensionUri = extensionUri;
-      this._panel.webview.html = this._getWebviewContent(this._panel.webview, extensionUri);
+    this.panel = panel;
+    this.extensionUri = extensionUri;
+    this.panel.webview.html = this.getWebviewContent(this.panel.webview);
 
-      this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
-
-      this._initData();
-      this._panel.webview.onDidReceiveMessage(
-        async (message) => {
-          switch (message.command) {
-            case 'alert':
-              vscode.window.showInformationMessage(message.text);
-              return;
-            case 'ready':
-              console.log("Stars Extension: Webview ready, sending initial data.");
-
-              this._panel.webview.postMessage({
-                  command: 'setLanguage',
-                  lang: vscode.env.language
-              });
-
-              await this._loadAndSend();
-              return;
-            case 'saveData':
-              await this._saveToDisk(message.data);
-              return;
-            case 'resetSystem':
-              await this._saveToDisk(this._createDefaultData());
-              await this._loadAndSend();
-              return;
-          }
-        },
-        null,
-        this._disposables
-      );
-  }
-
-  private async _initData() {
-    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-        const rootUri = vscode.workspace.workspaceFolders[0].uri;
-        this._storageUri = vscode.Uri.joinPath(rootUri, '.stars.json');
-        this._setupFileWatcher(rootUri);
-    } else {
-        vscode.window.showWarningMessage("Stars: " + t('status.noWorkspace')); // 使用扩展内部翻译
-    }
-  }
-
-  private _setupFileWatcher(rootUri: vscode.Uri) {
-      const pattern = new vscode.RelativePattern(rootUri, '.stars.json');
-      this._fileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
-
-      this._fileWatcher.onDidChange(async (uri) => {
-          if (this._isSaving) {
-              this._isSaving = false;
-              return;
-          }
-          console.log("Stars: External file change detected. Reloading data.");
-          if (StarsPanel.currentPanel?._panel.webview) {
-            await this._loadAndSend();
-          }
-      });
-      this._disposables.push(this._fileWatcher);
-  }
-
-  private async _loadAndSend() {
-      if (!this._storageUri) {
-          vscode.window.showWarningMessage("Stars: " + t('status.noWorkspace')); // 使用扩展内部翻译
-          return;
+    this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+    this.panel.webview.onDidReceiveMessage((message: WebviewRequest) => {
+      void this.handleMessage(message);
+    }, null, this.disposables);
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      void this.postActiveWorkspaceFile(editor);
+    }, null, this.disposables);
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('stars.keymap') || event.affectsConfiguration('stars.linkedFileOpenMode')) {
+        void this.postUserPreferences();
       }
-      try {
-          const fileData = await vscode.workspace.fs.readFile(this._storageUri);
-          const jsonString = new TextDecoder().decode(fileData);
-          const data = JSON.parse(jsonString);
-          this._panel.webview.postMessage({ command: 'loadData', data: data });
-      } catch (e: any) {
-          console.log(`Stars Extension: Error reading .stars.json: ${e.message}. Sending default data.`);
-          const defaultData = this._createDefaultData();
-          await this._saveToDisk(defaultData);
-          this._panel.webview.postMessage({ command: 'loadData', data: defaultData });
-      }
-  }
+    }, null, this.disposables);
+    vscode.workspace.onDidSaveTextDocument((document) => {
+      void this.postGraphIfFileNodeChanged(document.uri);
+    }, null, this.disposables);
 
-  private _createDefaultData() {
-    // 动态获取本地化的默认预设
-    const localizedDefaultPresets = [
-        { label: t('preset.default.includes'), val: 'comp', color: '#0062ff' },
-        { label: t('preset.default.definedAs'), val: 'def', color: '#00ff00' },
-        { label: t('preset.default.intuitive'), val: 'ins', color: '#33ffff' },
-        { label: t('preset.default.calculates'), val: 'calc', color: '#ffaa00' },
-        { label: t('preset.default.implies'), val: 'impl', color: '#bd00ff' },
-        { label: t('preset.default.orthogonalTo'), val: 'orth', color: '#ff0055' },
-    ];
-      return {
-          data: {
-              nodes: [{
-                  uuid: "origin-root",
-                  label: t('fallback.origin'), // 使用扩展内部翻译
-                  isRoot: true,
-                  x: 0,
-                  y: 0,
-                  summary: t('fallback.summary'), // 使用扩展内部翻译
-                  content: t('fallback.content'), // 使用扩展内部翻译
-                  color: "#ffffff"
-              }],
-              links: []
-          },
-          slots: [null, null, null, null],
-          viewLayers: 1,
-          presets: JSON.parse(JSON.stringify(localizedDefaultPresets))
-      };
-  }
-
-  private async _saveToDisk(data: any) {
-      if (!this._storageUri) {
-        return;
-      }
-      try {
-          this._isSaving = true;
-          const jsonString = JSON.stringify(data, null, 2);
-          await vscode.workspace.fs.writeFile(this._storageUri, new TextEncoder().encode(jsonString));
-          vscode.window.setStatusBarMessage(t('status.saved'), 2000); // 使用扩展内部翻译
-      } catch (e) {
-          vscode.window.showErrorMessage(`Stars Save Error: ${e}`);
-      }
+    void this.setupFileWatcher();
+    void this.postActiveWorkspaceFile(vscode.window.activeTextEditor);
   }
 
   public static createOrShow(extensionUri: vscode.Uri) {
-    const column = vscode.window.activeTextEditor
-      ? vscode.window.activeTextEditor.viewColumn
-      : undefined;
+    const column = vscode.window.activeTextEditor?.viewColumn;
 
     if (StarsPanel.currentPanel) {
-      StarsPanel.currentPanel._panel.reveal(column);
+      StarsPanel.currentPanel.panel.reveal(column);
       return;
     }
 
@@ -210,7 +135,7 @@ class StarsPanel {
         enableScripts: true,
         retainContextWhenHidden: true,
         localResourceRoots: [
-          vscode.Uri.joinPath(extensionUri, 'media')
+          vscode.Uri.joinPath(extensionUri, 'webapp', 'dist'),
         ],
       }
     );
@@ -220,130 +145,828 @@ class StarsPanel {
 
   public dispose() {
     StarsPanel.currentPanel = undefined;
-    this._panel.dispose();
-    while (this._disposables.length) {
-      const x = this._disposables.pop();
-      if (x) {
-        x.dispose();
-      }
+    this.panel.dispose();
+
+    while (this.disposables.length) {
+      this.disposables.pop()?.dispose();
     }
   }
 
-  private _getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri) {
-      const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'main.js'));
-      const stylesUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'styles.css'));
-      const d3Uri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'd3.v7.min.js'));
-      const uuidUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'uuid.min.js'));
-      const markedUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'marked.min.js'));
-      const highlightJsUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'highlight.min.js'));
-      const highlightCssUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'atom-one-dark.min.css'));
-      const i18nUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'i18n.js'));
+  private async handleMessage(message: WebviewRequest) {
+    const requestId = message.requestId;
 
+    try {
+      switch (message.command) {
+        case 'loadGraph': {
+          const graph = await this.loadOrCreateGraphFile();
+          this.respond(requestId, {
+            graph: await this.withDerivedFileMetadata(graph),
+            view: {
+              selectedNodeId: graph.rootNodeId,
+              selectedEdgeId: null,
+              sidebarWidth: 340,
+            },
+          } satisfies GraphDocument);
+          return;
+        }
 
-      const nonce = getNonce();
-      return `<!DOCTYPE html>
-      <html lang="en">
-      <head>
-          <meta charset="UTF-8">
-          <meta http-equiv="Content-Security-Policy" content="
-              default-src 'none';
-              style-src ${webview.cspSource} 'unsafe-inline';
-              script-src 'nonce-${nonce}' 'unsafe-eval';
-              img-src ${webview.cspSource} https: data:;
-              connect-src 'self';
-          ">
-          <link href="${stylesUri}" rel="stylesheet">
-          <link href="${highlightCssUri}" rel="stylesheet">
-          <title>Stars</title>
-      </head>
-      <body>
-          <div id="search-controls">
-              <input type="text" id="inp-jump" class="search-input" placeholder="Jump to Node (Enter)">
-              <input type="text" id="inp-filter-node" class="search-input" placeholder="Filter Nodes Regex (Enter)">
-              <input type="text" id="inp-filter-link" class="search-input" placeholder="Filter Links Regex (Enter)">
-          </div>
-          <div id="hud">
-              <h1><span id="app-title">Stars</span> <span style="font-size:10px; opacity:0.5">v5.5</span></h1>
-              <div id="slot-bar">
-                  <!-- 移除 onclick/oncontextmenu，保留 id 和 class -->
-                  <div class="slot" id="slot-1" data-index="0"><div class="slot-circle"><span class="slot-num">1</span></div><span class="slot-name">-</span></div>
-                  <div class="slot" id="slot-2" data-index="1"><div class="slot-circle"><span class="slot-num">2</span></div><span class="slot-name">-</span></div>
-                  <div class="slot" id="slot-3" data-index="2"><div class="slot-circle"><span class="slot-num">3</span></div><span class="slot-name">-</span></div>
-                  <div class="slot" id="slot-4" data-index="3"><div class="slot-circle"><span class="slot-num">4</span></div><span class="slot-name">-</span></div>
-              </div>
-              <div id="view-controls">
-                  <span id="txt-view-range">视野范围:</span> <span id="layer-indicator">1</span> <span id="txt-layers">层</span> (<span id="txt-adjust">按 +/- 调整</span>)<br>
-                  <span id="txt-visible">当前可见:</span> <span id="visible-count">0</span> <span id="txt-nodes">节点</span>
-              </div>
-              <div id="link-mode-indicator">🔗 连线模式: 跳转以连接/Esc 取消</div>
-              <div id="key-controls" class="controls">
-                  <!-- 这部分会由 JS 动态填充 -->
-              </div>
-          </div>
+        case 'saveGraph': {
+          if (!message.document) {
+            throw new Error('saveGraph 缺少 document');
+          }
 
-          <div id="flash-message"></div>
-          <div id="relation-picker" class="overlay-menu"></div>
+          await this.saveGraphFile(message.document.graph);
+          this.respond(requestId, undefined);
+          return;
+        }
 
-          <div id="preset-editor">
-              <div class="menu-title"><span id="pe-title">预设关系编辑器</span> <span id="preset-editor-close-btn" style="float:right; cursor:pointer">✕</span></div>
-              <div class="controls" style="margin-bottom:10px; color:#666;" id="pe-desc">定义常用的连接类型。按 Enter 保存。</div>
-              <div class="preset-list" id="preset-list-container"></div>
-              <div class="preset-actions">
-                  <button id="pe-btn-add">+ 新增预设</button>
-                  <button class="btn-primary" id="pe-btn-save">保存并应用</button>
-              </div>
-          </div>
+        case 'applyOperation': {
+          if (!message.operation) {
+            throw new Error('applyOperation 缺少 operation');
+          }
+          if (typeof message.baseRevision !== 'number') {
+            throw new Error('applyOperation 缺少 baseRevision');
+          }
 
-          <div id="content-modal"><div id="modal-body"></div></div>
+          const current = await this.loadOrCreateGraphFile();
+          if (current.revision !== message.baseRevision) {
+            throw new Error(`图元文件已更新，请重新载入后再试。当前修订号: ${current.revision}`);
+          }
 
-          <div id="io-controls">
-              <button id="btn-save">保存</button>
-              <button id="btn-export">导出</button>
-              <button id="btn-reset">重置系统</button>
-              <input type="file" id="importFile" style="display:none">
-              <button id="btn-import">导入</button>
-              <button id="btn-lang">🌐 中文</button> 
-              <button id="btn-preset">预设管理</button>
-          </div>
+          const applied = applyGraphOperation(current, message.operation);
+          await this.saveGraphFile(applied.graph);
+          this.respond(requestId, {
+            document: {
+              graph: await this.withDerivedFileMetadata(applied.graph),
+              view: sanitizeView(message.view, applied.graph),
+            } satisfies GraphDocument,
+            inverse: applied.inverse,
+          });
+          return;
+        }
 
-          <div id="sidebar">
-              <input type="text" id="node-label" placeholder="概念名称">
-              <div id="node-uuid">UUID: -</div>
-              <div id="link-status">连接数: -</div>
-              <textarea id="node-summary" placeholder="简短摘要 (Markdown/HTML)..."></textarea>
-              <div id="node-color-container">
-                  <input type="color" id="node-color-input">
-                  <input type="text" id="node-color-hex" placeholder="#FFFFFF">
-              </div>
-              <textarea id="node-content" placeholder="详细笔记 (Markdown支持)..."></textarea>
-          </div>
-          <div id="sidebar-resizer"></div>
-          <div id="tooltip"></div>
-          <canvas id="canvas"></canvas>
+        case 'resetGraph': {
+          await this.saveGraphFile(createDefaultGraphFile());
+          this.respond(requestId, undefined);
+          return;
+        }
 
-          <div id="custom-dialog-overlay">
-            <div id="custom-dialog">
-                <div id="custom-dialog-msg"></div>
-                <input type="text" id="custom-dialog-input" placeholder="">
-                <div id="custom-dialog-buttons">
-                    <button id="btn-cancel">取消</button>
-                    <button id="btn-confirm" class="btn-primary">确定</button>
-                </div>
-            </div>
-          </div>
+        case 'openWorkspaceFile': {
+          if (!message.path) {
+            throw new Error('openWorkspaceFile 缺少 path');
+          }
 
-          <script nonce="${nonce}" src="${d3Uri}"></script>
-          <script nonce="${nonce}" src="${uuidUri}"></script>
-          <script nonce="${nonce}" src="${markedUri}"></script>
-          <script nonce="${nonce}" src="${highlightJsUri}"></script>
+          await this.openWorkspaceFile(message.path);
+          this.respond(requestId, undefined);
+          return;
+        }
 
-          <script nonce="${nonce}" src="${i18nUri}"></script>
-          <script nonce="${nonce}" src="${scriptUri}"></script>
-      </body>
-      </html>`;
+        case 'revealWorkspaceFile': {
+          if (!message.path) {
+            throw new Error('revealWorkspaceFile 缺少 path');
+          }
+          if (!isLinkedFileOpenMode(message.mode)) {
+            throw new Error('revealWorkspaceFile 缺少有效 mode');
+          }
+
+          this.respond(requestId, await this.revealWorkspaceFile(message.path, message.mode));
+          return;
+        }
+
+        case 'resolveWorkspaceFile': {
+          if (!message.path) {
+            throw new Error('resolveWorkspaceFile 缺少 path');
+          }
+
+          this.respond(requestId, await this.resolveWorkspaceFile(message.path));
+          return;
+        }
+
+        case 'createWorkspaceFile': {
+          if (!message.path) {
+            throw new Error('createWorkspaceFile 缺少 path');
+          }
+
+          this.respond(requestId, await this.createWorkspaceFile(message.path));
+          return;
+        }
+
+        case 'renameWorkspaceFile': {
+          if (!message.path || !message.name) {
+            throw new Error('renameWorkspaceFile 缺少 path 或 name');
+          }
+
+          this.respond(requestId, await this.renameWorkspaceFile(message.path, message.name));
+          return;
+        }
+
+        case 'loadPreferences': {
+          this.respond(requestId, getUserPreferences());
+          return;
+        }
+
+        case 'savePreferences': {
+          if (!message.preferences) {
+            throw new Error('savePreferences 缺少 preferences');
+          }
+
+          await vscode.workspace.getConfiguration('stars').update(
+            'keymap',
+            sanitizeKeymap(message.preferences.keymap as Record<string, unknown>),
+            vscode.ConfigurationTarget.Workspace
+          );
+          await vscode.workspace.getConfiguration('stars').update(
+            'linkedFileOpenMode',
+            sanitizeLinkedFileOpenMode(message.preferences.linkedFileOpenMode),
+            vscode.ConfigurationTarget.Workspace
+          );
+          this.respond(requestId, undefined);
+          await this.postUserPreferences();
+          return;
+        }
+
+        default:
+          throw new Error(`未知 Webview 命令: ${message.command}`);
+      }
+    } catch (error) {
+      this.respondError(requestId, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private respond(requestId: string | undefined, result: unknown) {
+    if (!requestId) {
+      return;
+    }
+
+    void this.panel.webview.postMessage({
+      command: 'response',
+      requestId,
+      ok: true,
+      result,
+    });
+  }
+
+  private respondError(requestId: string | undefined, error: string) {
+    if (!requestId) {
+      void vscode.window.showErrorMessage(error);
+      return;
+    }
+
+    void this.panel.webview.postMessage({
+      command: 'response',
+      requestId,
+      ok: false,
+      error,
+    });
+  }
+
+  private async setupFileWatcher() {
+    const workspaceRoot = getWorkspaceRoot();
+    if (!workspaceRoot) {
+      return;
+    }
+
+    this.fileWatcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(workspaceRoot, '.stars/main.graph.json')
+    );
+
+    this.fileWatcher.onDidChange(async () => {
+      if (this.isSaving) {
+        this.isSaving = false;
+        return;
+      }
+
+      try {
+        const graph = await this.loadOrCreateGraphFile();
+        await this.panel.webview.postMessage({
+          command: 'graphChanged',
+          document: {
+            graph: await this.withDerivedFileMetadata(graph),
+            view: {
+              selectedNodeId: graph.rootNodeId,
+              selectedEdgeId: null,
+              sidebarWidth: 340,
+            },
+          } satisfies GraphDocument,
+        });
+      } catch (error) {
+        void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+      }
+    });
+
+    this.disposables.push(this.fileWatcher);
+  }
+
+  private async loadOrCreateGraphFile(): Promise<GraphFile> {
+    const graphUri = await this.getGraphUri();
+
+    try {
+      const bytes = await vscode.workspace.fs.readFile(graphUri);
+      const text = new TextDecoder().decode(bytes);
+      const graph = JSON.parse(text) as GraphFile;
+
+      if (graph.format !== 'stars.graph.v1') {
+        throw new Error(`不支持的 Stars 图格式: ${String(graph.format)}`);
+      }
+
+      return graph;
+    } catch (error) {
+      if (isFileNotFound(error)) {
+        const graph = createDefaultGraphFile();
+        await this.saveGraphFile(graph);
+        return graph;
+      }
+
+      throw error;
+    }
+  }
+
+  private async saveGraphFile(graph: GraphFile) {
+    const graphUri = await this.getGraphUri();
+    graph.meta.updatedAt = Date.now();
+    this.isSaving = true;
+
+    await vscode.workspace.fs.writeFile(
+      graphUri,
+      new TextEncoder().encode(`${JSON.stringify(graph, null, 2)}\n`)
+    );
+    vscode.window.setStatusBarMessage('Stars: 图元文件已保存。', 2000);
+  }
+
+  private async getGraphUri(): Promise<vscode.Uri> {
+    const workspaceRoot = getWorkspaceRoot();
+    if (!workspaceRoot) {
+      throw new Error('Stars: 请先打开一个工作区。');
+    }
+
+    const starsDir = vscode.Uri.joinPath(workspaceRoot.uri, '.stars');
+    await vscode.workspace.fs.createDirectory(starsDir);
+    return vscode.Uri.joinPath(starsDir, 'main.graph.json');
+  }
+
+  private async openWorkspaceFile(relativePath: string) {
+    const workspaceRoot = getWorkspaceRoot();
+    if (!workspaceRoot) {
+      throw new Error('Stars: 请先打开一个工作区。');
+    }
+
+    const fileUri = vscode.Uri.joinPath(workspaceRoot.uri, ...relativePath.split(/[\\/]+/).filter(Boolean));
+    const document = await vscode.workspace.openTextDocument(fileUri);
+
+    const existingEditor = vscode.window.visibleTextEditors.find((editor) => sameUri(editor.document.uri, fileUri));
+    if (existingEditor) {
+      this.linkedFileViewColumn = existingEditor.viewColumn;
+      await vscode.window.showTextDocument(document, {
+        viewColumn: existingEditor.viewColumn,
+        preview: true,
+        preserveFocus: false,
+      });
+      return;
+    }
+
+    const editor = await vscode.window.showTextDocument(document, {
+      viewColumn: this.linkedFileViewColumn ?? getLinkedFileViewColumn(this.panel.viewColumn),
+      preview: true,
+      preserveFocus: false,
+    });
+    this.linkedFileViewColumn = editor.viewColumn;
+  }
+
+  private async revealWorkspaceFile(relativePath: string, mode: LinkedFileOpenMode): Promise<boolean> {
+    const workspaceRoot = getWorkspaceRoot();
+    if (!workspaceRoot) {
+      throw new Error('Stars: 请先打开一个工作区。');
+    }
+
+    if (mode === 'manual') {
+      return false;
+    }
+
+    const fileUri = vscode.Uri.joinPath(workspaceRoot.uri, ...relativePath.split(/[\\/]+/).filter(Boolean));
+    const viewColumn = mode === 'always'
+      ? this.getOrCreateLinkedFileViewColumn(fileUri)
+      : this.getExistingLinkedFileViewColumn(fileUri);
+    if (!viewColumn) {
+      return false;
+    }
+
+    const document = await vscode.workspace.openTextDocument(fileUri);
+    const editor = await vscode.window.showTextDocument(document, {
+      viewColumn,
+      preview: true,
+      preserveFocus: true,
+    });
+    this.linkedFileViewColumn = editor.viewColumn;
+    return true;
+  }
+
+  private getExistingLinkedFileViewColumn(fileUri: vscode.Uri): vscode.ViewColumn | undefined {
+    const existingEditor = vscode.window.visibleTextEditors.find((editor) => sameUri(editor.document.uri, fileUri));
+    if (existingEditor) {
+      return existingEditor.viewColumn;
+    }
+
+    if (this.linkedFileViewColumn && hasVisibleEditorInColumn(this.linkedFileViewColumn)) {
+      return this.linkedFileViewColumn;
+    }
+
+    const rightColumn = getLinkedFileViewColumn(this.panel.viewColumn);
+    return hasVisibleEditorInColumn(rightColumn) ? rightColumn : undefined;
+  }
+
+  private getOrCreateLinkedFileViewColumn(fileUri: vscode.Uri): vscode.ViewColumn {
+    return this.getExistingLinkedFileViewColumn(fileUri)
+      ?? this.linkedFileViewColumn
+      ?? getLinkedFileViewColumn(this.panel.viewColumn);
+  }
+
+  private async resolveWorkspaceFile(pathOrUri: string): Promise<WorkspaceFileInfo> {
+    return this.getWorkspaceFileInfo(await resolveWorkspaceFileUri(pathOrUri));
+  }
+
+  private async createWorkspaceFile(relativePath: string): Promise<WorkspaceFileInfo> {
+    const fileUri = getWorkspaceFileUriFromRelativePath(relativePath);
+
+    try {
+      const stat = await vscode.workspace.fs.stat(fileUri);
+      if (stat.type === vscode.FileType.Directory) {
+        throw new Error(`目标是文件夹，不能创建文件节点: ${relativePath}`);
+      }
+    } catch (error) {
+      if (!isFileNotFound(error)) {
+        throw error;
+      }
+
+      await vscode.workspace.fs.createDirectory(getParentUri(fileUri));
+      await vscode.workspace.fs.writeFile(fileUri, new Uint8Array());
+    }
+
+    return this.getWorkspaceFileInfo(fileUri);
+  }
+
+  private async renameWorkspaceFile(relativePath: string, name: string): Promise<WorkspaceFileInfo> {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      throw new Error('文件名不能为空');
+    }
+    if (/[\\/]/.test(trimmedName)) {
+      throw new Error('文件节点改名只接受文件名，不接受路径分隔符');
+    }
+
+    const sourceUri = getWorkspaceFileUriFromRelativePath(relativePath);
+    const normalizedPath = normalizeWorkspacePath(relativePath);
+    const directoryParts = normalizedPath.split('/').slice(0, -1);
+    const targetUri = getWorkspaceFileUriFromRelativePath([...directoryParts, trimmedName].filter(Boolean).join('/'));
+
+    if (!sameUri(sourceUri, targetUri)) {
+      try {
+        await vscode.workspace.fs.stat(targetUri);
+        throw new Error(`目标文件已存在: ${[...directoryParts, trimmedName].filter(Boolean).join('/')}`);
+      } catch (error) {
+        if (!isFileNotFound(error)) {
+          throw error;
+        }
+      }
+
+      await vscode.workspace.fs.rename(sourceUri, targetUri, { overwrite: false });
+    }
+
+    return this.getWorkspaceFileInfo(targetUri);
+  }
+
+  private async getWorkspaceFileInfo(fileUri: vscode.Uri): Promise<WorkspaceFileInfo> {
+    const relativePath = getWorkspaceRelativePath(fileUri);
+    if (!relativePath) {
+      throw new Error('文件不在当前工作区内');
+    }
+
+    const stat = await vscode.workspace.fs.stat(fileUri);
+    if (stat.type === vscode.FileType.Directory) {
+      throw new Error(`目标是文件夹，不能作为文件节点: ${relativePath}`);
+    }
+
+    return {
+      path: normalizeWorkspacePath(relativePath),
+      label: getFileName(relativePath),
+      metrics: {
+        contentLength: await estimateWorkspaceFileWeight(fileUri, stat.size),
+      },
+    };
+  }
+
+  private async withDerivedFileMetadata(graph: GraphFile): Promise<GraphFile> {
+    const nextGraph = structuredClone(graph) as GraphFile;
+
+    await Promise.all(Object.values(nextGraph.nodes).map(async (node) => {
+      if (!node.file?.path) {
+        return;
+      }
+
+      try {
+        const info = await this.resolveWorkspaceFile(node.file.path);
+        node.type = 'file';
+        node.label = info.label;
+        node.file = { kind: 'workspace-file', path: info.path };
+        node.metrics = info.metrics;
+      } catch {
+        node.type = 'file';
+        node.metrics = { contentLength: 0 };
+      }
+    }));
+
+    return nextGraph;
+  }
+
+  private async postGraphIfFileNodeChanged(fileUri: vscode.Uri) {
+    const relativePath = getWorkspaceRelativePath(fileUri);
+    if (!relativePath) {
+      return;
+    }
+
+    const graph = await this.loadOrCreateGraphFile().catch(() => null);
+    if (!graph || !graphReferencesFile(graph, relativePath)) {
+      return;
+    }
+
+    await this.panel.webview.postMessage({
+      command: 'graphChanged',
+      document: {
+        graph: await this.withDerivedFileMetadata(graph),
+        view: {
+          selectedNodeId: graph.rootNodeId,
+          selectedEdgeId: null,
+          sidebarWidth: 340,
+        },
+      } satisfies GraphDocument,
+    });
+  }
+
+  private async postActiveWorkspaceFile(editor: vscode.TextEditor | undefined) {
+    const relativePath = getWorkspaceRelativePath(editor?.document.uri);
+    if (!relativePath) {
+      return;
+    }
+
+    await this.panel.webview.postMessage({
+      command: 'activeWorkspaceFileChanged',
+      path: relativePath,
+    });
+  }
+
+  private async postUserPreferences() {
+    await this.panel.webview.postMessage({
+      command: 'preferencesChanged',
+      preferences: getUserPreferences(),
+    });
+  }
+
+  private getWebviewContent(webview: vscode.Webview): string {
+    const distUri = vscode.Uri.joinPath(this.extensionUri, 'webapp', 'dist');
+    const indexUri = vscode.Uri.joinPath(distUri, 'index.html');
+
+    if (!fs.existsSync(indexUri.fsPath)) {
+      return missingWebappHtml();
+    }
+
+    const nonce = getNonce();
+    let html = fs.readFileSync(indexUri.fsPath, 'utf8');
+
+    html = html.replace(
+      /<(head)>/,
+      `<$1>\n<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' ${webview.cspSource}; img-src ${webview.cspSource} https: data:; font-src ${webview.cspSource};">`
+    );
+
+    html = html.replace(/<(script)([^>]*?)>/g, `<$1 nonce="${nonce}"$2>`);
+    html = html.replace(/(src|href)="\.\/([^"]+)"/g, (_match, attr: string, assetPath: string) => {
+      const assetUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, ...assetPath.split('/')));
+      return `${attr}="${assetUri}"`;
+    });
+
+    return html;
   }
 }
 
-declare const globalThis: {
-  t?: (key: string, params?: Record<string, string | number>) => string;
-};
+function getWorkspaceRoot(): vscode.WorkspaceFolder | undefined {
+  return vscode.workspace.workspaceFolders?.[0];
+}
+
+function getWorkspaceRelativePath(uri: vscode.Uri | undefined): string | undefined {
+  if (!uri || uri.scheme !== 'file') {
+    return undefined;
+  }
+
+  const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
+  if (!workspaceFolder) {
+    return undefined;
+  }
+
+  return vscode.workspace.asRelativePath(uri, false).replace(/\\/g, '/');
+}
+
+async function resolveWorkspaceFileUri(pathOrUri: string): Promise<vscode.Uri> {
+  const trimmed = pathOrUri.trim();
+  if (!trimmed) {
+    throw new Error('文件路径不能为空');
+  }
+
+  const candidate = trimmed.startsWith('file:')
+    ? vscode.Uri.parse(trimmed)
+    : getWorkspaceFileUriFromRelativePath(trimmed);
+
+  if (!getWorkspaceRelativePath(candidate)) {
+    throw new Error('只能添加当前工作区内的文件');
+  }
+
+  return candidate;
+}
+
+function getWorkspaceFileUriFromRelativePath(relativePath: string): vscode.Uri {
+  const workspaceRoot = getWorkspaceRoot();
+  if (!workspaceRoot) {
+    throw new Error('Stars: 请先打开一个工作区。');
+  }
+
+  const normalizedPath = normalizeWorkspacePath(relativePath);
+  if (!normalizedPath || normalizedPath.startsWith('../') || normalizedPath.includes('/../')) {
+    throw new Error(`非法工作区相对路径: ${relativePath}`);
+  }
+
+  return vscode.Uri.joinPath(workspaceRoot.uri, ...normalizedPath.split('/').filter(Boolean));
+}
+
+function getParentUri(uri: vscode.Uri): vscode.Uri {
+  const parts = uri.path.split('/').filter(Boolean);
+  parts.pop();
+  return uri.with({ path: `/${parts.join('/')}` });
+}
+
+function normalizeWorkspacePath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '');
+}
+
+function getFileName(path: string): string {
+  return normalizeWorkspacePath(path).split('/').filter(Boolean).at(-1) ?? path;
+}
+
+async function estimateWorkspaceFileWeight(fileUri: vscode.Uri, size: number): Promise<number> {
+  if (size <= 0) {
+    return 0;
+  }
+
+  if (size > 2_000_000) {
+    return Math.max(1, Math.round(size / 128));
+  }
+
+  const bytes = await vscode.workspace.fs.readFile(fileUri);
+  const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+  const words = text.match(/[\p{L}\p{N}_]+/gu)?.length ?? 0;
+  return Math.max(words, Math.round(size / 128));
+}
+
+function graphReferencesFile(graph: GraphFile, relativePath: string): boolean {
+  const normalizedPath = normalizeWorkspacePath(relativePath).toLowerCase();
+  return Object.values(graph.nodes).some((node) => {
+    return node.file?.path && normalizeWorkspacePath(node.file.path).toLowerCase() === normalizedPath;
+  });
+}
+
+function sameUri(left: vscode.Uri, right: vscode.Uri): boolean {
+  return left.toString() === right.toString();
+}
+
+function hasVisibleEditorInColumn(viewColumn: vscode.ViewColumn): boolean {
+  return vscode.window.visibleTextEditors.some((editor) => editor.viewColumn === viewColumn);
+}
+
+function getLinkedFileViewColumn(graphViewColumn: vscode.ViewColumn | undefined): vscode.ViewColumn {
+  if (graphViewColumn && graphViewColumn >= vscode.ViewColumn.One && graphViewColumn < vscode.ViewColumn.Nine) {
+    return (graphViewColumn + 1) as vscode.ViewColumn;
+  }
+
+  return vscode.ViewColumn.Beside;
+}
+
+function isFileNotFound(error: unknown): boolean {
+  return error instanceof vscode.FileSystemError && error.code === 'FileNotFound';
+}
+
+function sanitizeView(view: RuntimeViewState | undefined, graph: GraphFile): RuntimeViewState {
+  const selectedNodeId = view?.selectedNodeId && graph.nodes[view.selectedNodeId]
+    ? view.selectedNodeId
+    : null;
+  const selectedEdgeId = view?.selectedEdgeId && graph.edges[view.selectedEdgeId]
+    ? view.selectedEdgeId
+    : null;
+
+  return {
+    selectedNodeId,
+    selectedEdgeId: selectedNodeId ? null : selectedEdgeId,
+    sidebarWidth: view?.sidebarWidth ?? 340,
+  };
+}
+
+function getUserPreferences(): StarsUserPreferences {
+  const configuredKeymap = vscode.workspace.getConfiguration('stars').get<Record<string, unknown>>('keymap') ?? {};
+  const linkedFileOpenMode = vscode.workspace.getConfiguration('stars').get<unknown>('linkedFileOpenMode');
+
+  return {
+    keymap: {
+      ...DEFAULT_KEYMAP,
+      ...sanitizeKeymap(configuredKeymap),
+    },
+    linkedFileOpenMode: sanitizeLinkedFileOpenMode(linkedFileOpenMode),
+  };
+}
+
+function isLinkedFileOpenMode(value: unknown): value is LinkedFileOpenMode {
+  return value === 'manual' || value === 'existingColumn' || value === 'always';
+}
+
+function sanitizeLinkedFileOpenMode(value: unknown): LinkedFileOpenMode {
+  return isLinkedFileOpenMode(value) ? value : 'existingColumn';
+}
+
+function sanitizeKeymap(rawKeymap: Record<string, unknown>): Partial<Record<StarsActionId, StarsKeyBinding>> {
+  const nextKeymap: Partial<Record<StarsActionId, StarsKeyBinding>> = {};
+  const actionIds = new Set<StarsActionId>([
+    'createLinkedNode',
+    'deleteSelectedNode',
+    'openSelectedFile',
+    'editSelectedNode',
+    'navigateBack',
+    'navigateUp',
+    'navigateDown',
+    'navigateLeft',
+    'navigateRight',
+    'focusRoot',
+    'togglePreferencesPanel',
+    'toggleCreatePanel',
+    'toggleInfoPanel',
+    'toggleSidebarPanel',
+    'undo',
+    'redo',
+    'resetGraph',
+  ]);
+
+  Object.entries(rawKeymap).forEach(([actionId, binding]) => {
+    if (!actionIds.has(actionId as StarsActionId)) {
+      return;
+    }
+
+    if (typeof binding === 'string') {
+      nextKeymap[actionId as StarsActionId] = binding;
+      return;
+    }
+
+    if (Array.isArray(binding) && binding.every((item) => typeof item === 'string')) {
+      nextKeymap[actionId as StarsActionId] = binding;
+    }
+  });
+
+  return nextKeymap;
+}
+
+function createDefaultGraphFile(): GraphFile {
+  const now = Date.now();
+  const rootNodeId = 'origin-root';
+
+  return {
+    format: 'stars.graph.v1',
+    graphId: 'main',
+    revision: 0,
+    rootNodeId,
+    nodes: {
+      [rootNodeId]: {
+        id: rootNodeId,
+        label: '起源',
+        summary: '工作区根节点',
+        type: 'concept',
+        color: '#ffffff',
+        createdAt: now,
+        updatedAt: now,
+      },
+    },
+    edges: {},
+    adjacency: {
+      [rootNodeId]: [],
+    },
+    nodeTypes: {
+      concept: {
+        id: 'concept',
+        label: '概念',
+        style: {
+          color: '#4facfe',
+          radius: 3,
+          labelVisible: 'auto',
+        },
+      },
+      file: {
+        id: 'file',
+        label: '文件',
+        style: {
+          color: '#33ffff',
+          radius: 4,
+          labelVisible: 'auto',
+        },
+      },
+      subgraph: {
+        id: 'subgraph',
+        label: '子空间',
+        style: {
+          color: '#bd00ff',
+          radius: 5,
+          labelVisible: 'auto',
+        },
+      },
+    },
+    edgeTypes: {
+      related: {
+        id: 'related',
+        label: '关联',
+        style: {
+          color: '#666666',
+          width: 1.5,
+          labelVisible: 'hover',
+          arrow: 'none',
+        },
+      },
+      dependsOn: {
+        id: 'dependsOn',
+        label: '依赖',
+        style: {
+          color: '#ffaa00',
+          width: 1.8,
+          dash: [6, 4],
+          labelVisible: 'hover',
+          arrow: 'target',
+        },
+      },
+    },
+    config: {
+      layout: {
+        engine: 'force',
+        linkDistance: 220,
+        linkStrength: 0.1,
+        chargeStrength: -180,
+        chargeDistanceMax: 2500,
+        collisionPadding: 0,
+        collisionStrength: 0.9,
+        centerStrength: 0.001,
+        alphaFloor: 0.1,
+        alphaDecay: 0.0228,
+        velocityDecay: 0.4,
+      },
+      rendering: {
+        baseNodeRadius: 3,
+        contentLengthDivisor: 10,
+        degreeRadiusBoost: 0,
+        minNodePixelSize: 3,
+        minFocusNodePixelSize: 6,
+        focusRadius: 20,
+        proximityRange: 300,
+        hoverStopRange: 30,
+        edgeHoverDistance: 10,
+        maxNodeScaleMultiplier: 4,
+        maxTextScaleMultiplier: 2,
+        baseLabelFontSize: 11,
+        minLabelPixelSize: 5,
+        labelZoomThreshold: 1,
+        dimmedOpacity: 0.3,
+        relatedOpacity: 0.7,
+        pulseSpeed: 0.002,
+      },
+      behaviors: {
+        defaults: {
+          primary: 'selectNode',
+          open: 'noop',
+          hover: 'noop',
+        },
+        nodeTypes: {
+          file: {
+            primary: 'selectNode',
+            open: 'openLinkedFile',
+          },
+          subgraph: {
+            primary: 'selectNode',
+            open: 'enterSubgraph',
+          },
+        },
+      },
+    },
+    meta: {
+      createdAt: now,
+      updatedAt: now,
+    },
+  };
+}
+
+function missingWebappHtml(): string {
+  return `<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>Stars</title></head>
+<body style="background:#050508;color:#ddd;font-family:Segoe UI,sans-serif;padding:24px">
+  <h1 style="color:#4facfe">Stars Webview 尚未构建</h1>
+  <p>请先在仓库根目录运行 <code>pnpm run build:webapp</code>，然后重新打开 Stars。</p>
+</body>
+</html>`;
+}

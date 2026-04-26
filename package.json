@@ -23,15 +23,76 @@
         "command": "stars.openGraph",
         "title": "Stars: Open Knowledge Graph"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Stars",
+      "properties": {
+        "stars.keymap": {
+          "type": "object",
+          "markdownDescription": "Stars Webview 内部动作快捷键。值可以是单个快捷键字符串，也可以是快捷键字符串数组。",
+          "default": {
+            "createLinkedNode": "tab",
+            "deleteSelectedNode": [
+              "d",
+              "delete"
+            ],
+            "openSelectedFile": "enter",
+            "editSelectedNode": [
+              "space",
+              "f2"
+            ],
+            "navigateBack": "b",
+            "navigateUp": "arrowup",
+            "navigateDown": "arrowdown",
+            "navigateLeft": "arrowleft",
+            "navigateRight": "arrowright",
+            "focusRoot": "h",
+            "togglePreferencesPanel": "p",
+            "toggleCreatePanel": "n",
+            "toggleInfoPanel": "i",
+            "toggleSidebarPanel": "o",
+            "undo": "ctrl+z",
+            "redo": [
+              "ctrl+y",
+              "ctrl+shift+z"
+            ],
+            "resetGraph": "ctrl+shift+r"
+          },
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          }
+        },
+        "stars.linkedFileOpenMode": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "existingColumn",
+            "always"
+          ],
+          "default": "existingColumn",
+          "markdownDescription": "文件节点被单击选中时，是否自动在图谱右侧的文件编辑列切换关联文件。"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "pnpm run package",
-    "compile": "pnpm run check-types && pnpm run lint && node esbuild.js",
+    "build:webapp": "pnpm --dir webapp build",
+    "compile": "pnpm run build:webapp && pnpm run check-types && pnpm run lint && node esbuild.js",
     "watch": "npm-run-all -p watch:*",
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
-    "package": "pnpm run check-types && pnpm run lint && node esbuild.js --production",
+    "package": "pnpm run build:webapp && pnpm run check-types && pnpm run lint && node esbuild.js --production",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
     "pretest": "pnpm run compile-tests && pnpm run compile && pnpm run lint",
