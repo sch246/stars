@@ -1,0 +1,224 @@
+stars 1
+
+node .gitattributes ".gitattributes" type=file file=.gitattributes
+node .gitignore ".gitignore" type=file file=.gitignore
+node .npmrc ".npmrc" type=file file=.npmrc
+node .vscode-test.mjs ".vscode-test.mjs" type=file file=.vscode-test.mjs
+node .vscode/ ".vscode" type=dir file=.vscode/
+node .vscode/extensions.json "extensions.json" type=file file=.vscode/extensions.json
+node .vscode/launch.json "launch.json" type=file file=.vscode/launch.json
+node .vscode/settings.json "settings.json" type=file file=.vscode/settings.json
+node .vscode/tasks.json "tasks.json" type=file file=.vscode/tasks.json
+node .vscodeignore ".vscodeignore" type=file file=.vscodeignore
+node CHANGELOG.md "CHANGELOG.md" type=file file=CHANGELOG.md
+node LICENSE "LICENSE" type=file file=LICENSE
+node README.md "README.md" type=file file=README.md
+node code_export.md "code_export.md" type=file file=code_export.md
+node core "内核 core/" type=module file=core/ summary=节点+带类型的边、文本格式、操作日志、lint、查询、CLI、实时查看器。零依赖。
+node core/ "core" type=dir file=core/
+node core/genesis.stars "genesis.stars" type=file file=core/genesis.stars
+node core/package.json "package.json" type=file file=core/package.json
+node core/src/ "src" type=dir file=core/src/
+node core/src/cli.ts "cli.ts" type=file file=core/src/cli.ts
+node core/src/format.ts "format.ts" type=file file=core/src/format.ts
+node core/src/lint.ts "lint.ts" type=file file=core/src/lint.ts
+node core/src/model.ts "model.ts" type=file file=core/src/model.ts
+node core/src/ops.ts "ops.ts" type=file file=core/src/ops.ts
+node core/src/query.ts "query.ts" type=file file=core/src/query.ts
+node core/src/scan.ts "scan.ts" type=file file=core/src/scan.ts
+node core/src/serve.ts "serve.ts" type=file file=core/src/serve.ts
+node core/src/store.ts "store.ts" type=file file=core/src/store.ts
+node core/test/ "test" type=dir file=core/test/
+node core/test/core.test.ts "core.test.ts" type=file file=core/test/core.test.ts
+node core/viewer/ "viewer" type=dir file=core/viewer/
+node core/viewer/d3.v7.min.js "d3.v7.min.js" type=file file=core/viewer/d3.v7.min.js
+node core/viewer/index.html "index.html" type=file file=core/viewer/index.html
+node esbuild.js "esbuild.js" type=file file=esbuild.js
+node eslint.config.mjs "eslint.config.mjs" type=file file=eslint.config.mjs
+node goal "关系编辑器" type=concept summary="重新定位:关系的编辑器与维护工具。内核(库+CLI)是本体,UI 只是视图;人和 AI 共用同一套接口。"
+node index.html "index.html" type=file file=index.html
+node media/ "media" type=dir file=media/
+node media/atom-one-dark.min.css "atom-one-dark.min.css" type=file file=media/atom-one-dark.min.css
+node media/d3.v7.min.js "d3.v7.min.js" type=file file=media/d3.v7.min.js
+node media/highlight.min.js "highlight.min.js" type=file file=media/highlight.min.js
+node media/i18n.js "i18n.js" type=file file=media/i18n.js
+node media/main.js "main.js" type=file file=media/main.js
+node media/marked.min.js "marked.min.js" type=file file=media/marked.min.js
+node media/styles.css "styles.css" type=file file=media/styles.css
+node media/uuid.min.js "uuid.min.js" type=file file=media/uuid.min.js
+node old-ext "VS Code 扩展(旧)" type=module file=src/extension.ts summary="旧架构:扩展宿主 + webview,数据存 .stars/main.graph.json。"
+node old-media "原生 JS 前端(最旧)" type=module file=media/main.js summary="已被 webapp 取代,扩展不再加载。"
+node old-webapp "Svelte webapp(旧)" type=module file=webapp/ summary="旧架构:渲染 + 输入路由树 + 偏好面板,与新内核尚未对接。"
+node package.json "package.json" type=file file=package.json
+node pic.png "pic.png" type=file file=pic.png
+node pnpm-lock.yaml "pnpm-lock.yaml" type=file file=pnpm-lock.yaml
+node repo "stars" type=dir
+node src/ "src" type=dir file=src/
+node src/extension.ts "extension.ts" type=file file=src/extension.ts
+node src/graph/ "graph" type=dir file=src/graph/
+node src/graph/operations.ts "operations.ts" type=file file=src/graph/operations.ts
+node src/graph/schema.ts "schema.ts" type=file file=src/graph/schema.ts
+node src/utilities/ "utilities" type=dir file=src/utilities/
+node src/utilities/getUri.ts "getUri.ts" type=file file=src/utilities/getUri.ts
+node src/utilities/nonce.ts "nonce.ts" type=file file=src/utilities/nonce.ts
+node stars.png "stars.png" type=file file=stars.png
+node stars_v4.json "stars_v4.json" type=file file=stars_v4.json
+node tsconfig.json "tsconfig.json" type=file file=tsconfig.json
+node universe "宇宙" kind=root summary=一切的起点。类型、规则、视图都将从这里长出来。
+node universe.stars "universe.stars" type=file file=universe.stars
+node webapp/ "webapp" type=dir file=webapp/
+node webapp/index.html "index.html" type=file file=webapp/index.html
+node webapp/package.json "package.json" type=file file=webapp/package.json
+node webapp/pnpm-lock.yaml "pnpm-lock.yaml" type=file file=webapp/pnpm-lock.yaml
+node webapp/src/ "src" type=dir file=webapp/src/
+node webapp/src/App.svelte "App.svelte" type=file file=webapp/src/App.svelte
+node webapp/src/app.css "app.css" type=file file=webapp/src/app.css
+node webapp/src/lib/ "lib" type=dir file=webapp/src/lib/
+node webapp/src/lib/core/ "core" type=dir file=webapp/src/lib/core/
+node webapp/src/lib/core/defaults.ts "defaults.ts" type=file file=webapp/src/lib/core/defaults.ts
+node webapp/src/lib/core/markdown.ts "markdown.ts" type=file file=webapp/src/lib/core/markdown.ts
+node webapp/src/lib/core/operations.ts "operations.ts" type=file file=webapp/src/lib/core/operations.ts
+node webapp/src/lib/core/preferences.ts "preferences.ts" type=file file=webapp/src/lib/core/preferences.ts
+node webapp/src/lib/core/schema.ts "schema.ts" type=file file=webapp/src/lib/core/schema.ts
+node webapp/src/lib/input/ "input" type=dir file=webapp/src/lib/input/
+node webapp/src/lib/input/inputConstraints.ts "inputConstraints.ts" type=file file=webapp/src/lib/input/inputConstraints.ts
+node webapp/src/lib/input/inputTree.ts "inputTree.ts" type=file file=webapp/src/lib/input/inputTree.ts
+node webapp/src/lib/persistence/ "persistence" type=dir file=webapp/src/lib/persistence/
+node webapp/src/lib/persistence/defaultrepository.ts "defaultrepository.ts" type=file file=webapp/src/lib/persistence/defaultrepository.ts
+node webapp/src/lib/persistence/indexeddb.ts "indexeddb.ts" type=file file=webapp/src/lib/persistence/indexeddb.ts
+node webapp/src/lib/persistence/repository.ts "repository.ts" type=file file=webapp/src/lib/persistence/repository.ts
+node webapp/src/lib/persistence/vscoderepository.ts "vscoderepository.ts" type=file file=webapp/src/lib/persistence/vscoderepository.ts
+node webapp/src/lib/runtime/ "runtime" type=dir file=webapp/src/lib/runtime/
+node webapp/src/lib/runtime/graphRuntime.ts "graphRuntime.ts" type=file file=webapp/src/lib/runtime/graphRuntime.ts
+node webapp/src/lib/stores/ "stores" type=dir file=webapp/src/lib/stores/
+node webapp/src/lib/stores/graph.ts "graph.ts" type=file file=webapp/src/lib/stores/graph.ts
+node webapp/src/lib/ui/ "ui" type=dir file=webapp/src/lib/ui/
+node webapp/src/lib/ui/CanvasStage.svelte "CanvasStage.svelte" type=file file=webapp/src/lib/ui/CanvasStage.svelte
+node webapp/src/lib/ui/CreatePanel.svelte "CreatePanel.svelte" type=file file=webapp/src/lib/ui/CreatePanel.svelte
+node webapp/src/lib/ui/DismissibleOverlay.svelte "DismissibleOverlay.svelte" type=file file=webapp/src/lib/ui/DismissibleOverlay.svelte
+node webapp/src/lib/ui/Hud.svelte "Hud.svelte" type=file file=webapp/src/lib/ui/Hud.svelte
+node webapp/src/lib/ui/InputTreeNodeRow.svelte "InputTreeNodeRow.svelte" type=file file=webapp/src/lib/ui/InputTreeNodeRow.svelte
+node webapp/src/lib/ui/PreferencesPanel.svelte "PreferencesPanel.svelte" type=file file=webapp/src/lib/ui/PreferencesPanel.svelte
+node webapp/src/lib/ui/Sidebar.svelte "Sidebar.svelte" type=file file=webapp/src/lib/ui/Sidebar.svelte
+node webapp/src/main.ts "main.ts" type=file file=webapp/src/main.ts
+node webapp/src/vite-env.d.ts "vite-env.d.ts" type=file file=webapp/src/vite-env.d.ts
+node webapp/tsconfig.json "tsconfig.json" type=file file=webapp/tsconfig.json
+node webapp/vite.config.ts "vite.config.ts" type=file file=webapp/vite.config.ts
+node ~concept "概念" kind=nodeType color=#4facfe
+node ~contains "包含" kind=edgeType summary="A 包含 B。形成树状结构,不能有环,B 只有一个直接上级。" acyclic=true single-parent=true
+node ~dependsOn "依赖" kind=edgeType summary="A 需要 B 才能工作。"
+node ~describes "描述" kind=edgeType summary="A 解释/记录了 B。"
+node ~dir "目录" kind=nodeType color=#6b7280
+node ~file "文件" kind=nodeType color=#33ffff
+node ~module "模块" kind=nodeType color=#bd00ff
+node ~note "笔记" kind=nodeType color=#ffaa00
+node ~related "关联" kind=edgeType summary="A 与 B 有关,不分方向。" symmetric=true
+node 知识网络-域聚合力导向图.html "知识网络-域聚合力导向图.html" type=file file=知识网络-域聚合力导向图.html
+
+.vscode/ -contains-> .vscode/extensions.json
+.vscode/ -contains-> .vscode/launch.json
+.vscode/ -contains-> .vscode/settings.json
+.vscode/ -contains-> .vscode/tasks.json
+core -describes-> core/src/model.ts
+core/ -contains-> core/genesis.stars
+core/ -contains-> core/package.json
+core/ -contains-> core/src/
+core/ -contains-> core/test/
+core/ -contains-> core/viewer/
+core/src/ -contains-> core/src/cli.ts
+core/src/ -contains-> core/src/format.ts
+core/src/ -contains-> core/src/lint.ts
+core/src/ -contains-> core/src/model.ts
+core/src/ -contains-> core/src/ops.ts
+core/src/ -contains-> core/src/query.ts
+core/src/ -contains-> core/src/scan.ts
+core/src/ -contains-> core/src/serve.ts
+core/src/ -contains-> core/src/store.ts
+core/test/ -contains-> core/test/core.test.ts
+core/viewer/ -contains-> core/viewer/d3.v7.min.js
+core/viewer/ -contains-> core/viewer/index.html
+goal -dependsOn-> core
+goal -related- repo
+media/ -contains-> media/atom-one-dark.min.css
+media/ -contains-> media/d3.v7.min.js
+media/ -contains-> media/highlight.min.js
+media/ -contains-> media/i18n.js
+media/ -contains-> media/main.js
+media/ -contains-> media/marked.min.js
+media/ -contains-> media/styles.css
+media/ -contains-> media/uuid.min.js
+old-ext -dependsOn-> old-webapp status=proposed
+old-ext -describes-> src/extension.ts
+old-media -describes-> media/
+old-media -related- old-webapp status=proposed
+old-webapp -dependsOn-> core status=proposed
+old-webapp -describes-> webapp/
+repo -contains-> .gitattributes
+repo -contains-> .gitignore
+repo -contains-> .npmrc
+repo -contains-> .vscode-test.mjs
+repo -contains-> .vscode/
+repo -contains-> .vscodeignore
+repo -contains-> CHANGELOG.md
+repo -contains-> LICENSE
+repo -contains-> README.md
+repo -contains-> code_export.md
+repo -contains-> core/
+repo -contains-> esbuild.js
+repo -contains-> eslint.config.mjs
+repo -contains-> index.html
+repo -contains-> media/
+repo -contains-> package.json
+repo -contains-> pic.png
+repo -contains-> pnpm-lock.yaml
+repo -contains-> src/
+repo -contains-> stars.png
+repo -contains-> stars_v4.json
+repo -contains-> tsconfig.json
+repo -contains-> universe.stars
+repo -contains-> webapp/
+repo -contains-> 知识网络-域聚合力导向图.html
+src/ -contains-> src/extension.ts
+src/ -contains-> src/graph/
+src/ -contains-> src/utilities/
+src/graph/ -contains-> src/graph/operations.ts
+src/graph/ -contains-> src/graph/schema.ts
+src/utilities/ -contains-> src/utilities/getUri.ts
+src/utilities/ -contains-> src/utilities/nonce.ts
+webapp/ -contains-> webapp/index.html
+webapp/ -contains-> webapp/package.json
+webapp/ -contains-> webapp/pnpm-lock.yaml
+webapp/ -contains-> webapp/src/
+webapp/ -contains-> webapp/tsconfig.json
+webapp/ -contains-> webapp/vite.config.ts
+webapp/src/ -contains-> webapp/src/App.svelte
+webapp/src/ -contains-> webapp/src/app.css
+webapp/src/ -contains-> webapp/src/lib/
+webapp/src/ -contains-> webapp/src/main.ts
+webapp/src/ -contains-> webapp/src/vite-env.d.ts
+webapp/src/lib/ -contains-> webapp/src/lib/core/
+webapp/src/lib/ -contains-> webapp/src/lib/input/
+webapp/src/lib/ -contains-> webapp/src/lib/persistence/
+webapp/src/lib/ -contains-> webapp/src/lib/runtime/
+webapp/src/lib/ -contains-> webapp/src/lib/stores/
+webapp/src/lib/ -contains-> webapp/src/lib/ui/
+webapp/src/lib/core/ -contains-> webapp/src/lib/core/defaults.ts
+webapp/src/lib/core/ -contains-> webapp/src/lib/core/markdown.ts
+webapp/src/lib/core/ -contains-> webapp/src/lib/core/operations.ts
+webapp/src/lib/core/ -contains-> webapp/src/lib/core/preferences.ts
+webapp/src/lib/core/ -contains-> webapp/src/lib/core/schema.ts
+webapp/src/lib/input/ -contains-> webapp/src/lib/input/inputConstraints.ts
+webapp/src/lib/input/ -contains-> webapp/src/lib/input/inputTree.ts
+webapp/src/lib/persistence/ -contains-> webapp/src/lib/persistence/defaultrepository.ts
+webapp/src/lib/persistence/ -contains-> webapp/src/lib/persistence/indexeddb.ts
+webapp/src/lib/persistence/ -contains-> webapp/src/lib/persistence/repository.ts
+webapp/src/lib/persistence/ -contains-> webapp/src/lib/persistence/vscoderepository.ts
+webapp/src/lib/runtime/ -contains-> webapp/src/lib/runtime/graphRuntime.ts
+webapp/src/lib/stores/ -contains-> webapp/src/lib/stores/graph.ts
+webapp/src/lib/ui/ -contains-> webapp/src/lib/ui/CanvasStage.svelte
+webapp/src/lib/ui/ -contains-> webapp/src/lib/ui/CreatePanel.svelte
+webapp/src/lib/ui/ -contains-> webapp/src/lib/ui/DismissibleOverlay.svelte
+webapp/src/lib/ui/ -contains-> webapp/src/lib/ui/Hud.svelte
+webapp/src/lib/ui/ -contains-> webapp/src/lib/ui/InputTreeNodeRow.svelte
+webapp/src/lib/ui/ -contains-> webapp/src/lib/ui/PreferencesPanel.svelte
+webapp/src/lib/ui/ -contains-> webapp/src/lib/ui/Sidebar.svelte

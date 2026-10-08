@@ -1,0 +1,175 @@
+// 关系的体检:不是"能不能存",而是"关系有没有烂掉"。
+// 规则刻意写成独立的小函数,以后加规则只需往 RULES 里加一项。
+
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { type Universe, SCHEMA_PREFIX, isSchemaId, schemaNode } from './model.ts';
+
+export type Severity = 'error' | 'warn' | 'info';
+
+export interface Issue {
+  rule: string;
+  severity: Severity;
+  message: string;
+  nodes: string[];
+  edge?: { from: string; type: string; to: string };
+}
+
+export interface LintOptions {
+  /** 节点 file 属性相对于哪个目录;不给则跳过文件检查 */
+  baseDir?: string;
+  fileExists?: (absPath: string) => boolean;
+}
+
+type Rule = (u: Universe, o: LintOptions) => Issue[];
+
+const dangling: Rule = (u) =>
+  [...u.edges.values()].flatMap((e) =>
+    [e.from, e.to].filter((id) => !u.nodes.has(id)).map((id): Issue => ({
+      rule: 'dangling-edge', severity: 'error', nodes: [],
+      edge: { from: e.from, type: e.type, to: e.to },
+      message: `边 ${e.from} -${e.type}-> ${e.to} 指向不存在的节点 ${id}`,
+    })),
+  );
+
+const undeclaredEdgeType: Rule = (u) => {
+  const seen = new Set<string>();
+  const out: Issue[] = [];
+  for (const e of u.edges.values()) {
+    if (seen.has(e.type)) continue;
+    seen.add(e.type);
+    if (schemaNode(u, e.type)?.attrs.kind !== 'edgeType') {
+      out.push({
+        rule: 'undeclared-edge-type', severity: 'warn', nodes: [],
+        message: `边类型 "${e.type}" 未声明(需要节点 ${SCHEMA_PREFIX}${e.type} kind=edgeType)`,
+      });
+    }
+  }
+  return out;
+};
+
+const undeclaredNodeType: Rule = (u) => {
+  const seen = new Set<string>();
+  const out: Issue[] = [];
+  for (const n of u.nodes.values()) {
+    const t = n.attrs.type;
+    if (t === undefined || seen.has(t)) continue;
+    seen.add(t);
+    if (schemaNode(u, t)?.attrs.kind !== 'nodeType') {
+      out.push({
+        rule: 'undeclared-node-type', severity: 'warn', nodes: [n.id],
+        message: `节点类型 "${t}" 未声明(需要节点 ${SCHEMA_PREFIX}${t} kind=nodeType),例如 ${n.id}`,
+      });
+    }
+  }
+  return out;
+};
+
+/** 声明了 acyclic=true 的边类型不能成环。 */
+const cycle: Rule = (u) => {
+  const out: Issue[] = [];
+  for (const s of u.nodes.values()) {
+    if (s.attrs.kind !== 'edgeType' || s.attrs.acyclic !== 'true') continue;
+    const type = s.id.slice(SCHEMA_PREFIX.length);
+    const next = new Map<string, string[]>();
+    for (const e of u.edges.values()) {
+      if (e.type === type) next.set(e.from, [...(next.get(e.from) ?? []), e.to]);
+    }
+    const state = new Map<string, 1 | 2>();
+    const stack: string[] = [];
+    const visit = (id: string): void => {
+      state.set(id, 1);
+      stack.push(id);
+      for (const to of next.get(id) ?? []) {
+        if (state.get(to) === 1) {
+          const loop = [...stack.slice(stack.indexOf(to)), to];
+          out.push({
+            rule: 'cycle', severity: 'error', nodes: loop.slice(0, -1),
+            edge: { from: id, type, to },
+            message: `${type} 出现环: ${loop.join(' → ')}`,
+          });
+        } else if (!state.has(to)) visit(to);
+      }
+      stack.pop();
+      state.set(id, 2);
+    };
+    for (const id of next.keys()) if (!state.has(id)) visit(id);
+  }
+  return out;
+};
+
+/** 声明了 single-parent=true 的边类型,每个节点最多一条入边。 */
+const multipleParents: Rule = (u) => {
+  const out: Issue[] = [];
+  for (const s of u.nodes.values()) {
+    if (s.attrs.kind !== 'edgeType' || s.attrs['single-parent'] !== 'true') continue;
+    const type = s.id.slice(SCHEMA_PREFIX.length);
+    const parents = new Map<string, string[]>();
+    for (const e of u.edges.values()) {
+      if (e.type === type) parents.set(e.to, [...(parents.get(e.to) ?? []), e.from]);
+    }
+    for (const [id, ps] of parents) {
+      if (ps.length > 1) {
+        out.push({
+          rule: 'multiple-parents', severity: 'error', nodes: [id],
+          message: `${id} 有 ${ps.length} 个 ${type} 上级: ${ps.join(', ')}`,
+        });
+      }
+    }
+  }
+  return out;
+};
+
+const missingFile: Rule = (u, o) => {
+  if (!o.baseDir) return [];
+  const exists = o.fileExists ?? existsSync;
+  const out: Issue[] = [];
+  for (const n of u.nodes.values()) {
+    const f = n.attrs.file;
+    if (!f) continue;
+    const path = f.split('#')[0]!;
+    if (!exists(resolve(o.baseDir, path))) {
+      out.push({ rule: 'missing-file', severity: 'warn', nodes: [n.id], message: `${n.id} 指向的文件不存在: ${path}` });
+    }
+  }
+  return out;
+};
+
+const orphan: Rule = (u) => {
+  const touched = new Set<string>();
+  for (const e of u.edges.values()) {
+    touched.add(e.from);
+    touched.add(e.to);
+  }
+  return [...u.nodes.values()]
+    .filter((n) => !isSchemaId(n.id) && n.attrs.kind !== 'root' && !touched.has(n.id))
+    .map((n): Issue => ({ rule: 'orphan', severity: 'info', nodes: [n.id], message: `孤儿节点 ${n.id}(没有任何关系)` }));
+};
+
+const proposed: Rule = (u) =>
+  [...u.edges.values()]
+    .filter((e) => e.attrs.status === 'proposed')
+    .map((e): Issue => ({
+      rule: 'proposed', severity: 'info', nodes: [e.from, e.to],
+      edge: { from: e.from, type: e.type, to: e.to },
+      message: `待确认: ${e.from} -${e.type}-> ${e.to}`,
+    }));
+
+export const RULES: Record<string, Rule> = {
+  'dangling-edge': dangling,
+  'undeclared-edge-type': undeclaredEdgeType,
+  'undeclared-node-type': undeclaredNodeType,
+  cycle,
+  'multiple-parents': multipleParents,
+  'missing-file': missingFile,
+  orphan,
+  proposed,
+};
+
+const ORDER: Record<Severity, number> = { error: 0, warn: 1, info: 2 };
+
+export function lint(u: Universe, options: LintOptions = {}): Issue[] {
+  return Object.values(RULES)
+    .flatMap((rule) => rule(u, options))
+    .sort((a, b) => ORDER[a.severity] - ORDER[b.severity]);
+}
