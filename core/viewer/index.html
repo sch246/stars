@@ -46,6 +46,32 @@
   #hint { position: fixed; left: 12px; bottom: 10px; color: var(--muted); font-size: 12px; }
   kbd { border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font: inherit; }
   @media (max-width: 760px) { #side { display: none; } }
+  #modes { display: flex; gap: 6px; margin-top: 8px; }
+  #editor { left: 12px; top: 270px; width: 430px; max-height: calc(100vh - 300px); display: flex; flex-direction: column; gap: 6px; }
+  #editor[hidden], #timeline[hidden], #legend[hidden], #replaybar[hidden] { display: none; }
+  #ed-head { display: flex; justify-content: space-between; align-items: baseline; }
+  #ed-head b { color: #fff; } #ed-head span { color: var(--muted); font-size: 12px; }
+  #ed-text { width: 100%; min-height: 230px; flex: 1; resize: vertical; background: #06060d; color: #cfd6ff; border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px; font: 12px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace; outline: none; tab-size: 2; white-space: pre; }
+  #ed-text:focus { border-color: var(--accent); }
+  #ed-msg { font-size: 12px; min-height: 18px; max-height: 90px; overflow: auto; }
+  #ed-msg .ok { color: #7be0a0; } #ed-msg .bad { color: var(--warn); display: block; }
+  .btns { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .btn { cursor: pointer; padding: 2px 10px; border-radius: 7px; border: 1px solid var(--line); color: var(--text); background: #12121f; user-select: none; }
+  .btn:hover { border-color: var(--accent); } .btn.pri { background: #2a4a9c; border-color: #4a6fd0; color: #fff; }
+  .btns input { width: 110px; padding: 2px 6px; }
+  #ed-ref { font-size: 12px; color: var(--muted); } #ed-ref summary { cursor: pointer; }
+  #ed-ref code { color: #b8c4ff; }
+  #timeline { left: 50%; transform: translateX(-50%); bottom: 34px; width: min(900px, calc(100vw - 700px)); min-width: 420px; }
+  #tl-head { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+  #tl-head .info { color: var(--muted); font-size: 12px; margin-left: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1; }
+  #tl-wrap { overflow-x: auto; overflow-y: hidden; }
+  #tl-svg text { fill: #9aa0c8; font-size: 10px; }
+  #tl-svg .c { cursor: pointer; } #tl-svg .c:hover circle { stroke: #fff; }
+  #legend { right: 12px; bottom: 34px; width: 230px; }
+  #legend .bar { height: 8px; border-radius: 4px; margin: 6px 0 2px; }
+  #legend .lab { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
+  #replaybar { left: 50%; top: 12px; transform: translateX(-50%); border-color: #4a6fd0; background: #101a3acc; display: flex; gap: 10px; align-items: center; }
 </style>
 </head>
 <body>
@@ -56,12 +82,42 @@
   <input id="q" placeholder="过滤节点… ( / )" autocomplete="off">
   <div id="chips"></div>
   <div id="status">连接中…</div>
+  <div id="modes"><span class="vbtn" id="btn-edit">✎ 视图规则</span><span class="vbtn" id="btn-time">⏱ 时间线</span></div>
 </div>
+<div class="panel" id="editor" hidden>
+  <div id="ed-head"><b id="ed-name"></b><span>JSON · 改动即时预览,保存后写入宇宙</span></div>
+  <textarea id="ed-text" spellcheck="false"></textarea>
+  <div id="ed-msg"></div>
+  <div class="btns">
+    <span class="btn pri" id="ed-save">保存到宇宙</span>
+    <span class="btn" id="ed-revert">还原</span>
+    <input id="ed-as" placeholder="另存为…" autocomplete="off"><span class="btn" id="ed-saveas">另存</span>
+    <span class="btn" id="ed-del" title="删除宇宙里的这个自定义视图">删除</span>
+  </div>
+  <details id="ed-ref"><summary>字段速查</summary>
+    <div><code>select</code> onlyTypes / hideTypes / withRelations · <code>expand</code> depth, auto.radiusPx</div>
+    <div><code>size[]</code> when, attr | signal(+recency.halfLifeDays) | by:"degree", rollup, scale(sqrt/log/linear), range</div>
+    <div><code>color[]</code> when, by: type | attr:x | group | recency(signal, halfLifeDays, from, to, rollup), value</div>
+    <div><code>style[]</code> when, shape: dot/star/nebula/ringed/pulsar</div>
+    <div><code>relations</code> 边类型 → mode: region/orbit/line/faint/hidden, distance, strength, color, arrow, spin(<code>*</code> 为兜底)</div>
+    <div>规则按顺序匹配,<b>第一条</b>生效;<code>when</code> 是 key=value 相等(type 匹配节点类型)。信号:touched / fileChanged。</div>
+  </details>
+</div>
+<div class="panel" id="timeline" hidden>
+  <div id="tl-head">
+    <span class="btn" id="tl-first" title="最早">⏮</span><span class="btn" id="tl-prev" title="上一步 ←">◀</span>
+    <span class="btn pri" id="tl-play" title="播放">▶</span><span class="btn" id="tl-next" title="下一步 →">▶</span>
+    <span class="btn" id="tl-now" title="回到现在 Esc">现在</span><span class="info" id="tl-info"></span>
+  </div>
+  <div id="tl-wrap"><svg id="tl-svg"></svg></div>
+</div>
+<div class="panel" id="legend" hidden></div>
+<div class="panel" id="replaybar" hidden></div>
 <div class="panel" id="side"></div>
 <div id="hint"><kbd>/</kbd> 过滤 · <kbd>Esc</kbd> 取消 · 点击节点聚焦 · 滚轮缩放 · 拖动平移/拖节点 · <kbd>F</kbd> 适应窗口 · 双击/<kbd>E</kbd> 展开收起 · <kbd>0</kbd> 重置 · <kbd>1</kbd>–<kbd>5</kbd> 切换视图 · 放大自动展开</div>
 <script src="/d3.js"></script>
 <script type="module">
-import { evaluateView, listViews } from '/core/view.js';
+import { evaluateView, listViews, validateSpec } from '/core/view.js';
 import { edgeKey } from '/core/model.js';
 (() => {
   const TAU = Math.PI * 2;
@@ -88,6 +144,8 @@ import { edgeKey } from '/core/model.js';
   let selected = null, hovered = null, query = '';
   let transform = d3.zoomIdentity;
   let userMoved = false;
+  let draftSpec = null, editorDirty = false;   // 编辑器里尚未保存的视图规格(实时预览)
+  let hist = null;                 // git 提交图
   let lastUserZoom = -1e9;         // 语义缩放只响应用户自己的缩放/平移,不响应自动适应窗口
   let fresh = true;                 // 第一次收到某个视图的数据:不播放出生动画,并自动适应窗口
   let issueByNode = new Map();
@@ -155,8 +213,16 @@ import { edgeKey } from '/core/model.js';
     return u;
   }
 
+  let replay = null, liveSnap = null;   // 回放中:不应用实时更新,只记下最新的
   function ingest(snap) {
     if (snap.error) { banner(snap.error); return; }
+    liveSnap = snap;
+    if (replay) return;
+    applyData(snap);
+    if (!$('editor').hidden && !editorDirty) loadEditor(false);
+  }
+
+  function applyData(snap) {
     data = snap;
     uni = buildUniverse(snap);
     raw.clear();
@@ -182,7 +248,7 @@ import { edgeKey } from '/core/model.js';
     const opened = [], shut = [];
     const ids = new Set([...auto.keys(), ...manual.keys()]);
     for (const id of ids) { const v = manual.has(id) ? manual.get(id) : auto.get(id); (v ? opened : shut).push(id); }
-    scene = evaluateView(uni, specs[currentView], { expanded: opened, collapsed: shut });
+    scene = evaluateView(uni, draftSpec ?? specs[currentView], { expanded: opened, collapsed: shut, signals: data.signals || {}, now: Date.now() });
     look = scene.look;
     edgeColors = new Map(scene.edges.map((e) => [`${e.from}|${e.type}|${e.to}`, e.color]));
 
@@ -212,7 +278,8 @@ import { edgeKey } from '/core/model.js';
     if (selected && !sim.has(selected)) selected = null;
 
     rebuildGraph();
-    renderViews(); renderChips(); renderSide();
+    renderViews(); renderChips(); renderSide(); renderLegend();
+    layoutPanels();
     const nn = data.nodes.filter((n) => !n.id.startsWith('~')).length;
     const folded = scene.nodes.filter((n) => n.container && !n.expanded).length;
     $('status').innerHTML = `视图 <b>${scene.nodes.length}</b>/${nn} 节点 · <b>${scene.edges.length}</b> 边`
@@ -324,6 +391,7 @@ import { edgeKey } from '/core/model.js';
       ${n.attrs.summary ? `<p>${esc(n.attrs.summary)}</p>` : ''}
       ${sn && sn.container ? `<div class="sec"><div class="row"><span class="tag">容器</span><span>${sn.expanded ? '已展开' : '已收起'} · ${sn.children} 个直接子节点 · ${sn.descendants} 个后代</span></div><div class="row"><span class="tag">操作</span><span>双击 或 <kbd>E</kbd> ${sn.expanded ? '收起' : '展开'}</span></div></div>` : ''}
       ${attrs ? `<div class="sec">${attrs}</div>` : ''}
+      ${!replay && data.signals ? `<div class="sec"><div class="t">最近编辑</div><div class="row"><span class="tag">图里</span><span>${ago((data.signals.touched || {})[n.id])}</span></div>${(data.signals.fileChanged || {})[n.id] ? `<div class="row"><span class="tag">文件</span><span>${ago(data.signals.fileChanged[n.id])}</span></div>` : ''}</div>` : ''}
       <div class="sec"><div class="t">出边 ${out.length}</div>${out.map((e) => edgeRow(e, e.to, '→')).join('') || '<span class="tag">无</span>'}</div>
       <div class="sec"><div class="t">入边 ${inn.length}</div>${inn.map((e) => edgeRow(e, e.from, '←')).join('') || '<span class="tag">无</span>'}</div>
       ${sn && sn.container && !sn.expanded ? liftedSection(n.id) : ''}
@@ -369,14 +437,208 @@ import { edgeKey } from '/core/model.js';
   canvas.addEventListener('click', (ev) => { if (!find(ev.offsetX, ev.offsetY)) select(null); });
   $('q').addEventListener('input', (ev) => { query = ev.target.value.trim().toLowerCase(); });
   addEventListener('keydown', (ev) => {
-    const typing = document.activeElement === $('q');
+    const typing = ['INPUT', 'TEXTAREA'].includes(document.activeElement && document.activeElement.tagName);
     if (ev.key === '/' && !typing) { ev.preventDefault(); $('q').focus(); }
-    else if (ev.key === 'Escape') { $('q').blur(); $('q').value = ''; query = ''; select(null); }
+    else if (ev.key === 'Escape') {
+      if (typing) { document.activeElement.blur(); return; }
+      if (replay) { exitReplay(); return; }
+      $('q').value = ''; query = ''; select(null);
+    }
+    else if (!typing && !$('timeline').hidden && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')) { ev.preventDefault(); stepCommit(ev.key === 'ArrowLeft' ? -1 : 1); }
     else if (!typing && (ev.key === 'f' || ev.key === 'F')) fit();
     else if (!typing && (ev.key === 'e' || ev.key === 'E') && selected) toggleExpand(selected);
     else if (!typing && ev.key === '0') { manual.clear(); auto.clear(); recompute(); }
     else if (!typing && /^[1-9]$/.test(ev.key) && viewNames[+ev.key - 1]) setView(viewNames[+ev.key - 1]);
   });
+
+
+  // ---------- 与服务端的接口(写入需要页面内嵌的 token)----------
+  const token = (document.querySelector('meta[name=stars-token]') || {}).content || '';
+  async function api(path, body) {
+    const r = await fetch(path, {
+      method: body ? 'POST' : 'GET',
+      headers: { 'x-stars-token': token, ...(body ? { 'content-type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    return j;
+  }
+  const ago = (t) => {
+    if (!t) return '无记录';
+    const s = Math.max(0, (Date.now() - t) / 1000);
+    if (s < 60) return '刚刚'; if (s < 3600) return Math.floor(s / 60) + ' 分钟前'; if (s < 86400) return Math.floor(s / 3600) + ' 小时前';
+    if (s < 86400 * 60) return Math.floor(s / 86400) + ' 天前'; if (s < 86400 * 365) return Math.floor(s / 2592000) + ' 个月前';
+    return (s / 31536000).toFixed(1) + ' 年前';
+  };
+  const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+
+  // ---------- 视图规则编辑器:改 JSON,即时预览,保存后写进宇宙 ----------
+  const ta = $('ed-text'), msg = $('ed-msg');
+  const isCustom = (name) => !!(uni && uni.nodes.has('~view/' + name));
+  function loadEditor(clearMsg = true) {
+    if (!specs[currentView]) return;
+    ta.value = JSON.stringify(specs[currentView], null, 2);
+    $('ed-name').textContent = currentView + (isCustom(currentView) ? '' : '(内置)');
+    draftSpec = null; editorDirty = false; if (clearMsg) msg.innerHTML = '';
+  }
+  function layoutPanels() { const b = $('tools').getBoundingClientRect().bottom + 10; $('editor').style.top = b + 'px'; $('editor').style.maxHeight = `calc(100vh - ${b + 30}px)`; }
+  addEventListener('resize', layoutPanels);
+  function toggleEditor(on) {
+    layoutPanels();
+    $('editor').hidden = !on; $('btn-edit').classList.toggle('on', on);
+    if (on) loadEditor(); else if (draftSpec) { draftSpec = null; editorDirty = false; recompute(); }
+  }
+  $('btn-edit').addEventListener('click', () => toggleEditor($('editor').hidden));
+  ta.addEventListener('input', debounce(() => {
+    let spec;
+    try { spec = JSON.parse(ta.value); } catch (e) { msg.innerHTML = `<span class="bad">JSON 有误:${esc(e.message)}</span>`; return; }
+    const problems = validateSpec(spec);
+    if (problems.length) { msg.innerHTML = problems.map((p) => `<span class="bad">${esc(p)}</span>`).join(''); return; }
+    draftSpec = spec; editorDirty = true;
+    msg.innerHTML = '<span class="ok">✓ 规格有效,已预览(尚未保存)</span>';
+    recompute();
+  }, 250));
+  async function saveView(name) {
+    if (!/^[\w-]+$/.test(name)) { msg.innerHTML = '<span class="bad">视图名只能含字母、数字、_ 和 -</span>'; return; }
+    const spec = draftSpec || specs[currentView];
+    const id = '~view/' + name, compact = JSON.stringify(spec);
+    const op = uni.nodes.has(id) ? { op: 'setNode', id, set: { spec: compact } } : { op: 'addNode', id, label: name, attrs: { kind: 'view', spec: compact } };
+    try {
+      const r = await api('/api/op', { op, author: 'viewer' });
+      currentView = name; draftSpec = null; editorDirty = false; location.hash = 'view=' + name;
+      msg.innerHTML = `<span class="ok">✓ 已写入宇宙(操作 #${r.n}),可用 stars view ${esc(name)} 查看</span>`;
+    } catch (e) { msg.innerHTML = `<span class="bad">保存失败:${esc(e.message)}</span>`; }
+  }
+  $('ed-save').addEventListener('click', () => saveView(currentView));
+  $('ed-saveas').addEventListener('click', () => { const n = $('ed-as').value.trim(); if (n) saveView(n); });
+  $('ed-revert').addEventListener('click', () => { loadEditor(); recompute(); });
+  $('ed-del').addEventListener('click', async () => {
+    if (!isCustom(currentView)) { msg.innerHTML = '<span class="bad">内置视图不能删除(可以保存一个同名自定义视图来覆盖它)</span>'; return; }
+    try { await api('/api/op', { op: { op: 'removeNode', id: '~view/' + currentView }, author: 'viewer' }); msg.innerHTML = '<span class="ok">已删除</span>'; } catch (e) { msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+  });
+
+  // ---------- 图例:视图用到"新旧"时说明颜色的含义 ----------
+  function renderLegend() {
+    const spec = draftSpec || specs[currentView] || {};
+    const rc = (spec.color || []).find((c) => c.by === 'recency');
+    const el = $('legend');
+    if (!rc) { el.hidden = true; return; }
+    el.hidden = false;
+    el.innerHTML = `<div>颜色 = 多久之前动过</div><div class="bar" style="background:linear-gradient(90deg,${rc.from || '#2f3b6e'},${rc.to || '#ffcf70'})"></div>`
+      + `<div class="lab"><span>很久以前</span><span>半衰期 ${rc.halfLifeDays || 14} 天</span><span>刚刚</span></div>`;
+  }
+
+  // ---------- 时间线:宇宙文件的 git 提交图(分叉、合并都画出来),点击回放 ----------
+  const laneColor = (i) => ['#7aa7ff', '#ffb347', '#7be0a0', '#d98cff', '#ff7a90', '#5fd4e8'][i % 6];
+  let tlLayout = null, playTimer = null;
+  async function toggleTimeline(on) {
+    $('timeline').hidden = !on; $('btn-time').classList.toggle('on', on);
+    if (!on) { stopPlay(); if (replay) exitReplay(); return; }
+    try { hist = await api('/api/history'); } catch (e) { $('tl-info').textContent = '读取历史失败:' + e.message; return; }
+    renderTimeline();
+    const w = $('tl-wrap'); w.scrollLeft = w.scrollWidth;
+  }
+  $('btn-time').addEventListener('click', () => toggleTimeline($('timeline').hidden));
+
+  function renderTimeline() {
+    const svg = $('tl-svg');
+    if (!hist) return;
+    const cs = hist.commits;
+    if (!cs.length) { svg.innerHTML = ''; $('tl-info').textContent = '这个宇宙文件还没有 git 历史(先 git commit)'; return; }
+    const lanes = [], lane = new Map();
+    for (const c of cs) {
+      let i = lanes.indexOf(c.hash);
+      if (i < 0) { i = lanes.indexOf(null); if (i < 0) i = lanes.length; }
+      lane.set(c.hash, i);
+      for (let j = 0; j < lanes.length; j++) if (j !== i && lanes[j] === c.hash) lanes[j] = null;
+      const [p0, ...rest] = c.parents;
+      lanes[i] = p0 || null;
+      for (const p of rest) if (lanes.indexOf(p) < 0) { let j = lanes.indexOf(null); if (j < 0) j = lanes.length; lanes[j] = p; }
+    }
+    const nLanes = Math.max(1, ...lane.values()) + 1;
+    const dx = 40, pad = 30, N = cs.length + (hist.dirty ? 1 : 0), lh = 26;
+    const X = (idxFromNewest) => pad + (N - 1 - idxFromNewest - (hist.dirty ? 0 : 0)) * dx;
+    const pos = new Map(cs.map((c, i) => [c.hash, { x: X(i + (hist.dirty ? 1 : 0)), y: 22 + lane.get(c.hash) * lh }]));
+    const W = pad * 2 + N * dx, H = 34 + nLanes * lh;
+    let out = '';
+    for (const c of cs) for (const [k, ph] of c.parents.entries()) {
+      const a = pos.get(c.hash), b = pos.get(ph);
+      if (!b) continue;
+      const col = laneColor(k === 0 ? lane.get(c.hash) : lane.get(ph));
+      out += a.y === b.y ? `<line x1="${b.x}" y1="${b.y}" x2="${a.x}" y2="${a.y}" stroke="${col}" stroke-width="2" opacity=".8"/>`
+        : `<path d="M${b.x} ${b.y} C${b.x + dx * 0.7} ${b.y},${a.x - dx * 0.7} ${a.y},${a.x} ${a.y}" stroke="${col}" stroke-width="2" fill="none" opacity=".8"/>`;
+    }
+    if (hist.dirty && pos.get(hist.head)) {
+      const h = pos.get(hist.head);
+      out += `<line x1="${h.x}" y1="${h.y}" x2="${h.x + dx}" y2="${h.y}" stroke="#888" stroke-dasharray="3 3"/>`
+        + `<g class="c" data-work="1"><circle cx="${h.x + dx}" cy="${h.y}" r="5" fill="none" stroke="#bbb" stroke-dasharray="2 2"/><title>工作区(未提交的修改)</title></g>`
+        + `<text x="${h.x + dx}" y="${h.y - 9}" text-anchor="middle">工作区</text>`;
+    }
+    for (const c of cs) {
+      const p = pos.get(c.hash), col = laneColor(lane.get(c.hash));
+      const cur = replay && replay.hash === c.hash, merge = c.parents.length > 1;
+      out += `<g class="c" data-h="${c.hash}"><circle cx="${p.x}" cy="${p.y}" r="${cur ? 7 : 5}" fill="${merge ? '#0b0b14' : col}" stroke="${cur ? '#fff' : col}" stroke-width="${merge || cur ? 2 : 1}"/>`
+        + (merge ? `<circle cx="${p.x}" cy="${p.y}" r="2" fill="${col}"/>` : '')
+        + `<title>${esc(c.subject)}\n${esc(c.author)} · ${new Date(c.time).toLocaleString()}\n${c.hash.slice(0, 7)}${c.parents.length > 1 ? ' · 合并' : ''}</title></g>`;
+      if (c.refs.length) out += `<text x="${p.x}" y="${lane.get(c.hash) === 0 ? p.y - 10 : p.y + 17}" text-anchor="middle" style="fill:${col}">${esc(c.refs.join(' '))}</text>`;
+    }
+    svg.setAttribute('width', W); svg.setAttribute('height', H);
+    svg.innerHTML = out;
+    $('tl-info').textContent = replay ? `${replay.commit.subject} · ${replay.commit.author} · ${new Date(replay.commit.time).toLocaleString()}`
+      : `${cs.length} 个提交 · ${nLanes} 条分支线 · 点击任一提交回放那一刻的宇宙`;
+  }
+  $('tl-svg').addEventListener('click', (ev) => {
+    const g = ev.target.closest('.c'); if (!g) return;
+    if (g.dataset.work) exitReplay(); else openCommit(g.dataset.h);
+  });
+
+  async function openCommit(hash) {
+    const commit = hist.commits.find((c) => c.hash === hash);
+    if (!commit) return;
+    let st;
+    try { st = await api('/api/state?commit=' + hash); } catch (e) { $('tl-info').textContent = '读取失败:' + e.message; return; }
+    replay = { hash, commit, added: new Set(st.diff.addedNodes), changed: new Set(st.diff.changedNodes), removed: st.diff.removedNodes.length };
+    applyData({ ...(liveSnap || data), nodes: st.nodes, edges: st.edges, issues: [], signals: {} });
+    const t = performance.now();
+    for (const id of replay.added) { const n = sim.get(id); if (n) n.born = t; }
+    renderTimeline(); renderReplayBar();
+  }
+  function exitReplay() {
+    stopPlay(); replay = null; if (liveSnap) applyData(liveSnap);
+    renderTimeline(); renderReplayBar();
+  }
+  function renderReplayBar() {
+    const el = $('replaybar');
+    if (!replay) { el.hidden = true; return; }
+    el.hidden = false;
+    el.innerHTML = `<b>回放</b><span>${replay.commit.hash.slice(0, 7)} · ${esc(replay.commit.author)}</span>`
+      + `<span style="color:#7be0a0">+${replay.added.size}</span><span style="color:#ffb347">~${replay.changed.size}</span><span style="color:#ff7a90">−${replay.removed}</span>`
+      + `<span class="btn" id="rb-now">回到现在 (Esc)</span>`;
+    $('rb-now').addEventListener('click', exitReplay);
+  }
+  // 沿"第一父节点"的主线前进/后退;不在主线上时往后退到父、往前进到任一子
+  function stepCommit(dir) {
+    if (!hist || !hist.commits.length) return;
+    const byHash = new Map(hist.commits.map((c) => [c.hash, c]));
+    const cur = replay ? byHash.get(replay.hash) : null;
+    if (!cur) { if (dir < 0) openCommit(hist.head && byHash.has(hist.head) ? hist.head : hist.commits[0].hash); return; }
+    if (dir < 0) { if (cur.parents[0] && byHash.has(cur.parents[0])) openCommit(cur.parents[0]); return; }
+    const mainline = new Set(); for (let c = byHash.get(hist.head); c; c = byHash.get(c.parents[0])) mainline.add(c.hash);
+    const kids = hist.commits.filter((c) => c.parents[0] === cur.hash).sort((a, b) => (mainline.has(b.hash) - mainline.has(a.hash)) || a.time - b.time);
+    if (kids[0]) openCommit(kids[0].hash); else if (!mainline.has(cur.hash) || cur.hash === hist.head) stopPlay();
+  }
+  function stopPlay() { clearInterval(playTimer); playTimer = null; $('tl-play').textContent = '▶'; }
+  $('tl-play').addEventListener('click', () => {
+    if (playTimer) { stopPlay(); return; }
+    $('tl-play').textContent = '⏸';
+    if (!replay) { const oldest = hist.commits.filter((c) => !c.parents.length).sort((a, b) => a.time - b.time)[0] || hist.commits[hist.commits.length - 1]; openCommit(oldest.hash); }
+    playTimer = setInterval(() => stepCommit(1), 1300);
+  });
+  $('tl-prev').addEventListener('click', () => stepCommit(-1));
+  $('tl-next').addEventListener('click', () => stepCommit(1));
+  $('tl-now').addEventListener('click', exitReplay);
+  $('tl-first').addEventListener('click', () => { const o = hist.commits.filter((c) => !c.parents.length).sort((a, b) => a.time - b.time)[0]; if (o) openCommit(o.hash); });
 
   function toggleExpand(id) {
     const n = sim.get(id);
@@ -625,6 +887,10 @@ import { edgeKey } from '/core/model.js';
       if (sev === 'error' || sev === 'warn') {
         ctx.strokeStyle = rgba(sev === 'error' ? [255, 90, 90] : [255, 179, 71], 0.9 * a); ctx.lineWidth = 1.4 / k;
         ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 1.5 + 3, 0, TAU); ctx.stroke();
+      }
+      if (replay && (replay.added.has(n.id) || replay.changed.has(n.id))) {
+        ctx.strokeStyle = replay.added.has(n.id) ? 'rgba(123,224,160,0.95)' : 'rgba(255,179,71,0.95)'; ctx.lineWidth = 1.6 / k;
+        ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 1.5 + 9, 0, TAU); ctx.stroke();
       }
       if (n.id === selected) {
         ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 1.4 / k;

@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 // stars —— 人和 AI 共用的命令行入口。
-import { readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { parse, serialize } from './format.ts';
 import { lint } from './lint.ts';
+import { mergeUniverses } from './merge.ts';
 import { StarsError, getEdge, type Attrs, type Universe } from './model.ts';
 import { filterNodes, neighborhood, shortestPath, type Dir } from './query.ts';
 import { listFiles, planScan, statMeta } from './scan.ts';
+import { execFileSync } from 'node:child_process';
 import { loadSignals } from './activity.ts';
 import { BUILTIN_VIEWS, evaluateView, listViews, validateSpec } from './view.ts';
 import { startServer } from './serve.ts';
@@ -38,6 +41,8 @@ const HELP = `stars —— 关系编辑器(内核 CLI)
   views                              列出视图(内置 + 宇宙里 kind=view 的节点)
   view <name>                        计算一个视图并输出场景摘要   [--depth N 展开层数] [--expand id,id 强制展开] [--json 完整场景]
   view-set <name>                    新建/覆盖一个视图(规格会先校验)   --spec '<JSON>' 或 --from <文件>   [--label 显示名]
+  merge <base> <ours> <theirs>       按事实三方合并宇宙文件(git 合并驱动;结果写入 <ours>,有冲突退出码 1)
+  install-merge                      在当前 git 仓库里启用上面的合并驱动(写 .git/config 和 .gitattributes)
   serve                              启动实时查看器  [--port 4321] [--host 127.0.0.1]
 
 全局选项
@@ -287,6 +292,27 @@ function run(): void {
       if (u.nodes.has(id)) store.commit({ op: 'setNode', id, label: o.label, set: { spec: compact } }, ctx);
       else store.commit({ op: 'addNode', id, label: o.label ?? args[0]!, attrs: { kind: 'view', spec: compact } }, ctx);
       console.log(`${u.nodes.has(id) ? '~' : '+'} 视图 ${args[0]}${BUILTIN_VIEWS[args[0]!] ? '(覆盖同名内置视图)' : ''}`);
+      return;
+    }
+    case 'merge': {
+      need(3, 'merge <base> <ours> <theirs>');
+      const load = (f: string) => parse(existsSync(f) ? readFileSync(f, 'utf8') : '');
+      const { universe, conflicts } = mergeUniverses(load(args[0]!), load(args[1]!), load(args[2]!));
+      writeFileSync(args[1]!, serialize(universe));
+      for (const c of conflicts) console.error(`合并冲突: ${c}`);
+      if (conflicts.length > 0) process.exitCode = 1;
+      return;
+    }
+    case 'install-merge': {
+      const cli = fileURLToPath(import.meta.url);
+      const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
+      const git = (...a: string[]) => execFileSync('git', ['-C', root, ...a], { encoding: 'utf8' });
+      git('config', 'merge.stars.name', '星罗宇宙文件:按事实三方合并');
+      git('config', 'merge.stars.driver', `node ${JSON.stringify(cli)} merge %O %A %B`);
+      const attrs = resolve(root, '.gitattributes');
+      const has = existsSync(attrs) && readFileSync(attrs, 'utf8').split('\n').some((l) => l.trim() === '*.stars merge=stars');
+      if (!has) appendFileSync(attrs, '*.stars merge=stars\n');
+      console.log(`已启用:merge.stars.driver 写入 ${root}/.git/config(本机配置),${has ? '' : '.gitattributes 新增了一行 *.stars merge=stars(请提交)'}`);
       return;
     }
     case 'serve': {

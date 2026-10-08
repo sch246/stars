@@ -629,6 +629,9 @@ export function validateSpec(spec: unknown): string[] {
       if (!isObj(r)) { bad.push(`${key}[${i}] 必须是对象`); return; }
       unknownKeys(r, KEYS[key], `${key}[${i}]`);
       if (key === 'style' && !SHAPES.includes(r.shape as string)) bad.push(`style[${i}].shape 必须是 ${SHAPES.join('/')}`);
+      if (key === 'size' && r.by !== undefined && r.by !== 'degree') bad.push(`size[${i}].by 只能是 "degree"(得到 ${JSON.stringify(r.by)})`);
+      if (key === 'color' && r.by !== undefined && !(typeof r.by === 'string' && /^(type|group|recency|attr:.+)$/.test(r.by))) bad.push(`color[${i}].by 只能是 type / group / recency / attr:<属性名>(得到 ${JSON.stringify(r.by)})`);
+      if (r.rollup !== undefined && !(isObj(r.rollup) && typeof r.rollup.relation === 'string' && ['sum', 'max', 'count'].includes(r.rollup.op as string))) bad.push(`${key}[${i}].rollup 应为 {"relation":"contains","op":"sum|max|count"}`);
       if (key === 'size' && r.scale !== undefined && !['sqrt', 'log', 'linear'].includes(r.scale as string)) bad.push(`size[${i}].scale 必须是 sqrt/log/linear`);
       if (key === 'size' && r.range !== undefined && !(Array.isArray(r.range) && r.range.length === 2 && r.range.every((x) => typeof x === 'number'))) bad.push(`size[${i}].range 必须是 [最小, 最大]`);
       if (r.when !== undefined && !isObj(r.when)) bad.push(`${key}[${i}].when 必须是对象`);

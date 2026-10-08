@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# 宇宙文件按事实合并(需要运行 node core/src/cli.ts install-merge 启用驱动);操作日志只追加,取并集
+*.stars merge=stars
+*.stars.log merge=union

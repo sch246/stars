@@ -247,3 +247,11 @@ test('信号:操作日志里每个节点最近被触及的时间', async () => {
   assert.equal(out.a, Date.parse('2026-02-01'));
   assert.equal(out.b, Date.parse('2026-02-01'));
 });
+
+test('校验:能指出写错的规则取值,给 AI 和编辑器明确的反馈', async () => {
+  const { validateSpec } = await import('../src/view.ts');
+  assert.match(validateSpec({ size: [{ by: 'degre' }] }).join('\n'), /degree/);
+  assert.match(validateSpec({ color: [{ by: 'colour' }] }).join('\n'), /attr:/);
+  assert.match(validateSpec({ size: [{ rollup: { relation: 'contains', op: 'avg' } }] }).join('\n'), /rollup/);
+  assert.deepEqual(validateSpec({ color: [{ by: 'attr:ext' }, { by: 'recency', signal: 'touched' }] }), []);
+});
