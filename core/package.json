@@ -1,0 +1,13 @@
+{
+  "name": "stars-core",
+  "version": "0.0.1",
+  "private": true,
+  "description": "星罗内核:节点 + 带类型的边 + 文本格式 + CLI + 实时查看器。零依赖,需要 Node >= 22.18。",
+  "type": "module",
+  "bin": { "stars": "./src/cli.ts" },
+  "scripts": {
+    "stars": "node src/cli.ts",
+    "test": "node --test \"test/*.test.ts\""
+  },
+  "engines": { "node": ">=22.18" }
+}

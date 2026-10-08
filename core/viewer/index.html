@@ -1,0 +1,1191 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="stars-token" content="__STARS_TOKEN__">
+<title>星罗 · 宇宙</title>
+<style>
+  :root {
+    --bg: #02020a; --panel: #0b0b14c8; --line: #23233a; --text: #d8d8ea; --muted: #7a7a96;
+    --accent: #7aa7ff; --warn: #ffb347; --err: #ff5a5a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); color-scheme: dark;
+    font: 13px/1.5 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; overflow: hidden; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .panel { position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    backdrop-filter: blur(14px); padding: 10px 12px; box-shadow: 0 0 40px #0006; }
+  #tools { top: 12px; left: 12px; width: 290px; }
+  #views { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+  .vbtn { white-space: nowrap; cursor: pointer; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); user-select: none; }
+  .static #btn-time, .static #btn-review { display: none; }
+  .vbtn.on { color: #fff; border-color: var(--accent); background: #7aa7ff22; }
+  #tools input { width: 100%; background: #07070f; border: 1px solid var(--line); color: var(--text);
+    border-radius: 7px; padding: 6px 8px; font: inherit; outline: none; }
+  #tools input:focus { border-color: var(--accent); }
+  #chips { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { cursor: pointer; user-select: none; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line);
+    color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+  .chip i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .chip.on { color: var(--text); }
+  .chip:not(.on) i { opacity: .25; }
+  #status { margin-top: 8px; color: var(--muted); font-size: 12px; }
+  #status b { color: var(--text); font-weight: 600; }
+  #side { top: 12px; right: 12px; width: 320px; max-height: calc(100vh - 24px); overflow: auto; }
+  #side h3 { margin: 0 0 4px; font-size: 14px; }
+  #side .sub { color: var(--muted); font-size: 12px; word-break: break-all; }
+  #side .sec { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+  #side .sec > .t { color: var(--muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 4px; }
+  .row { display: flex; gap: 6px; padding: 1px 0; }
+  .row.link { cursor: pointer; } .row.link:hover { color: var(--accent); }
+  .tag { color: var(--muted); }
+  .sev-error { color: var(--err); } .sev-warn { color: var(--warn); } .sev-info { color: var(--muted); }
+  .author { color: var(--accent); }
+  #banner { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); background: #3a1114; color: #ffb4b4;
+    border: 1px solid var(--err); border-radius: 8px; padding: 6px 12px; display: none; max-width: 60vw; }
+  #hint { position: fixed; left: 12px; bottom: 10px; color: var(--muted); font-size: 12px; }
+  kbd { border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font: inherit; }
+  @media (max-width: 760px) { #side { display: none; } }
+  #review { left: 12px; top: 270px; width: 430px; max-height: calc(100vh - 300px); display: flex; flex-direction: column; gap: 6px; }
+  #review[hidden] { display: none; }
+  #rv-list { overflow: auto; display: flex; flex-direction: column; gap: 4px; min-height: 40px; }
+  .rv-row { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; padding: 4px 6px; border: 1px solid var(--line); border-radius: 8px; background: #0a0a14; }
+  .rv-row .t { cursor: pointer; line-height: 1.35; } .rv-row .t:hover { color: var(--accent); }
+  .rv-row .who { color: var(--muted); font-size: 11px; }
+  .rv-row .acts { display: flex; gap: 4px; }
+  .mini { cursor: pointer; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line); background: #12121f; user-select: none; }
+  .mini.ok { color: #7be0a0; } .mini.no { color: #ff7a90; } .mini:hover { border-color: currentColor; }
+  .badge { display: inline-block; min-width: 16px; padding: 0 5px; margin-left: 4px; border-radius: 999px; background: #ffd24a; color: #111; font-size: 11px; text-align: center; }
+  #modes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  #editor { left: 12px; top: 270px; width: 430px; max-height: calc(100vh - 300px); display: flex; flex-direction: column; gap: 6px; }
+  #editor[hidden], #timeline[hidden], #legend[hidden], #replaybar[hidden] { display: none; }
+  #ed-head { display: flex; justify-content: space-between; align-items: baseline; }
+  #ed-head b { color: #fff; } #ed-head span { color: var(--muted); font-size: 12px; }
+  #ed-text { width: 100%; min-height: 230px; flex: 1; resize: vertical; background: #06060d; color: #cfd6ff; border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px; font: 12px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace; outline: none; tab-size: 2; white-space: pre; }
+  #ed-text:focus { border-color: var(--accent); }
+  #ed-msg { font-size: 12px; min-height: 18px; max-height: 90px; overflow: auto; }
+  #ed-msg .ok { color: #7be0a0; } #ed-msg .bad { color: var(--warn); display: block; }
+  .btns { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .btn { cursor: pointer; padding: 2px 10px; border-radius: 7px; border: 1px solid var(--line); color: var(--text); background: #12121f; user-select: none; }
+  .btn:hover { border-color: var(--accent); } .btn.pri { background: #2a4a9c; border-color: #4a6fd0; color: #fff; }
+  .btns input { width: 110px; padding: 2px 6px; }
+  #ed-ref { font-size: 12px; color: var(--muted); } #ed-ref summary { cursor: pointer; }
+  #ed-ref code { color: #b8c4ff; }
+  #timeline { left: 50%; transform: translateX(-50%); bottom: 34px; width: min(900px, calc(100vw - 700px)); min-width: 420px; }
+  #tl-head { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+  #tl-head .info { color: var(--muted); font-size: 12px; margin-left: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1; }
+  #tl-wrap { overflow-x: auto; overflow-y: hidden; }
+  #tl-svg text { fill: #9aa0c8; font-size: 10px; }
+  #tl-svg .c { cursor: pointer; } #tl-svg .c:hover circle { stroke: #fff; }
+  #legend { right: 12px; bottom: 34px; width: 230px; }
+  #legend .bar { height: 8px; border-radius: 4px; margin: 6px 0 2px; }
+  #legend .lab { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
+  #replaybar { left: 50%; top: 12px; transform: translateX(-50%); border-color: #4a6fd0; background: #101a3acc; display: flex; gap: 10px; align-items: center; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="banner"></div>
+<div class="panel" id="tools">
+  <div id="views"></div>
+  <input id="q" placeholder="过滤节点… ( / )" autocomplete="off">
+  <div id="chips"></div>
+  <div id="status">连接中…</div>
+  <div id="modes"><span class="vbtn" id="btn-edit">✎ 视图规则</span><span class="vbtn" id="btn-time">⏱ 时间线</span><span class="vbtn" id="btn-review">✓ 审阅<span class="badge" id="rv-badge" hidden>0</span></span></div>
+</div>
+<div class="panel" id="editor" hidden>
+  <div id="ed-head"><b id="ed-name"></b><span>JSON · 改动即时预览,保存后写入宇宙</span></div>
+  <textarea id="ed-text" spellcheck="false"></textarea>
+  <div id="ed-msg"></div>
+  <div class="btns">
+    <span class="btn pri" id="ed-save">保存到宇宙</span>
+    <span class="btn" id="ed-revert">还原</span>
+    <input id="ed-as" placeholder="另存为…" autocomplete="off"><span class="btn" id="ed-saveas">另存</span>
+    <span class="btn" id="ed-del" title="删除宇宙里的这个自定义视图">删除</span>
+  </div>
+  <details id="ed-ref"><summary>字段速查</summary>
+    <div><code>select</code> onlyTypes / hideTypes / withRelations · <code>expand</code> depth, auto.radiusPx</div>
+    <div><code>size[]</code> when, attr | signal(+recency.halfLifeDays) | by:"degree", rollup, scale(sqrt/log/linear), range</div>
+    <div><code>color[]</code> when, by: type | attr:x | group | recency(signal, halfLifeDays, from, to, rollup), value</div>
+    <div><code>style[]</code> when, shape: dot/star/nebula/ringed/pulsar</div>
+    <div><code>relations</code> 边类型 → mode: region/orbit/line/faint/hidden, distance, strength, color, arrow, spin(<code>*</code> 为兜底)</div>
+    <div><b>表达式</b>(原生 JS 编译,很快):<code>size[].expr</code> 数值 · <code>color[].expr</code> 返回 #rrggbb 或 0..1(配 from/to) · <code>style[].expr</code> 返回形状名 · <code>when</code>/<code>select.where</code> 可写布尔表达式</div>
+    <div>变量:<code>id label type degree depth children descendants</code>、任意属性名(数字自动转数值)、信号 <code>touched fileChanged</code>;函数:<code>log log1p sqrt min max clamp mix hsl hash days(t) recent(t,半衰期)</code>、<code>fn.名字(...)</code>(宇宙里的函数节点,<code>stars fn-set</code> 创建)</div>
+    <div>规则按顺序匹配,<b>第一条</b>生效;<code>when</code> 是 key=value 相等(type 匹配节点类型)。信号:touched / fileChanged。</div>
+  </details>
+</div>
+<div class="panel" id="review" hidden>
+  <div id="ed-head"><b>待审阅的提议</b><span id="rv-sub"></span></div>
+  <div id="rv-list"></div>
+  <div class="btns"><span class="btn pri" id="rv-all">全部接受</span><span class="btn" id="rv-none">全部拒绝</span><span class="btn" id="rv-undo" title="撤销最近一次写入">↶ 撤销上一步</span></div>
+  <div id="rv-msg" style="font-size:12px;color:var(--muted)"></div>
+</div>
+<div class="panel" id="timeline" hidden>
+  <div id="tl-head">
+    <span class="btn" id="tl-first" title="最早">⏮</span><span class="btn" id="tl-prev" title="上一步 ←">◀</span>
+    <span class="btn pri" id="tl-play" title="播放">▶</span><span class="btn" id="tl-next" title="下一步 →">▶</span>
+    <span class="btn" id="tl-now" title="回到现在 Esc">现在</span><span class="info" id="tl-info"></span>
+  </div>
+  <div id="tl-wrap"><svg id="tl-svg"></svg></div>
+</div>
+<div class="panel" id="legend" hidden></div>
+<div class="panel" id="replaybar" hidden></div>
+<div class="panel" id="side"></div>
+<div id="hint"><kbd>/</kbd> 过滤 · <kbd>Esc</kbd> 取消 · 点击节点聚焦 · 滚轮缩放 · 拖动平移/拖节点 · <kbd>F</kbd> 适应窗口 · 双击/<kbd>E</kbd> 展开收起 · <kbd>0</kbd> 重置 · <kbd>1</kbd>–<kbd>5</kbd> 切换视图 · 放大自动展开</div>
+<script src="/d3.js"></script>
+<script type="module">
+import { compileView, listViews, validateSpec } from '/core/view.js';
+import { edgeKey } from '/core/model.js';
+import { apply } from '/core/ops.js';
+import { trackProposals } from '/core/proposals.js';
+(() => {
+  const TAU = Math.PI * 2;
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  let data = { nodes: [], edges: [], issues: [], log: [] };
+  let uni = null;                    // 内核里的 Universe(Map 结构)
+  let specs = {}, viewErrors = [], viewNames = [];
+  let scene = { look: 'galaxy', nodes: [], edges: [], expand: { relation: 'contains' } };
+  const manual = new Map();          // id -> true/false:用户手动展开/收起,优先级最高
+  const auto = new Map();            // id -> true/false:语义缩放自动决定
+  let drawNodes = [];                // 已按绘制顺序排好(星云在下),只在图变化时重建
+  let labelNodes = [], labelKey = '', labelAt = 0;
+  let regions = [];                  // 展开的容器及其可见后代
+  let known = new Set();             // 已知的宇宙节点 id(用来区分"新生"和"只是展开了")
+  let look = 'galaxy';
+  let currentView = (location.hash.match(/view=([\w-]+)/) || [])[1] || 'galaxy';
+  let es = null;
+  const sim = new Map();            // id -> 模拟节点(保留位置)
+  const raw = new Map();            // id -> 宇宙里的原始节点
+  let links = [];
+  let hiddenTypes = new Set();
+  let selected = null, hovered = null, query = '';
+  let transform = d3.zoomIdentity;
+  let userMoved = false;
+  let draftSpec = null, editorDirty = false;   // 编辑器里尚未保存的视图规格(实时预览)
+  let hist = null;                 // git 提交图
+  let lastUserZoom = -1e9;         // 语义缩放只响应用户自己的缩放/平移,不响应自动适应窗口
+  let fresh = true;                 // 第一次收到某个视图的数据:不播放出生动画,并自动适应窗口
+  let issueByNode = new Map();
+  let edgeColors = new Map();
+
+  // ---------- 颜色工具 ----------
+  const hex2rgb = (h) => { const v = parseInt(h.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
+  const mix = (a, b, t) => a.map((x, i) => Math.round(x + (b[i] - x) * t));
+  const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+
+  // ---------- 力导向 ----------
+  const simulation = d3.forceSimulation()
+    .force('link', d3.forceLink().id((d) => d.id)
+      .distance((l) => (l.distance ?? 90) + l.source.r + l.target.r)
+      .strength((l) => l.strength ?? 0.3))
+    .force('charge', d3.forceManyBody().strength((d) => -(18 + d.r * d.r * 1.1)).distanceMax(500))
+    .force('center', d3.forceCenter(0, 0).strength(0.05))
+    .force('collide', d3.forceCollide().radius((d) => d.r * 1.3 + 2))
+    .alphaDecay(0.012).alphaTarget(0.035).velocityDecay(0.42);
+
+  // 轨道关系:给"子"一个切向速度,像行星绕恒星转。转速随轨道半径衰减。
+  simulation.force('swirl', () => {
+    for (const l of links) {
+      const spin = l.spin ?? (l.mode === 'orbit' ? 1 : 0);
+      if (!spin || (l.mode !== 'orbit' && l.mode !== 'region')) continue;
+      const s = l.source, t = l.target;
+      if (t.fx != null) continue;
+      const dx = t.x - s.x, dy = t.y - s.y, d = Math.hypot(dx, dy) || 1;
+      const w = 0.07 * spin * Math.sqrt(40 / d);
+      t.vx += (-dy / d) * w; t.vy += (dx / d) * w;
+    }
+  });
+
+  // 域与域之间互相推开(祖孙除外),让每个域保持独立的疆界
+  simulation.force('regions', () => {
+    for (const r of regions) {
+      let cx = 0, cy = 0;
+      for (const m of r.members) { cx += m.x; cy += m.y; }
+      r.cx = cx / r.members.length; r.cy = cy / r.members.length;
+      r.rad = Math.max(...r.members.map((m) => Math.hypot(m.x - r.cx, m.y - r.cy) + m.r * 1.6)) + 14;
+    }
+    for (let i = 0; i < regions.length; i++) for (let j = i + 1; j < regions.length; j++) {
+      const a = regions[i], b = regions[j];
+      if (a.ancestors.has(b.id) || b.ancestors.has(a.id)) continue;
+      const dx = b.cx - a.cx, dy = b.cy - a.cy, d = Math.hypot(dx, dy) || 1, gap = a.rad + b.rad + 24 - d;
+      if (gap <= 0) continue;
+      const f = Math.min(gap * 0.012, 2.5), ux = dx / d, uy = dy / d;
+      for (const m of a.members) { m.vx -= ux * f; m.vy -= uy * f; }
+      for (const m of b.members) { m.vx += ux * f; m.vy += uy * f; }
+    }
+  });
+
+  // ---------- 数据接入 ----------
+  function connect() {
+    if (window.__STARS_STATIC__) { // 静态导出:数据内嵌,没有服务器
+      document.body.classList.add('static');
+      ingest(window.__STARS_STATIC__);
+      $('status').innerHTML += ' · <b>静态导出(只读)</b>';
+      return;
+    }
+    if (es) es.close();
+    es = new EventSource('/events');
+    es.onmessage = (ev) => handle(JSON.parse(ev.data));
+    es.onerror = () => { $('status').textContent = '连接断开,重连中…'; };
+  }
+
+  // ---------- 增量协议:snapshot 一次,之后只收新增的日志条目(ops)与实时信号(signals) ----------
+  let lastN = 0, staleLive = false, recomputeTimer = null, lastCompile = 100;
+  function handle(m) {
+    if (m.type === 'ops' || m.type === 'signals' || m.type === 'issues') {
+      if (replay) { staleLive = true; return; } // 回放中:实时更新先不动画面,退出回放时重新同步
+      if (m.type === 'ops') return applyOps(m.entries);
+      if (m.type === 'signals') return applySignals(m);
+      data.issues = m.issues; rebuildIssues(); renderSide(); renderStatus();
+      return;
+    }
+    ingest(m);
+  }
+  function resync() { if (es) es.close(); connect(); }   // 日志出现缺口等不一致:重新连接,服务端会先发一份完整快照
+  function scheduleRecompute() {
+    if (recomputeTimer) return;
+    // 编译较贵:变化很密集时按上一次编译耗时自适应地合并,保证界面不被拖死
+    recomputeTimer = setTimeout(() => { recomputeTimer = null; recompute(true); }, Math.max(120, lastCompile * 3));
+  }
+  function applyOps(entries) {
+    for (const e of entries) {
+      if (e.n <= lastN) continue;                       // 重复(快照已包含)
+      if (e.n !== lastN + 1) { resync(); return; }      // 缺口
+      try { apply(uni, e.op); } catch { resync(); return; }
+      lastN = e.n;
+      data.log.push(e); if (data.log.length > 60) data.log.shift();
+      data.proposals = data.proposals || {};
+      trackProposals(data.proposals, e);
+    }
+    data.nodes = [...uni.nodes.values()]; data.edges = [...uni.edges.values()];
+    raw.clear(); for (const n of data.nodes) raw.set(n.id, n);
+    const lv = listViews(uni); specs = lv.specs; viewErrors = Object.values(lv.errors); viewNames = Object.keys(specs);
+    if (!specs[currentView]) currentView = viewNames[0];
+    scheduleRecompute();
+    renderReview();
+    renderStatus();
+  }
+  function applySignals(m) {
+    const sg = (data.signals = data.signals || {});
+    if (m.replace) { sg.fileChanged = m.fileChanged; sg.touched = m.touched; if (m.size) sg.size = m.size; }
+    else { sg.size = Object.assign(sg.size || {}, m.size); sg.fileChanged = Object.assign(sg.fileChanged || {}, m.changed); }
+    scheduleRecompute();
+  }
+  function rebuildIssues() {
+    issueByNode = new Map();
+    for (const i of data.issues) for (const id of i.nodes) {
+      const cur = issueByNode.get(id);
+      if (!cur || i.severity === 'error' || (i.severity === 'warn' && cur !== 'error')) issueByNode.set(id, i.severity);
+    }
+  }
+
+  function buildUniverse(snap) {
+    const u = { nodes: new Map(), edges: new Map() };
+    for (const n of snap.nodes) u.nodes.set(n.id, n);
+    for (const e of snap.edges) u.edges.set(edgeKey(e.from, e.type, e.to), e);
+    return u;
+  }
+
+  let replay = null, liveSnap = null;   // 回放中:不应用实时更新,只记下最新的
+  function ingest(snap) {
+    if (snap.error) { banner(snap.error); return; }
+    liveSnap = snap;
+    lastN = snap.n || 0; staleLive = false;
+    if (replay) return;
+    applyData(snap);
+    if (!$('editor').hidden && !editorDirty) loadEditor(false);
+  }
+
+  function applyData(snap) {
+    data = snap;
+    uni = buildUniverse(snap);
+    raw.clear();
+    for (const n of snap.nodes) raw.set(n.id, n);
+    const lv = listViews(uni);
+    specs = lv.specs; viewErrors = Object.values(lv.errors); viewNames = Object.keys(specs);
+    if (!specs[currentView]) currentView = viewNames[0];
+
+    issueByNode = new Map();
+    for (const i of snap.issues) for (const id of i.nodes) {
+      const cur = issueByNode.get(id);
+      if (!cur || i.severity === 'error' || (i.severity === 'warn' && cur !== 'error')) issueByNode.set(id, i.severity);
+    }
+    recompute();
+    known = new Set(snap.nodes.map((n) => n.id));
+    if (fresh) { fresh = false; userMoved = false; setTimeout(fit, 900); setTimeout(() => { if (!userMoved) fit(); }, 3600); }
+  }
+
+  /**
+   * 视图 = f(宇宙, 规格, 展开状态)。
+   * structural=true:宇宙/规格/信号变了,重新编译(算好所有节点的外观,较贵);
+   * structural=false:只是展开/收起,复用编译结果,只做折叠(很便宜,10 万节点也在 ~20ms)。
+   */
+  let compiled = null;
+  const perf = { compileMs: 0, foldMs: 0, frameMs: 0, regionsMs: 0, edgesMs: 0, nodesMs: 0, labelsMs: 0 };
+  function recompute(structural = true) {
+    if (!uni) return;
+    banner(viewErrors.length ? viewErrors.join(';') : null);
+    const opened = [], shut = [];
+    const ids = new Set([...auto.keys(), ...manual.keys()]);
+    for (const id of ids) { const v = manual.has(id) ? manual.get(id) : auto.get(id); (v ? opened : shut).push(id); }
+    const t0 = performance.now();
+    if (structural || !compiled) {
+      try { compiled = compileView(uni, draftSpec ?? specs[currentView], { signals: data.signals || {}, now: Date.now() }); }
+      catch (err) { banner('视图无法编译: ' + err.message); return; }
+    }
+    const t1 = performance.now();
+    scene = compiled.fold({ expanded: opened, collapsed: shut });
+    if (structural) lastCompile = t1 - t0;
+    perf.compileMs = structural ? t1 - t0 : perf.compileMs; perf.foldMs = performance.now() - t1;
+    look = scene.look;
+    edgeColors = new Map(scene.edges.map((e) => [`${e.from}|${e.type}|${e.to}`, e.color]));
+
+    const seen = new Set();
+    for (const sn of scene.nodes) {
+      seen.add(sn.id);
+      let n = sim.get(sn.id);
+      if (!n) { n = { id: sn.id, x: undefined, y: undefined, born: (fresh || known.has(sn.id) || !known.size) ? 0 : performance.now(), phase: Math.random() * TAU }; sim.set(sn.id, n); }
+      for (const k of ['parent', 'container', 'expanded', 'descendants', 'children', 'kids', 'value']) n[k] = undefined;
+      Object.assign(n, sn);
+      n.rgb = hex2rgb(sn.color);
+      n.core = mix(n.rgb, [255, 255, 255], 0.65);
+      n.kidRgb = sn.kids ? sn.kids.map(([c, r]) => [hex2rgb(c), r]) : null;
+      n.tilt = (n.phase - 3) * 0.3;
+    }
+    for (const id of [...sim.keys()]) if (!seen.has(id)) sim.delete(id);
+    // 新出现的节点:出生在父容器/邻居旁边(展开时像从容器里涌出)
+    for (const n of sim.values()) {
+      if (n.x !== undefined) continue;
+      const p = n.parent && sim.get(n.parent);
+      const e = scene.edges.find((e) => (e.from === n.id && sim.get(e.to)?.x !== undefined) || (e.to === n.id && sim.get(e.from)?.x !== undefined));
+      const nb = p && p.x !== undefined ? p : e ? sim.get(e.from === n.id ? e.to : e.from) : null;
+      const a = Math.random() * TAU, d = (nb ? nb.r * 1.2 : 10) + 12 + Math.random() * 20;
+      n.x = (nb ? nb.x : 0) + Math.cos(a) * d; n.y = (nb ? nb.y : 0) + Math.sin(a) * d;
+      if (nb) { n.vx = 0; n.vy = 0; }
+    }
+    if (selected && !sim.has(selected)) selected = null;
+
+    rebuildGraph();
+    renderViews(); renderChips(); renderSide(); renderLegend(); renderReview();
+    layoutPanels();
+    renderStatus();
+  }
+
+  function renderStatus() {
+    const nn = data.nodes.filter((n) => !n.id.startsWith('~')).length;
+    const folded = scene.nodes.filter((n) => n.container && !n.expanded).length;
+    $('status').innerHTML = `视图 <b>${scene.nodes.length}</b>/${nn} 节点 · <b>${scene.edges.length}</b> 边`
+      + (folded ? ` · <b>${folded}</b> 个收起` : '') + ` · `
+      + `<span class="sev-error">${data.issues.filter((i) => i.severity === 'error').length} 错误</span> · `
+      + `<span class="sev-warn">${data.issues.filter((i) => i.severity === 'warn').length} 警告</span>`
+      + (data.watching ? ' · <b style="color:#7be0a0">● 实时同步</b>' : '');
+  }
+
+  const typeOf = (id) => (raw.get(id)?.attrs.type) || '(无类型)';
+  const visible = (n) => !hiddenTypes.has(typeOf(n.id));
+
+  function rebuildGraph() {
+    const vis = [...sim.values()].filter(visible);
+    const ids = new Set(vis.map((n) => n.id));
+    const deg = new Map();
+    links = scene.edges.filter((e) => ids.has(e.from) && ids.has(e.to)).map((e) => ({ ...e, source: e.from, target: e.to }));
+    // 域:每个展开的容器 + 它所有可见的后代
+    const kidsOf = new Map();
+    for (const n of vis) if (n.parent && ids.has(n.parent)) kidsOf.set(n.parent, [...(kidsOf.get(n.parent) || []), n]);
+    const byId = new Map(vis.map((n) => [n.id, n]));
+    regions = [];
+    for (const n of vis) {
+      if (!n.container || !n.expanded || !kidsOf.has(n.id)) continue;
+      const members = [], stack = [...kidsOf.get(n.id)];
+      while (stack.length) { const m = stack.pop(); members.push(m); stack.push(...(kidsOf.get(m.id) || [])); }
+      const ancestors = new Set();
+      for (let p = n.parent; p && byId.has(p); p = byId.get(p).parent) ancestors.add(p);
+      regions.push({ id: n.id, node: n, members: [n, ...members], ancestors, cx: n.x, cy: n.y, rad: 40 });
+    }
+    regions.sort((a, b) => b.members.length - a.members.length);
+    drawNodes = [...vis.filter((n) => n.shape === 'nebula'), ...vis.filter((n) => n.shape !== 'nebula')];
+    simulation.nodes(vis);
+    simulation.force('link').links(links);
+    simulation.alpha(0.5).restart();
+  }
+
+  function banner(msg) {
+    const b = $('banner');
+    b.style.display = msg ? 'block' : 'none';
+    b.textContent = msg ? '⚠ ' + msg : '';
+  }
+
+  // ---------- 面板 ----------
+  function renderViews() {
+    $('views').innerHTML = viewNames.map((v, i) => `<span class="vbtn ${v === currentView ? 'on' : ''}" data-v="${esc(v)}" title="按 ${i + 1}">${esc(v)}</span>`).join('');
+  }
+  function setView(v) {
+    if (!v || v === currentView) return;
+    currentView = v; location.hash = 'view=' + v; fresh = true; selected = null; hiddenTypes.clear(); manual.clear(); auto.clear();
+    for (const n of sim.values()) n.born = 0;
+    recompute();
+    fresh = false; userMoved = false; setTimeout(fit, 900); setTimeout(() => { if (!userMoved) fit(); }, 3600);
+  }
+  $('views').addEventListener('click', (ev) => { const el = ev.target.closest('.vbtn'); if (el) setView(el.dataset.v); });
+
+  function renderChips() {
+    const counts = new Map(), sample = new Map();
+    for (const n of sim.values()) { const t = typeOf(n.id); counts.set(t, (counts.get(t) || 0) + 1); sample.set(t, n); }
+    $('chips').innerHTML = [...counts].sort((a, b) => b[1] - a[1]).map(([t, c]) =>
+      `<span class="chip ${hiddenTypes.has(t) ? '' : 'on'}" data-t="${esc(t)}"><i style="background:${sample.get(t).color}"></i>${esc(t)} ${c}</span>`).join('');
+  }
+  $('chips').addEventListener('click', (ev) => {
+    const el = ev.target.closest('.chip'); if (!el) return;
+    const t = el.dataset.t;
+    if (hiddenTypes.has(t)) hiddenTypes.delete(t); else hiddenTypes.add(t);
+    rebuildGraph(); renderChips();
+  });
+
+  const fmtBytes = (b) => (b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : b >= 1024 ? (b / 1024).toFixed(1) + ' KB' : b + ' B');
+  const summ = (e) => {
+    if (e.undoOf) return `撤销 #${e.undoOf}`;
+    const o = e.op;
+    switch (o.op) {
+      case 'addNode': return `+ 节点 ${o.id}`; case 'removeNode': return `- 节点 ${o.id}`; case 'setNode': return `~ 节点 ${o.id}`;
+      case 'addEdge': return `+ ${o.from} ${o.type} ${o.to}`; case 'removeEdge': return `- ${o.from} ${o.type} ${o.to}`;
+      case 'setEdge': return `~ ${o.from} ${o.type} ${o.to}`; case 'batch': return `批量 ×${o.ops.length}`;
+    }
+    return o.op;
+  };
+
+  function renderSide() {
+    const el = $('side');
+    const n = selected && raw.get(selected);
+    const sn = selected && sim.get(selected);
+    if (!n) {
+      const feed = data.log.slice().reverse().slice(0, 14).map((e) =>
+        `<div class="row"><span class="tag">#${e.n}</span><span class="author">${esc(e.author)}</span><span>${esc(summ(e))}</span></div>`).join('');
+      const groups = new Map();
+      for (const i of data.issues.filter((i) => i.severity !== 'info')) {
+        const g = groups.get(i.rule) || { sev: i.severity, items: [] };
+        g.items.push(i); groups.set(i.rule, g);
+      }
+      const issues = [...groups].map(([rule, g]) => g.items.length <= 3
+        ? g.items.map((i) => `<div class="row sev-${g.sev}">${esc(i.message)}</div>`).join('')
+        : `<div class="row sev-${g.sev}"><b>${g.items.length} × ${esc(rule)}</b></div><div class="row sev-${g.sev}" style="opacity:.7">例如 ${esc(g.items[0].message)}</div>`).join('');
+      el.innerHTML = `<h3>宇宙</h3><div class="sub">点击任意节点查看它的关系;用上方按钮切换视图 —— 同一份关系,不同的表达</div>`
+        + (issues ? `<div class="sec"><div class="t">需要关注</div>${issues}</div>` : '')
+        + `<div class="sec"><div class="t">最近变更</div>${feed || '<span class="tag">暂无</span>'}</div>`;
+      return;
+    }
+    const out = data.edges.filter((e) => e.from === n.id), inn = data.edges.filter((e) => e.to === n.id);
+    const attrs = Object.entries(n.attrs).filter(([k]) => !['type', 'summary'].includes(k))
+      .map(([k, v]) => `<div class="row"><span class="tag">${esc(k)}</span><span>${esc(k === 'size' ? fmtBytes(+v) : v)}</span></div>`).join('');
+    const edgeRow = (e, other, arrow) => `<div class="row link" data-id="${esc(other)}"><span class="tag">${arrow}</span>`
+      + `<span style="color:${edgeColors.get(`${e.from}|${e.type}|${e.to}`) || '#8a8aa8'}">${esc(e.type)}</span><span>${esc(raw.get(other)?.label || other)}</span>`
+      + (e.attrs.status === 'proposed' ? `<span class="sev-warn">待确认</span><span class="mini ok" data-act="accept" data-from="${esc(e.from)}" data-type="${esc(e.type)}" data-to="${esc(e.to)}">✓</span><span class="mini no" data-act="reject" data-from="${esc(e.from)}" data-type="${esc(e.type)}" data-to="${esc(e.to)}">✗</span>` : (e.attrs.status ? `<span class="sev-warn">${esc(e.attrs.status)}</span>` : '')) + '</div>';
+    const myIssues = data.issues.filter((i) => i.nodes.includes(n.id));
+    el.innerHTML = `<h3 style="color:${sn ? sn.color : '#fff'}">${esc(n.label)}</h3>
+      <div class="sub">${esc(n.id)}${n.attrs.type ? ' · ' + esc(n.attrs.type) : ''}${sn && sn.value !== undefined ? ' · 视图值 ' + esc(sn.value) : ''}</div>
+      ${n.attrs.summary ? `<p>${esc(n.attrs.summary)}</p>` : ''}
+      ${sn && sn.container ? `<div class="sec"><div class="row"><span class="tag">容器</span><span>${sn.expanded ? '已展开' : '已收起'} · ${sn.children} 个直接子节点 · ${sn.descendants} 个后代</span></div><div class="row"><span class="tag">操作</span><span>双击 或 <kbd>E</kbd> ${sn.expanded ? '收起' : '展开'}</span></div></div>` : ''}
+      ${attrs ? `<div class="sec">${attrs}</div>` : ''}
+      ${!replay && data.signals ? `<div class="sec"><div class="t">最近编辑</div><div class="row"><span class="tag">图里</span><span>${ago((data.signals.touched || {})[n.id])}</span></div>${(data.signals.fileChanged || {})[n.id] ? `<div class="row"><span class="tag">文件</span><span>${ago(data.signals.fileChanged[n.id])}</span></div>` : ''}</div>` : ''}
+      <div class="sec"><div class="t">出边 ${out.length}</div>${out.map((e) => edgeRow(e, e.to, '→')).join('') || '<span class="tag">无</span>'}</div>
+      <div class="sec"><div class="t">入边 ${inn.length}</div>${inn.map((e) => edgeRow(e, e.from, '←')).join('') || '<span class="tag">无</span>'}</div>
+      ${sn && sn.container && !sn.expanded ? liftedSection(n.id) : ''}
+      ${myIssues.length ? `<div class="sec"><div class="t">问题</div>${myIssues.map((i) => `<div class="row sev-${i.severity}">${esc(i.message)}</div>`).join('')}</div>` : ''}`;
+  }
+  $('side').addEventListener('click', (ev) => { const el = ev.target.closest('.row.link'); if (el) select(el.dataset.id, true); });
+
+  function liftedSection(id) {
+    const rel = scene.expand.relation;
+    const rows = scene.edges.filter((e) => e.type !== rel && (e.from === id || e.to === id)).map((e) => {
+      const other = e.from === id ? e.to : e.from;
+      return `<div class="row link" data-id="${esc(other)}"><span class="tag">${e.from === id ? '→' : '←'}</span><span style="color:${e.color}">${esc(e.type)}</span><span>${esc(raw.get(other)?.label || other)}</span><span class="tag">×${e.count}${e.lifted ? ' · 汇总' : ''}</span>${e.lifted ? `<span class="mini ok" data-act="promote" data-from="${esc(e.from)}" data-type="${esc(e.type)}" data-to="${esc(e.to)}" data-count="${e.count}" title="把这条汇总关系提升为容器之间真实存在的边">提升</span>` : ''}</div>`;
+    });
+    return rows.length ? `<div class="sec"><div class="t">收起后的对外关系(含内部汇总)</div>${rows.join('')}</div>` : '';
+  }
+
+  function select(id, center) {
+    selected = id;
+    const n = id && sim.get(id);
+    if (n && !visible(n)) { hiddenTypes.delete(typeOf(id)); rebuildGraph(); renderChips(); }
+    if (n && center && n.x !== undefined) {
+      const t = d3.zoomIdentity.translate(innerWidth / 2 - 100, innerHeight / 2).scale(Math.max(transform.k, 1)).translate(-n.x, -n.y);
+      d3.select(canvas).transition().duration(500).call(zoom.transform, t);
+    }
+    renderSide();
+  }
+
+  // ---------- 交互 ----------
+  const find = (px, py) => {
+    const [x, y] = transform.invert([px, py]);
+    return simulation.find(x, y, 16 / transform.k + 6);
+  };
+  const zoom = d3.zoom().scaleExtent([0.08, 10])
+    .filter((ev) => !(ev.type === 'mousedown' && find(ev.offsetX, ev.offsetY)) && !ev.button)
+    .on('zoom', (ev) => { transform = ev.transform; if (ev.sourceEvent) { userMoved = true; lastUserZoom = performance.now(); } });
+  d3.select(canvas).call(zoom).on('dblclick.zoom', null);
+  d3.select(canvas).call(d3.drag()
+    .subject((ev) => find(ev.x, ev.y))
+    .on('start', (ev) => { ev.subject.fx = ev.subject.x; ev.subject.fy = ev.subject.y; ev.subject.moved = false; })
+    .on('drag', (ev) => { const [x, y] = transform.invert([ev.sourceEvent.offsetX, ev.sourceEvent.offsetY]); ev.subject.fx = x; ev.subject.fy = y; ev.subject.moved = true; })
+    .on('end', (ev) => { ev.subject.fx = null; ev.subject.fy = null; if (!ev.subject.moved) select(ev.subject.id, false); }));
+  canvas.addEventListener('mousemove', (ev) => { hovered = find(ev.offsetX, ev.offsetY) || null; canvas.style.cursor = hovered ? 'pointer' : 'default'; });
+  canvas.addEventListener('click', (ev) => { if (!find(ev.offsetX, ev.offsetY)) select(null); });
+  $('q').addEventListener('input', (ev) => { query = ev.target.value.trim().toLowerCase(); });
+  addEventListener('keydown', (ev) => {
+    const typing = ['INPUT', 'TEXTAREA'].includes(document.activeElement && document.activeElement.tagName);
+    if (ev.key === '/' && !typing) { ev.preventDefault(); $('q').focus(); }
+    else if (ev.key === 'Escape') {
+      if (typing) { document.activeElement.blur(); return; }
+      if (replay) { exitReplay(); return; }
+      $('q').value = ''; query = ''; select(null);
+    }
+    else if (!typing && !$('timeline').hidden && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')) { ev.preventDefault(); stepCommit(ev.key === 'ArrowLeft' ? -1 : 1); }
+    else if (!typing && (ev.key === 'f' || ev.key === 'F')) fit();
+    else if (!typing && (ev.key === 'e' || ev.key === 'E') && selected) toggleExpand(selected);
+    else if (!typing && ev.key === '0') { manual.clear(); auto.clear(); recompute(false); }
+    else if (!typing && /^[1-9]$/.test(ev.key) && viewNames[+ev.key - 1]) setView(viewNames[+ev.key - 1]);
+  });
+
+
+  // ---------- 与服务端的接口(写入需要页面内嵌的 token)----------
+  const token = (document.querySelector('meta[name=stars-token]') || {}).content || '';
+  async function api(path, body) {
+    if (window.__STARS_STATIC__) throw new Error('这是静态导出,只读;请连接实时查看器来保存');
+    const r = await fetch(path, {
+      method: body ? 'POST' : 'GET',
+      headers: { 'x-stars-token': token, ...(body ? { 'content-type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    return j;
+  }
+  const ago = (t) => {
+    if (!t) return '无记录';
+    const s = Math.max(0, (Date.now() - t) / 1000);
+    if (s < 60) return '刚刚'; if (s < 3600) return Math.floor(s / 60) + ' 分钟前'; if (s < 86400) return Math.floor(s / 3600) + ' 小时前';
+    if (s < 86400 * 60) return Math.floor(s / 86400) + ' 天前'; if (s < 86400 * 365) return Math.floor(s / 2592000) + ' 个月前';
+    return (s / 31536000).toFixed(1) + ' 年前';
+  };
+  const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+
+  // ---------- 视图规则编辑器:改 JSON,即时预览,保存后写进宇宙 ----------
+  const ta = $('ed-text'), msg = $('ed-msg');
+  const isCustom = (name) => !!(uni && uni.nodes.has('~view/' + name));
+  function loadEditor(clearMsg = true) {
+    if (!specs[currentView]) return;
+    ta.value = JSON.stringify(specs[currentView], null, 2);
+    $('ed-name').textContent = currentView + (isCustom(currentView) ? '' : '(内置)');
+    draftSpec = null; editorDirty = false; if (clearMsg) msg.innerHTML = '';
+  }
+  function layoutPanels() { const b = $('tools').getBoundingClientRect().bottom + 10; for (const id of ['editor', 'review']) { $(id).style.top = b + 'px'; $(id).style.maxHeight = `calc(100vh - ${b + 30}px)`; } }
+  addEventListener('resize', layoutPanels);
+  function toggleEditor(on) {
+    if (on && typeof toggleReview === 'function' && !$('review').hidden) { $('review').hidden = true; $('btn-review').classList.remove('on'); }
+    layoutPanels();
+    $('editor').hidden = !on; $('btn-edit').classList.toggle('on', on);
+    if (on) loadEditor(); else if (draftSpec) { draftSpec = null; editorDirty = false; recompute(); }
+  }
+  $('btn-edit').addEventListener('click', () => toggleEditor($('editor').hidden));
+  ta.addEventListener('input', debounce(() => {
+    let spec;
+    try { spec = JSON.parse(ta.value); } catch (e) { msg.innerHTML = `<span class="bad">JSON 有误:${esc(e.message)}</span>`; return; }
+    const problems = validateSpec(spec, uni);
+    if (problems.length) { msg.innerHTML = problems.map((p) => `<span class="bad">${esc(p)}</span>`).join(''); return; }
+    draftSpec = spec; editorDirty = true;
+    msg.innerHTML = '<span class="ok">✓ 规格有效,已预览(尚未保存)</span>';
+    recompute();
+  }, 250));
+  async function saveView(name) {
+    if (!/^[\w-]+$/.test(name)) { msg.innerHTML = '<span class="bad">视图名只能含字母、数字、_ 和 -</span>'; return; }
+    const spec = draftSpec || specs[currentView];
+    const id = '~view/' + name, compact = JSON.stringify(spec);
+    const op = uni.nodes.has(id) ? { op: 'setNode', id, set: { spec: compact } } : { op: 'addNode', id, label: name, attrs: { kind: 'view', spec: compact } };
+    try {
+      const r = await api('/api/op', { op, author: 'viewer' });
+      currentView = name; draftSpec = null; editorDirty = false; location.hash = 'view=' + name;
+      msg.innerHTML = `<span class="ok">✓ 已写入宇宙(操作 #${r.n}),可用 stars view ${esc(name)} 查看</span>`;
+    } catch (e) { msg.innerHTML = `<span class="bad">保存失败:${esc(e.message)}</span>`; }
+  }
+  $('ed-save').addEventListener('click', () => saveView(currentView));
+  $('ed-saveas').addEventListener('click', () => { const n = $('ed-as').value.trim(); if (n) saveView(n); });
+  $('ed-revert').addEventListener('click', () => { loadEditor(); recompute(); });
+  $('ed-del').addEventListener('click', async () => {
+    if (!isCustom(currentView)) { msg.innerHTML = '<span class="bad">内置视图不能删除(可以保存一个同名自定义视图来覆盖它)</span>'; return; }
+    try { await api('/api/op', { op: { op: 'removeNode', id: '~view/' + currentView }, author: 'viewer' }); msg.innerHTML = '<span class="ok">已删除</span>'; } catch (e) { msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+  });
+
+    // ---------- 审阅:接受/拒绝 AI(或别人)提议的边;把汇总出来的边提升为真边 ----------
+  const edgeKeyOf = (e) => `${e.from}|${e.type}|${e.to}`;
+  const proposed = () => data.edges.filter((e) => e.attrs.status === 'proposed');
+  const rvMsg = (t, bad) => { $('rv-msg').style.color = bad ? 'var(--warn)' : 'var(--muted)'; $('rv-msg').textContent = t; };
+  async function write(op, okText) {
+    try { const r = await api('/api/op', { op, author: 'viewer' }); rvMsg(`${okText}(操作 #${r.n},可撤销)`); }
+    catch (e) { rvMsg('写入失败:' + e.message, true); }
+  }
+  const acceptOp = (e) => ({ op: 'setEdge', from: e.from, type: e.type, to: e.to, unset: ['status'] });
+  const rejectOp = (e) => ({ op: 'removeEdge', from: e.from, type: e.type, to: e.to });
+  function renderReview() {
+    const list = proposed(), props = data.proposals || {};
+    $('rv-badge').hidden = list.length === 0; $('rv-badge').textContent = list.length;
+    if ($('review').hidden) return;
+    $('rv-sub').textContent = list.length ? `${list.length} 条等待确认` : '没有待确认的了';
+    $('rv-list').innerHTML = list.map((e, i) => {
+      const who = props[edgeKeyOf(e)];
+      return `<div class="rv-row"><div class="t" data-i="${i}"><span style="color:#dfe3ff">${esc(raw.get(e.from)?.label || e.from)}</span> <span style="color:${edgeColors.get(edgeKeyOf(e)) || '#ffd24a'}">—${esc(e.type)}→</span> <span style="color:#dfe3ff">${esc(raw.get(e.to)?.label || e.to)}</span>`
+        + `<div class="who">${who ? esc(who.author) + ' · ' + ago(who.t) : '来源未知'}</div></div>`
+        + `<div class="acts"><span class="mini ok" data-ok="${i}" title="接受">✓</span><span class="mini no" data-no="${i}" title="拒绝(删除这条边)">✗</span></div></div>`;
+    }).join('') || '<div class="tag" style="padding:8px">🎉 都处理完了</div>';
+    $('rv-all').style.opacity = $('rv-none').style.opacity = list.length ? 1 : 0.4;
+  }
+  function toggleReview(on) {
+    if (on) toggleEditor(false);
+    $('review').hidden = !on; $('btn-review').classList.toggle('on', on);
+    if (on) { layoutPanels(); renderReview(); }
+  }
+  $('btn-review').addEventListener('click', () => toggleReview($('review').hidden));
+  $('rv-list').addEventListener('click', (ev) => {
+    const list = proposed(); const t = ev.target.closest('[data-i],[data-ok],[data-no]'); if (!t) return;
+    if (t.dataset.ok !== undefined) write(acceptOp(list[+t.dataset.ok]), '已接受');
+    else if (t.dataset.no !== undefined) write(rejectOp(list[+t.dataset.no]), '已拒绝并删除');
+    else { const e = list[+t.dataset.i]; select(e.from, true); }
+  });
+  $('rv-all').addEventListener('click', () => { const l = proposed(); if (l.length) write({ op: 'batch', ops: l.map(acceptOp) }, `已接受全部 ${l.length} 条`); });
+  $('rv-none').addEventListener('click', () => { const l = proposed(); if (l.length && confirm(`拒绝并删除全部 ${l.length} 条提议?(之后可以撤销)`)) write({ op: 'batch', ops: l.map(rejectOp) }, `已拒绝全部 ${l.length} 条`); });
+  $('rv-undo').addEventListener('click', async () => { try { const r = await api('/api/undo', {}); rvMsg(`已撤销(操作 #${r.n})`); } catch (e) { rvMsg('撤销失败:' + e.message, true); } });
+  // 面板里单条边的操作(节点详情里的 proposed 边;收起容器里的汇总边)
+  $('side').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-act]'); if (!b) return;
+    ev.stopPropagation();
+    const e = { from: b.dataset.from, type: b.dataset.type, to: b.dataset.to };
+    if (b.dataset.act === 'accept') write(acceptOp(e), '已接受');
+    else if (b.dataset.act === 'reject') write(rejectOp(e), '已拒绝');
+    else if (b.dataset.act === 'promote') write({ op: 'addEdge', ...e, attrs: { note: `由 ${b.dataset.count} 条内部关系汇总提升` } }, '已提升为真边');
+  }, true);
+
+  // ---------- 图例:视图用到"新旧"时说明颜色的含义 ----------
+  function renderLegend() {
+    const spec = draftSpec || specs[currentView] || {};
+    const rc = (spec.color || []).find((c) => c.by === 'recency');
+    const el = $('legend');
+    if (!rc) { el.hidden = true; return; }
+    el.hidden = false;
+    el.innerHTML = `<div>颜色 = 多久之前动过</div><div class="bar" style="background:linear-gradient(90deg,${rc.from || '#2f3b6e'},${rc.to || '#ffcf70'})"></div>`
+      + `<div class="lab"><span>很久以前</span><span>半衰期 ${rc.halfLifeDays || 14} 天</span><span>刚刚</span></div>`;
+  }
+
+  // ---------- 时间线:宇宙文件的 git 提交图(分叉、合并都画出来),点击回放 ----------
+  const laneColor = (i) => ['#7aa7ff', '#ffb347', '#7be0a0', '#d98cff', '#ff7a90', '#5fd4e8'][i % 6];
+  let tlLayout = null, playTimer = null;
+  async function toggleTimeline(on) {
+    $('timeline').hidden = !on; $('btn-time').classList.toggle('on', on);
+    if (!on) { stopPlay(); if (replay) exitReplay(); return; }
+    try { hist = await api('/api/history'); } catch (e) { $('tl-info').textContent = '读取历史失败:' + e.message; return; }
+    renderTimeline();
+    const w = $('tl-wrap'); w.scrollLeft = w.scrollWidth;
+  }
+  $('btn-time').addEventListener('click', () => toggleTimeline($('timeline').hidden));
+
+  function renderTimeline() {
+    const svg = $('tl-svg');
+    if (!hist) return;
+    const cs = hist.commits;
+    if (!cs.length) { svg.innerHTML = ''; $('tl-info').textContent = '这个宇宙文件还没有 git 历史(先 git commit)'; return; }
+    const lanes = [], lane = new Map();
+    for (const c of cs) {
+      let i = lanes.indexOf(c.hash);
+      if (i < 0) { i = lanes.indexOf(null); if (i < 0) i = lanes.length; }
+      lane.set(c.hash, i);
+      for (let j = 0; j < lanes.length; j++) if (j !== i && lanes[j] === c.hash) lanes[j] = null;
+      const [p0, ...rest] = c.parents;
+      lanes[i] = p0 || null;
+      for (const p of rest) if (lanes.indexOf(p) < 0) { let j = lanes.indexOf(null); if (j < 0) j = lanes.length; lanes[j] = p; }
+    }
+    const nLanes = Math.max(1, ...lane.values()) + 1;
+    const dx = 40, pad = 30, N = cs.length + (hist.dirty ? 1 : 0), lh = 26;
+    const X = (idxFromNewest) => pad + (N - 1 - idxFromNewest - (hist.dirty ? 0 : 0)) * dx;
+    const pos = new Map(cs.map((c, i) => [c.hash, { x: X(i + (hist.dirty ? 1 : 0)), y: 22 + lane.get(c.hash) * lh }]));
+    const W = pad * 2 + N * dx, H = 34 + nLanes * lh;
+    let out = '';
+    for (const c of cs) for (const [k, ph] of c.parents.entries()) {
+      const a = pos.get(c.hash), b = pos.get(ph);
+      if (!b) continue;
+      const col = laneColor(k === 0 ? lane.get(c.hash) : lane.get(ph));
+      out += a.y === b.y ? `<line x1="${b.x}" y1="${b.y}" x2="${a.x}" y2="${a.y}" stroke="${col}" stroke-width="2" opacity=".8"/>`
+        : `<path d="M${b.x} ${b.y} C${b.x + dx * 0.7} ${b.y},${a.x - dx * 0.7} ${a.y},${a.x} ${a.y}" stroke="${col}" stroke-width="2" fill="none" opacity=".8"/>`;
+    }
+    if (hist.dirty && pos.get(hist.head)) {
+      const h = pos.get(hist.head);
+      out += `<line x1="${h.x}" y1="${h.y}" x2="${h.x + dx}" y2="${h.y}" stroke="#888" stroke-dasharray="3 3"/>`
+        + `<g class="c" data-work="1"><circle cx="${h.x + dx}" cy="${h.y}" r="5" fill="none" stroke="#bbb" stroke-dasharray="2 2"/><title>工作区(未提交的修改)</title></g>`
+        + `<text x="${h.x + dx}" y="${h.y - 9}" text-anchor="middle">工作区</text>`;
+    }
+    for (const c of cs) {
+      const p = pos.get(c.hash), col = laneColor(lane.get(c.hash));
+      const cur = replay && replay.hash === c.hash, merge = c.parents.length > 1;
+      out += `<g class="c" data-h="${c.hash}"><circle cx="${p.x}" cy="${p.y}" r="${cur ? 7 : 5}" fill="${merge ? '#0b0b14' : col}" stroke="${cur ? '#fff' : col}" stroke-width="${merge || cur ? 2 : 1}"/>`
+        + (merge ? `<circle cx="${p.x}" cy="${p.y}" r="2" fill="${col}"/>` : '')
+        + `<title>${esc(c.subject)}\n${esc(c.author)} · ${new Date(c.time).toLocaleString()}\n${c.hash.slice(0, 7)}${c.parents.length > 1 ? ' · 合并' : ''}</title></g>`;
+      if (c.refs.length) out += `<text x="${p.x}" y="${lane.get(c.hash) === 0 ? p.y - 10 : p.y + 17}" text-anchor="middle" style="fill:${col}">${esc(c.refs.join(' '))}</text>`;
+    }
+    svg.setAttribute('width', W); svg.setAttribute('height', H);
+    svg.innerHTML = out;
+    $('tl-info').textContent = replay ? `${replay.commit.subject} · ${replay.commit.author} · ${new Date(replay.commit.time).toLocaleString()}`
+      : `${cs.length} 个提交 · ${nLanes} 条分支线 · 点击任一提交回放那一刻的宇宙`;
+  }
+  $('tl-svg').addEventListener('click', (ev) => {
+    const g = ev.target.closest('.c'); if (!g) return;
+    if (g.dataset.work) exitReplay(); else openCommit(g.dataset.h);
+  });
+
+  async function openCommit(hash) {
+    const commit = hist.commits.find((c) => c.hash === hash);
+    if (!commit) return;
+    let st;
+    try { st = await api('/api/state?commit=' + hash); } catch (e) { $('tl-info').textContent = '读取失败:' + e.message; return; }
+    replay = { hash, commit, added: new Set(st.diff.addedNodes), changed: new Set(st.diff.changedNodes), removed: st.diff.removedNodes.length };
+    applyData({ ...(liveSnap || data), nodes: st.nodes, edges: st.edges, issues: [], signals: {} });
+    const t = performance.now();
+    for (const id of replay.added) { const n = sim.get(id); if (n) n.born = t; }
+    renderTimeline(); renderReplayBar();
+  }
+  function exitReplay() {
+    stopPlay(); replay = null;
+    if (staleLive) { staleLive = false; resync(); } else if (liveSnap) applyData(liveSnap);
+    renderTimeline(); renderReplayBar();
+  }
+  function renderReplayBar() {
+    const el = $('replaybar');
+    if (!replay) { el.hidden = true; return; }
+    el.hidden = false;
+    el.innerHTML = `<b>回放</b><span>${replay.commit.hash.slice(0, 7)} · ${esc(replay.commit.author)}</span>`
+      + `<span style="color:#7be0a0">+${replay.added.size}</span><span style="color:#ffb347">~${replay.changed.size}</span><span style="color:#ff7a90">−${replay.removed}</span>`
+      + `<span class="btn" id="rb-now">回到现在 (Esc)</span>`;
+    $('rb-now').addEventListener('click', exitReplay);
+  }
+  // 沿"第一父节点"的主线前进/后退;不在主线上时往后退到父、往前进到任一子
+  function stepCommit(dir) {
+    if (!hist || !hist.commits.length) return;
+    const byHash = new Map(hist.commits.map((c) => [c.hash, c]));
+    const cur = replay ? byHash.get(replay.hash) : null;
+    if (!cur) { if (dir < 0) openCommit(hist.head && byHash.has(hist.head) ? hist.head : hist.commits[0].hash); return; }
+    if (dir < 0) { if (cur.parents[0] && byHash.has(cur.parents[0])) openCommit(cur.parents[0]); return; }
+    const mainline = new Set(); for (let c = byHash.get(hist.head); c; c = byHash.get(c.parents[0])) mainline.add(c.hash);
+    const kids = hist.commits.filter((c) => c.parents[0] === cur.hash).sort((a, b) => (mainline.has(b.hash) - mainline.has(a.hash)) || a.time - b.time);
+    if (kids[0]) openCommit(kids[0].hash); else if (!mainline.has(cur.hash) || cur.hash === hist.head) stopPlay();
+  }
+  function stopPlay() { clearInterval(playTimer); playTimer = null; $('tl-play').textContent = '▶'; }
+  $('tl-play').addEventListener('click', () => {
+    if (playTimer) { stopPlay(); return; }
+    $('tl-play').textContent = '⏸';
+    if (!replay) { const oldest = hist.commits.filter((c) => !c.parents.length).sort((a, b) => a.time - b.time)[0] || hist.commits[hist.commits.length - 1]; openCommit(oldest.hash); }
+    playTimer = setInterval(() => stepCommit(1), 1300);
+  });
+  $('tl-prev').addEventListener('click', () => stepCommit(-1));
+  $('tl-next').addEventListener('click', () => stepCommit(1));
+  $('tl-now').addEventListener('click', exitReplay);
+  $('tl-first').addEventListener('click', () => { const o = hist.commits.filter((c) => !c.parents.length).sort((a, b) => a.time - b.time)[0]; if (o) openCommit(o.hash); });
+
+  function toggleExpand(id) {
+    const n = sim.get(id);
+    if (!n || !n.container) return;
+    manual.set(id, !n.expanded);
+    recompute(false);
+  }
+  canvas.addEventListener('dblclick', (ev) => { const n = find(ev.offsetX, ev.offsetY); if (n) toggleExpand(n.id); });
+
+  // 语义缩放:放大到容器的视觉半径超过阈值就展开,缩小到它的内容变得很小就收起(带滞后,避免来回闪)
+  setInterval(() => {
+    const T = scene.expand && scene.expand.auto && scene.expand.auto.radiusPx;
+    if (!T || performance.now() - lastUserZoom > 1500) return;
+    const k = transform.k, W = innerWidth, H = innerHeight;
+    let changed = false;
+    for (const n of simulation.nodes()) {
+      if (!n.container || manual.has(n.id) || n.x === undefined) continue;
+      const sx = n.x * k + transform.x, sy = n.y * k + transform.y;
+      if (!n.expanded) {
+        const on = sx > -120 && sx < W + 120 && sy > -120 && sy < H + 120;
+        if (on && n.r * k * 3 > T && auto.get(n.id) !== true) { auto.set(n.id, true); changed = true; }
+      } else {
+        const reg = regions.find((r) => r.id === n.id);
+        if (!reg) continue;
+        const ext = Math.max(...reg.members.map((m) => Math.hypot(m.x - n.x, m.y - n.y) + m.r)) * k;
+        if (ext < T * 0.55 && auto.get(n.id) !== false) { auto.set(n.id, false); changed = true; }
+      }
+    }
+    if (changed) recompute(false);
+  }, 220);
+
+  function fit() {
+    const vis = simulation.nodes().filter((n) => n.x !== undefined);
+    if (!vis.length) return;
+    const xs = vis.map((n) => n.x), ys = vis.map((n) => n.y);
+    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    const k = Math.min(2.2, 0.82 * Math.min((innerWidth - 340) / Math.max(80, x1 - x0), innerHeight / Math.max(80, y1 - y0)));
+    const t = d3.zoomIdentity.translate(innerWidth / 2 - 20, innerHeight / 2).scale(k).translate(-(x0 + x1) / 2, -(y0 + y1) / 2);
+    d3.select(canvas).transition().duration(700).call(zoom.transform, t);
+  }
+
+  // ---------- 绘制 ----------
+  function resize() { const dpr = devicePixelRatio || 1; canvas.width = innerWidth * dpr; canvas.height = innerHeight * dpr; }
+  addEventListener('resize', resize); resize();
+
+  // 星空:屏幕空间,三层视差
+  const stars = Array.from({ length: 520 }, (_, i) => {
+    const r = Math.random(); // 伪随机但固定
+    return { x: Math.random(), y: Math.random(), s: 0.3 + Math.pow(Math.random(), 3) * 1.6, layer: i % 3, ph: Math.random() * TAU, hue: Math.random() };
+  });
+
+  const matches = (id) => { if (!query) return true; const n = raw.get(id); return !!n && `${n.id} ${n.label} ${n.attrs.summary || ''}`.toLowerCase().includes(query); };
+
+  // 发光用预渲染的精灵图(每种颜色一张),而不是每帧、每个节点 createRadialGradient —— 快一个数量级
+  const spriteCache = new Map();
+  function sprite(c) {
+    const key = c[0] + ',' + c[1] + ',' + c[2];
+    let sp = spriteCache.get(key);
+    if (!sp) {
+      sp = document.createElement('canvas'); sp.width = sp.height = 64;
+      const g = sp.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gr.addColorStop(0, rgba(c, 1)); gr.addColorStop(0.3, rgba(c, 0.4)); gr.addColorStop(0.7, rgba(c, 0.08)); gr.addColorStop(1, rgba(c, 0));
+      g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+      spriteCache.set(key, sp);
+    }
+    return sp;
+  }
+  function glow(x, y, rad, c, a) {
+    const prev = ctx.globalAlpha;
+    ctx.globalAlpha = prev * a;
+    ctx.drawImage(sprite(c), x - rad, y - rad, rad * 2, rad * 2);
+    ctx.globalAlpha = prev;
+  }
+
+  function drawBackdrop(now) {
+    const W = innerWidth, H = innerHeight;
+    if (look !== 'galaxy') { ctx.fillStyle = '#07070d'; ctx.fillRect(0, 0, W, H); return; }
+    const g = ctx.createRadialGradient(W * 0.5, H * 0.46, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.85);
+    g.addColorStop(0, '#0d0b22'); g.addColorStop(0.5, '#05050f'); g.addColorStop(1, '#01010605');
+    ctx.fillStyle = '#010106'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    // 银河光带:一条斜向的柔光
+    ctx.save(); ctx.translate(W * 0.5 + transform.x * 0.04, H * 0.5 + transform.y * 0.04); ctx.rotate(-0.45);
+    const band = ctx.createLinearGradient(0, -H * 0.35, 0, H * 0.35);
+    band.addColorStop(0, 'rgba(90,70,200,0)'); band.addColorStop(0.5, 'rgba(110,90,230,0.07)'); band.addColorStop(1, 'rgba(60,120,220,0)');
+    ctx.fillStyle = band; ctx.fillRect(-W, -H * 0.35, W * 2, H * 0.7); ctx.restore();
+    ctx.globalCompositeOperation = 'lighter';
+    const sb = new Map();
+    for (const s of stars) {
+      const par = 0.015 + s.layer * 0.03;
+      const x = (((s.x * W + transform.x * par) % W) + W) % W, y = (((s.y * H + transform.y * par) % H) + H) % H;
+      const tw = Math.round((0.6 + 0.4 * Math.sin(now / 700 + s.ph)) * 4) / 4;
+      const kind = s.hue > 0.8 ? 0 : s.hue < 0.2 ? 1 : 2, sz = s.s * (0.7 + s.layer * 0.25);
+      const key = kind * 8 + Math.round(tw * 4);
+      let bk = sb.get(key);
+      if (!bk) { bk = { kind, tw, pts: [] }; sb.set(key, bk); }
+      bk.pts.push(x, y, sz);
+    }
+    const STAR_RGB = [[255, 214, 170, 0.55], [170, 200, 255, 0.6], [235, 235, 255, 0.5]];
+    for (const { kind, tw, pts } of sb.values()) {
+      const [r, g, bl, al] = STAR_RGB[kind];
+      ctx.fillStyle = `rgba(${r},${g},${bl},${al * tw})`;
+      ctx.beginPath();
+      for (let i = 0; i < pts.length; i += 3) ctx.rect(pts[i] - pts[i + 2], pts[i + 1] - pts[i + 2], pts[i + 2] * 2, pts[i + 2] * 2);
+      ctx.fill();
+    }
+    drawFarGalaxies(now);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // 收起的容器 = 一个小星系:粒子是它里面的东西(颜色、大小取自内容),缓缓旋转
+  function drawGalaxyArms(n, now, a) {
+    const sr = n.r * transform.k;
+    if (sr < 4.5) return; // 屏幕上太小,画粒子也看不清
+    const len = sr > 12 ? n.kidRgb.length : Math.min(n.kidRgb.length, sr > 8 ? 24 : 12);
+    const ct = Math.cos(n.tilt), st = Math.sin(n.tilt), aq = Math.round(a * 4) / 4;
+    for (let i = 0; i < len; i++) {
+      const [col, kr] = n.kidRgb[Math.floor(i * n.kidRgb.length / len)];
+      const t = (i + 1) / len, arm = i % 3;
+      const rad = n.r * (1.15 + 2.9 * t);
+      const ang = arm * 2.0944 + t * 5.5 + now * 0.00028 / Math.sqrt(t + 0.25) + n.phase;
+      const px = Math.cos(ang) * rad, py = Math.sin(ang) * rad * 0.62;
+      const key = col[0] + ',' + col[1] + ',' + col[2] + '|' + aq;
+      let bk = particles.get(key);
+      if (!bk) { bk = { col, a: aq, pts: [] }; particles.set(key, bk); }
+      bk.pts.push(n.x + ct * px - st * py, n.y + st * px + ct * py, Math.max(0.7, Math.min(2.2, kr * 0.34)));
+    }
+  }
+  const particles = new Map();
+  function flushParticles() {
+    for (const { col, a, pts } of particles.values()) {
+      ctx.fillStyle = rgba(col, 0.9 * a);
+      ctx.beginPath();
+      for (let i = 0; i < pts.length; i += 3) { const sz = pts[i + 2]; ctx.rect(pts[i] - sz, pts[i + 1] - sz, sz * 2, sz * 2); }
+      ctx.fill();
+    }
+    particles.clear();
+  }
+
+  // 背景里的远方星系:纯装饰,程序化生成(固定种子),不可交互
+  const farGalaxies = Array.from({ length: 9 }, (_, i) => {
+    const h = (i + 1) * 2654435761 % 4294967296 / 4294967296;
+    return { x: (h * 7.31) % 1, y: (h * 13.17 + i * 0.11) % 1, size: 16 + (h * 97) % 26, squash: 0.35 + (h * 31) % 0.45, rot: (h * 29) % 3.14,
+      layer: 1 + (i % 2), tint: [[170, 200, 255], [255, 205, 165], [205, 170, 255]][i % 3], n: 56 };
+  });
+  function drawFarGalaxies(now) {
+    const W = innerWidth, H = innerHeight, kk = 1 + (transform.k - 1) * 0.08;
+    for (const g of farGalaxies) {
+      const par = 0.02 + g.layer * 0.03;
+      const gx = (((g.x * W + transform.x * par) % W) + W) % W, gy = (((g.y * H + transform.y * par) % H) + H) % H;
+      const sz = g.size * kk;
+      glow(gx, gy, sz * 1.1, g.tint, 0.16); glow(gx, gy, sz * 0.28, [255, 255, 255], 0.35);
+      const ct = Math.cos(g.rot), st = Math.sin(g.rot);
+      ctx.fillStyle = rgba(g.tint, 0.42);
+      ctx.beginPath();
+      for (let i = 0; i < g.n; i++) {
+        const t = (i + 1) / g.n, arm = i % 2;
+        const rad = sz * (0.2 + 0.8 * t);
+        const ang = arm * Math.PI + t * 6 + now * 0.00006 / Math.sqrt(t + 0.3);
+        const px = Math.cos(ang) * rad, py = Math.sin(ang) * rad * g.squash, q = 0.55 + (1 - t) * 0.5;
+        ctx.rect(gx + ct * px - st * py - q, gy + st * px + ct * py - q, q * 2, q * 2);
+      }
+      ctx.fill();
+    }
+  }
+
+  function drawArrow(a, b, col, alpha, k) {
+    const d = Math.hypot(b.x - a.x, b.y - a.y);
+    if (d < 1) return;
+    const ang = Math.atan2(b.y - a.y, b.x - a.x), sz = 7 / k;
+    const tx = b.x - Math.cos(ang) * (b.r * 1.3 + 3), ty = b.y - Math.sin(ang) * (b.r * 1.3 + 3);
+    ctx.fillStyle = rgba(col, alpha);
+    ctx.beginPath(); ctx.moveTo(tx, ty);
+    ctx.lineTo(tx - Math.cos(ang - 0.4) * sz, ty - Math.sin(ang - 0.4) * sz);
+    ctx.lineTo(tx - Math.cos(ang + 0.4) * sz, ty - Math.sin(ang + 0.4) * sz);
+    ctx.closePath(); ctx.fill();
+  }
+
+  function drawNode(n, now, a) {
+    const r = n.r, x = n.x, y = n.y, c = n.rgb;
+    switch (n.shape) {
+      case 'nebula': {
+        const open = n.container && n.expanded;
+        const br = 1 + 0.05 * Math.sin(now / 1400 + n.phase);
+        const rr = open ? r * 0.6 : r;
+        if (r * transform.k < 6) glow(x, y, rr * 4.2, c, 0.55 * a); // 屏幕上还很小:一层发光就够
+        else { glow(x, y, rr * 6.5 * br, c, (open ? 0.18 : 0.32) * a); glow(x, y, rr * 3, c, 0.38 * a); glow(x, y, rr * 1, n.core, 0.7 * a); }
+        if (n.kidRgb && n.kidRgb.length) drawGalaxyArms(n, now, a);
+        break;
+      }
+      case 'ringed': {
+        glow(x, y, r * 3.4, c, 0.5 * a);
+        ctx.strokeStyle = rgba(n.core, 0.75 * a); ctx.lineWidth = Math.max(0.7, r * 0.12);
+        ctx.beginPath(); ctx.ellipse(x, y, r * 2.3, r * 0.85, -0.45, 0, TAU); ctx.stroke();
+        ctx.fillStyle = rgba(n.core, a); ctx.beginPath(); ctx.arc(x, y, r * 0.75, 0, TAU); ctx.fill();
+        break;
+      }
+      case 'pulsar': {
+        const p = 0.5 + 0.5 * Math.sin(now / 520 + n.phase);
+        glow(x, y, r * (3.6 + p * 1.6), c, 0.6 * a);
+        ctx.strokeStyle = rgba(n.core, (0.35 + 0.3 * p) * a); ctx.lineWidth = Math.max(0.6, r * 0.09);
+        const L = Math.min(r * (3.2 + p * 3.2), 90 / transform.k);
+        ctx.beginPath(); ctx.moveTo(x - L, y); ctx.lineTo(x + L, y); ctx.moveTo(x, y - L); ctx.lineTo(x, y + L); ctx.stroke();
+        ctx.fillStyle = rgba(n.core, a); ctx.beginPath(); ctx.arc(x, y, r * 0.7, 0, TAU); ctx.fill();
+        break;
+      }
+      case 'dot':
+        ctx.fillStyle = rgba(c, a); ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+        break;
+      default: { // star
+        const tw = 0.85 + 0.15 * Math.sin(now / 600 + n.phase);
+        glow(x, y, r * 5 * tw, c, 0.75 * a);
+        if (r >= 5) {
+          ctx.strokeStyle = rgba(n.core, 0.3 * a); ctx.lineWidth = 0.7;
+          const L = Math.min(r * 3.4, 70 / transform.k); ctx.beginPath(); ctx.moveTo(x - L, y); ctx.lineTo(x + L, y); ctx.moveTo(x, y - L); ctx.lineTo(x, y + L); ctx.stroke();
+        }
+        ctx.fillStyle = rgba(n.core, a); ctx.beginPath(); ctx.arc(x, y, Math.max(0.9, r * 0.62), 0, TAU); ctx.fill();
+      }
+    }
+  }
+
+  function draw(now) {
+    const frameStart = performance.now();
+    const dpr = devicePixelRatio || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, innerWidth, innerHeight);
+    drawBackdrop(now);
+
+    const galaxy = look === 'galaxy';
+    ctx.save();
+    ctx.translate(transform.x, transform.y); ctx.scale(transform.k, transform.k);
+    const k = transform.k;
+    const VW = innerWidth, VH = innerHeight, TX = transform.x, TY = transform.y;
+    const onScreen = (n, extra) => { const m = n.r * extra * k + 24, sx = n.x * k + TX, sy = n.y * k + TY; return sx > -m && sx < VW + m && sy > -m && sy < VH + m; };
+
+    const focus = selected ? new Set([selected]) : null;
+    if (focus) for (const l of links) { if (l.source.id === selected) focus.add(l.target.id); if (l.target.id === selected) focus.add(l.source.id); }
+    const alphaOf = (n) => (query && !matches(n.id) ? 0.1 : focus && !focus.has(n.id) ? 0.2 : 1);
+
+    ctx.globalCompositeOperation = galaxy ? 'lighter' : 'source-over';
+    const tR = performance.now();
+    // 域:展开的容器与它的后代之间,一片柔和的疆界。凸包较贵,缓存并节流到约每 220ms 重算一次
+    for (const reg of regions) {
+      if (!reg.hull || now - reg.hullAt > 220) {
+        const mem = reg.members.filter((m) => m.x !== undefined && visible(m));
+        if (mem.length < 2) { reg.hull = null; reg.hullAt = now; continue; }
+        const per = mem.length > 60 ? 4 : 7, pts = [];
+        for (const m of mem) { const rr = m.r * 1.7 + 12; for (let i = 0; i < per; i++) { const t = i * TAU / per; pts.push([m.x + Math.cos(t) * rr, m.y + Math.sin(t) * rr]); } }
+        reg.hull = d3.polygonHull(pts); reg.hullAt = now;
+      }
+      if (!reg.hull) continue;
+      const a = Math.min(alphaOf(reg.node), 1), c = reg.node.rgb, hot = reg.id === selected;
+      ctx.beginPath(); d3.line().curve(d3.curveCatmullRomClosed.alpha(0.6)).context(ctx)(reg.hull);
+      ctx.fillStyle = rgba(c, (hot ? 0.11 : 0.06) * a); ctx.fill();
+      ctx.strokeStyle = rgba(c, (hot ? 0.55 : 0.22) * a); ctx.lineWidth = (hot ? 1.6 : 1) / k;
+      ctx.setLineDash([6 / k, 5 / k]); ctx.stroke(); ctx.setLineDash([]);
+    }
+    perf.regionsMs = perf.regionsMs * 0.9 + (performance.now() - tR) * 0.1;
+    const tE = performance.now();
+    const edgeLabels = [];
+    // 边:按(模式,颜色,透明度档,线宽,虚线)合批,一批只描一次边;只有和选中节点相关的才单独画
+    const buckets = new Map(), few = links.length < 600;
+    for (const l of links) {
+      const a = l.source, b = l.target;
+      if (a.x === undefined || b.x === undefined || l.mode === 'region') continue;
+      const ax = a.x * k + TX, ay = a.y * k + TY, bx = b.x * k + TX, by = b.y * k + TY;
+      if (Math.max(ax, bx) < -60 || Math.min(ax, bx) > VW + 60 || Math.min(ay, by) > VH + 60 || Math.max(ay, by) < -60) continue;
+      const alpha = Math.min(alphaOf(a), alphaOf(b));
+      const hot = focus && (a.id === selected || b.id === selected);
+      if (hot) {
+        const col = l.proposed ? [255, 210, 74] : hex2rgb(l.color), d = Math.hypot(b.x - a.x, b.y - a.y);
+        if (l.mode === 'orbit') {
+          ctx.strokeStyle = rgba(col, 0.6 * alpha); ctx.lineWidth = 1.2 / k;
+          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+          ctx.strokeStyle = rgba(mix(col, a.rgb, 0.5), 0.28 * alpha);
+          ctx.beginPath(); ctx.arc(a.x, a.y, d, 0, TAU); ctx.stroke();
+          continue;
+        }
+        ctx.strokeStyle = rgba(col, 0.9 * alpha); ctx.lineWidth = (l.width || 1) * 1.8 / k;
+        ctx.setLineDash(l.proposed ? [5 / k, 4 / k] : l.lifted ? [2 / k, 4 / k] : []);
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.setLineDash([]);
+        if (l.count > 1 || l.lifted) edgeLabels.push([l, (a.x + b.x) / 2, (a.y + b.y) / 2, alpha]);
+        if (l.arrow && d > 1) drawArrow(a, b, col, 0.95 * alpha, k);
+        continue;
+      }
+      const wq = Math.round((l.width || 1) * (l.lifted ? 0.8 + Math.min(Math.log2(l.count + 1), 3) * 0.5 : 1) * 4) / 4;
+      const key = `${l.mode}|${l.proposed ? 'p' : l.color}|${Math.round(alpha * 10)}|${wq}|${l.proposed ? 'p' : l.lifted ? 'l' : ''}`;
+      let bk = buckets.get(key);
+      if (!bk) { bk = { l, alpha, wq, segs: [] }; buckets.set(key, bk); }
+      bk.segs.push(l);
+      if (few && l.lifted) edgeLabels.push([l, (a.x + b.x) / 2, (a.y + b.y) / 2, alpha]);
+    }
+    for (const { l, alpha, wq, segs } of buckets.values()) {
+      const col = l.proposed ? [255, 210, 74] : hex2rgb(l.color);
+      ctx.beginPath();
+      if (l.mode === 'orbit') {
+        ctx.strokeStyle = rgba(mix(col, segs[0].source.rgb, 0.5), 0.07 * alpha); ctx.lineWidth = 0.7 / k;
+        for (const e of segs) { const a = e.source, d = Math.hypot(e.target.x - a.x, e.target.y - a.y); ctx.moveTo(a.x + d, a.y); ctx.arc(a.x, a.y, d, 0, TAU); }
+        ctx.stroke();
+        continue;
+      }
+      ctx.strokeStyle = rgba(col, (l.mode === 'faint' ? 0.14 : 0.4) * alpha);
+      ctx.lineWidth = wq / k * (galaxy ? 1 : 1.2);
+      ctx.setLineDash(l.proposed ? [5 / k, 4 / k] : l.lifted ? [2 / k, 4 / k] : []);
+      for (const e of segs) { ctx.moveTo(e.source.x, e.source.y); ctx.lineTo(e.target.x, e.target.y); }
+      ctx.stroke(); ctx.setLineDash([]);
+      if (few && l.arrow) for (const e of segs) drawArrow(e.source, e.target, col, 0.6 * alpha, k);
+    }
+
+    perf.edgesMs = perf.edgesMs * 0.9 + (performance.now() - tE) * 0.1;
+    const tN = performance.now();
+    // 节点:星云先画,其余在上
+    const nodes = drawNodes.filter((n) => n.x !== undefined);
+    for (const n of nodes) {
+      if (!onScreen(n, 6.5)) continue;
+      if (n.r * k < 2.4 && n !== hovered && n.id !== selected) { // 小到看不清发光细节的节点:一个点就够了
+        const q = Math.max(1.2, n.r * 0.9);
+        ctx.fillStyle = rgba(n.core, 0.9 * alphaOf(n)); ctx.fillRect(n.x - q / 2, n.y - q / 2, q, q);
+        continue;
+      }
+      drawNode(n, now, alphaOf(n) * (n === hovered ? 1.25 : 1));
+      const age = now - (n.born || -1e9);
+      if (age < 1800) { // 新生:扩散环
+        const p = age / 1800;
+        ctx.strokeStyle = rgba(n.rgb, (1 - p) * 0.9); ctx.lineWidth = 2 / k;
+        ctx.beginPath(); ctx.arc(n.x, n.y, n.r + 4 + p * 60, 0, TAU); ctx.stroke();
+      }
+    }
+
+    flushParticles();
+    perf.nodesMs = perf.nodesMs * 0.9 + (performance.now() - tN) * 0.1;
+    ctx.globalCompositeOperation = 'source-over';
+    // 状态环与标签(只处理视口内的)
+    const shown = nodes.filter((n) => onScreen(n, 1.5));
+    for (const n of shown) {
+      const sev = issueByNode.get(n.id), a = alphaOf(n);
+      if (sev === 'error' || sev === 'warn') {
+        ctx.strokeStyle = rgba(sev === 'error' ? [255, 90, 90] : [255, 179, 71], 0.9 * a); ctx.lineWidth = 1.4 / k;
+        ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 1.5 + 3, 0, TAU); ctx.stroke();
+      }
+      if (replay && (replay.added.has(n.id) || replay.changed.has(n.id))) {
+        ctx.strokeStyle = replay.added.has(n.id) ? 'rgba(123,224,160,0.95)' : 'rgba(255,179,71,0.95)'; ctx.lineWidth = 1.6 / k;
+        ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 1.5 + 9, 0, TAU); ctx.stroke();
+      }
+      if (n.id === selected) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 1.4 / k;
+        ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 1.5 + 6, 0, TAU); ctx.stroke();
+      }
+    }
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.lineJoin = 'round';
+    const fs = 11 / Math.max(k, 0.55);
+    ctx.font = `${fs}px -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif`;
+    // 标签避让:按重要性排序,和已放置的标签重叠就不画(选中/悬停/聚焦邻居/搜索命中优先)。
+    // 规划(排序+重叠检测)较贵,节流到约每 160ms 或交互状态变化时才重做,每帧只按最新位置画。
+    const must = (n) => n === hovered || n.id === selected || (focus && focus.has(n.id)) || (query && matches(n.id));
+    const planKey = `${selected}|${query}|${hovered && hovered.id}|${Math.round(k * 20)}|${shown.length}`;
+    if (planKey !== labelKey || now - labelAt > 160) {
+      labelKey = planKey; labelAt = now;
+      const cands = shown.filter((n) => must(n) || k > 1.7 || n.r >= 6 || shown.length <= 14)
+        .sort((a, b) => (must(b) - must(a)) || (b.r - a.r)).slice(0, 160);
+      const placed = [];
+      labelNodes = [];
+      for (const n of cands) {
+        const w = ctx.measureText(n.label).width, y = n.y + n.r * 1.3 + 3, h = fs * 1.25;
+        const box = [n.x - w / 2 - 2, y - 1, n.x + w / 2 + 2, y + h];
+        if (!must(n) && placed.some((q) => box[0] < q[2] && box[2] > q[0] && box[1] < q[3] && box[3] > q[1])) continue;
+        placed.push(box); labelNodes.push(n);
+      }
+    }
+    const tL = performance.now();
+    for (const n of labelNodes) {
+      if (n.x === undefined || !sim.has(n.id)) continue;
+      const y = n.y + n.r * 1.3 + 3;
+      ctx.globalAlpha = Math.max(alphaOf(n), 0.45);
+      if (labelNodes.length <= 70) { ctx.strokeStyle = 'rgba(2,2,10,0.9)'; ctx.lineWidth = 3 / Math.max(k, 0.55); ctx.strokeText(n.label, n.x, y); } // 标签多时省掉描边,文字渲染很贵
+      ctx.fillStyle = '#e8e8f6'; ctx.fillText(n.label, n.x, y);
+    }
+    perf.labelsMs = perf.labelsMs * 0.9 + (performance.now() - tL) * 0.1;
+    if (k > 0.5) {
+      ctx.font = `${10 / Math.max(k, 0.55)}px -apple-system, "Segoe UI", sans-serif`;
+      for (const [l, mx, my, al] of edgeLabels) {
+        ctx.globalAlpha = Math.max(al, 0.3) * 0.85;
+        ctx.fillStyle = l.lifted ? '#b9c4ff' : '#9aa';
+        ctx.fillText('×' + l.count, mx, my - 5 / k);
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+    perf.frameMs = perf.frameMs * 0.9 + (performance.now() - frameStart) * 0.1;
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+
+  window.__stars = { nodes: () => simulation.nodes(), transform: () => transform, scene: () => scene, regions: () => regions, perf, hasNode: (id) => uni.nodes.has(id), nodeCount: () => uni.nodes.size, lastN: () => lastN, recompute, manual, auto, compiled: () => compiled }; // 调试/自动化用
+  connect();
+})();
+</script>
+</body>
+</html>
