@@ -75,6 +75,15 @@ export interface ExpandRule {
 
 export interface ViewSpec {
   look?: 'galaxy' | 'plain';
+  /**
+   * flat:一个物理世界,所有可见节点一起受力(展开 = 把子节点放进同一个世界)。
+   * spaces:嵌套的独立空间。每个容器是一个空间,里面只有它的直接子节点,只受内部关系约束,和外界没有力的交互;
+   *         放大到容器占据小半屏幕(space.enterAt)才"进入"它,父级的布局从不因为放大而改变。
+   */
+  layout?: 'flat' | 'spaces';
+  space?: { enterAt?: number };
+  /** 把容器当作 tag 打在节点上(容器本身不必显示):节点带上它在前 depth 层的祖先容器 */
+  tags?: { relation?: string; depth?: number };
   select?: {
     onlyTypes?: string[];
     hideTypes?: string[];
@@ -108,6 +117,8 @@ export interface SceneNode {
   /** 后代总数 / 直接子节点数 */
   descendants?: number;
   children?: number;
+  /** 作为 tag 的祖先容器 id(视图声明了 tags 时) */
+  tags?: string[];
   /** 收起的容器:里面内容的缩影 [颜色, 半径],查看器据此把它画成一个小星系 */
   kids?: Array<[string, number]>;
 }
@@ -152,9 +163,35 @@ export interface FoldOptions {
 }
 export type EvalOptions = CompileOptions & FoldOptions;
 
+/** 空间里一条通向"外面"的关系:画成从子节点伸向空间边界的短桩,不参与这个空间的物理。 */
+export interface ExternalLink {
+  node: string;       // 空间里的哪个直接子节点
+  other: string;      // 外部那一端(在两条祖先链分叉处的那个节点,即从这里"看出去"的对象)
+  type: string;
+  out: boolean;       // 方向:子节点 → 外部
+  count: number;
+  color: string;
+}
+export interface SpaceScene {
+  id: string | null;  // null = 顶层空间
+  nodes: SceneNode[];
+  edges: SceneEdge[];
+  external: ExternalLink[];
+}
+
 export interface CompiledView {
   readonly nodeCount: number;
   readonly edgeCount: number;
+  readonly layout: 'flat' | 'spaces';
+  readonly look: 'galaxy' | 'plain';
+  /** 进入空间的阈值:容器的显示直径占屏幕短边的比例 */
+  readonly enterAt: number;
+  /** 一个容器(null = 顶层)的空间:它的直接子节点、子节点之间的关系,以及通向外面的关系。结果会缓存。 */
+  space(id: string | null): SpaceScene;
+  /** 从顶层到该节点(含)的 id 链 */
+  ancestors(id: string): string[];
+  node(id: string): SceneNode | undefined;
+  parentOf(id: string): string | undefined;
   /** 在已编译的外观上,按展开状态算出场景:只做线性扫描,不重算任何节点的大小/颜色/样式。 */
   fold(opts?: FoldOptions): Scene;
 }
@@ -180,7 +217,9 @@ export const BUILTIN_VIEWS: Record<string, ViewSpec> = {
   // 默认:从全局开始,放大哪里哪里展开成一个"域";收起的目录是一个小星系
   galaxy: {
     look: 'galaxy',
-    expand: { relation: 'contains', depth: 1, auto: { radiusPx: 58 } },
+    layout: 'spaces',
+    space: { enterAt: 0.2 },
+    expand: { relation: 'contains' },
     size: GALAXY_SIZE,
     color: GALAXY_COLOR,
     style: GALAXY_STYLE,
@@ -192,7 +231,9 @@ export const BUILTIN_VIEWS: Record<string, ViewSpec> = {
   // 热力:大小仍是体量,颜色是"多久之前动过"(文件看 git/工作区,图里的节点看编辑记录)
   recent: {
     look: 'galaxy',
-    expand: { relation: 'contains', depth: 1, auto: { radiusPx: 58 } },
+    layout: 'spaces',
+    space: { enterAt: 0.2 },
+    expand: { relation: 'contains' },
     size: GALAXY_SIZE,
     color: [
       { when: { type: 'dir' }, by: 'recency', signal: 'fileChanged', rollup: { relation: 'contains', op: 'max' }, halfLifeDays: 10 },
@@ -204,6 +245,16 @@ export const BUILTIN_VIEWS: Record<string, ViewSpec> = {
       contains: { mode: 'region', distance: 46, strength: 0.7, spin: 0.5 },
       '*': { mode: 'line', distance: 140, strength: 0.18 },
     },
+  },
+  // 文件夹作为 tag:文件夹本身不显示,而是打在文件上(颜色 = 顶层文件夹),同一 tag 的节点聚在一起
+  tags: {
+    look: 'galaxy',
+    select: { hideTypes: ['dir'] },
+    tags: { relation: 'contains', depth: 2 },
+    size: [{ when: { type: 'file' }, attr: 'size', scale: 'sqrt', range: [2, 9] }, { by: 'degree', range: [3.5, 12] }],
+    color: [{ when: { type: 'file' }, by: 'group', relation: 'contains', level: 1 }, { by: 'type' }],
+    style: GALAXY_STYLE,
+    relations: { contains: { mode: 'hidden' }, '*': { mode: 'line', distance: 120, strength: 0.15 } },
   },
   // 全部展开,子绕父转
   orbit: {
@@ -219,8 +270,10 @@ export const BUILTIN_VIEWS: Record<string, ViewSpec> = {
   // 架构级:只展开到第一层,文件隐藏,文件之间的关系提升到目录之间
   arch: {
     look: 'galaxy',
+    layout: 'spaces',
+    space: { enterAt: 0.2 },
     select: { hideTypes: ['file'] },
-    expand: { relation: 'contains', depth: 1 },
+    expand: { relation: 'contains' },
     size: [{ when: { type: 'dir' }, attr: 'size', rollup: { relation: 'contains', op: 'sum' }, scale: 'log', range: [6, 18] }, { by: 'degree', range: [5, 14] }],
     color: GALAXY_COLOR,
     style: GALAXY_STYLE,
@@ -675,6 +728,8 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
   const expandAuto = spec.expand?.auto;
   const look = spec.look ?? 'galaxy';
 
+  const tagDepth = spec.tags ? (spec.tags.depth ?? 2) + 1 : 0; // 根(挂载点)本身不算 tag
+
   function fold(f: FoldOptions = {}): Scene {
     // 1. 哪些容器展开
     const maxDepth = f.depth ?? spec.expand?.depth ?? Infinity;
@@ -720,6 +775,11 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
       if (hasValue[i]) sn.value = ruleVals[sizeRule[i]!]![i]!;
       const p = parent[i]!;
       if (p >= 0 && visible[p]) sn.parent = ids[p]!;
+      if (tagDepth > 0) {
+        const tags: string[] = [];
+        for (let a = parent[i]!; a >= 0; a = parent[a]!) if (depth[a]! < tagDepth && depth[a]! > 0) tags.push(ids[a]!);
+        if (tags.length) sn.tags = tags.reverse();
+      }
       const cc = treeKids.start[i + 1]! - treeKids.start[i]!;
       if (cc > 0) {
         sn.container = true; sn.children = cc; sn.descendants = desc[i]!; sn.expanded = open[i] === 1;
@@ -755,7 +815,115 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     return { look, nodes, edges, expand };
   }
 
-  return { nodeCount: N, edgeCount: E, fold };
+  // ---------- 空间:每个容器一个独立的小世界 ----------
+  const relTypeIdx = typeIdx.get(relation);
+  const mkNode = (i: number): SceneNode => {
+    const sn: SceneNode = { id: ids[i]!, label: nodeList[i]!.label, r: Math.round(rad[i]! * 100) / 100, color: color[i]!, shape: SHAPE_LIST[shapeIdx[i]!]! };
+    if (hasValue[i]) sn.value = ruleVals[sizeRule[i]!]![i]!;
+    const cc = treeKids.start[i + 1]! - treeKids.start[i]!;
+    if (cc > 0) {
+      sn.container = true; sn.children = cc; sn.descendants = desc[i]!; sn.expanded = false;
+      const kids: Array<[string, number]> = [], queue = [i];
+      for (let q = 0; q < queue.length && kids.length < 48; q++) {
+        const v = queue[q]!;
+        for (let k = treeKids.start[v]!; k < treeKids.start[v + 1]! && kids.length < 48; k++) {
+          const c = treeKids.list[k]!;
+          queue.push(c);
+          if (selected[c]) kids.push([color[c]!, rad[c]!]);
+        }
+      }
+      sn.kids = kids;
+    }
+    return sn;
+  };
+  const mkEdge = (from: number, to: number, t: number, count: number, real: boolean, proposed: boolean): SceneEdge => {
+    const te = tEdge[t]!;
+    const edge: SceneEdge = {
+      from: ids[from]!, to: ids[to]!, type: typeNames[t]!, mode: te.mode,
+      color: tColor[t]!, width: te.width, arrow: te.arrow, proposed, count, lifted: !real,
+    };
+    if (te.distance !== undefined) edge.distance = te.distance;
+    if (te.strength !== undefined) edge.strength = te.strength;
+    if (te.spin !== undefined) edge.spin = te.spin;
+    return edge;
+  };
+  const chainOf = (v: number): number[] => { const c: number[] = []; for (let x = v; x >= 0; x = parent[x]!) c.push(x); return c.reverse(); };
+  const spaceCache = new Map<number, SpaceScene>();
+
+  function space(id: string | null): SpaceScene {
+    const ci = id === null ? -1 : (idx.get(id) ?? -2);
+    if (ci === -2) return { id, nodes: [], edges: [], external: [] };
+    const hit = spaceCache.get(ci);
+    if (hit) return hit;
+
+    // 直接子节点:没被选择过滤掉的孩子;被过滤掉的容器"透明",它的孩子提升上来
+    const children: number[] = [];
+    const queue: number[] = [];
+    if (ci < 0) { for (let i = 0; i < N; i++) if (parent[i]! < 0) queue.push(i); }
+    else for (let k = treeKids.start[ci]!; k < treeKids.start[ci + 1]!; k++) queue.push(treeKids.list[k]!);
+    for (let h = 0; h < queue.length; h++) {
+      const v = queue[h]!;
+      if (selected[v]) children.push(v);
+      else for (let k = treeKids.start[v]!; k < treeKids.start[v + 1]!; k++) queue.push(treeKids.list[k]!);
+    }
+    // rep:每个节点属于哪个直接子节点(在这个空间之外的 = -1)
+    const rep = new Int32Array(N).fill(-1);
+    const stack: number[] = [];
+    for (const c of children) {
+      stack.push(c);
+      while (stack.length > 0) { const v = stack.pop()!; rep[v] = c; for (let k = treeKids.start[v]!; k < treeKids.start[v + 1]!; k++) stack.push(treeKids.list[k]!); }
+    }
+    const here = ci < 0 ? new Set<number>() : new Set<number>(chainOf(ci));
+
+    interface Agg { from: number; to: number; type: number; count: number; real: boolean; proposed: boolean }
+    const internal = new Map<number, Agg>();
+    const external = new Map<string, ExternalLink & { _k: string }>();
+    for (let e = 0; e < E; e++) {
+      const t = ety[e]!;
+      if (!tShown[t]) continue;
+      const ra = rep[ef[e]!]!, rb = rep[et[e]!]!;
+      if (ra < 0 && rb < 0) continue;
+      if (ra >= 0 && rb >= 0) {
+        if (ra === rb) continue;
+        let a = ra, b = rb;
+        const lifted = a !== ef[e] || b !== et[e];
+        if (lifted && tSym[t] && ids[a]! > ids[b]!) { const x = a; a = b; b = x; }
+        const key = (a * N + b) * nT + t;
+        let g = internal.get(key);
+        if (!g) { g = { from: a, to: b, type: t, count: 0, real: false, proposed: true }; internal.set(key, g); }
+        g.count++;
+        if (!lifted) g.real = true;
+        if (!eprop[e]) g.proposed = false;
+        continue;
+      }
+      if (t === relTypeIdx) continue; // 结构性的"包含"关系不当作外部链接
+      const out = ra >= 0, inside = out ? ra : rb, otherIdx = out ? et[e]! : ef[e]!;
+      let other = otherIdx;
+      for (const v of chainOf(otherIdx)) if (!here.has(v)) { other = v; break; } // 两条祖先链分叉处
+      const key = `${inside}|${t}|${out ? 1 : 0}|${other}`;
+      const x = external.get(key);
+      if (x) x.count++;
+      else external.set(key, { _k: key, node: ids[inside]!, other: ids[other]!, type: typeNames[t]!, out, count: 1, color: tColor[t]! });
+    }
+    const out: SpaceScene = {
+      id,
+      nodes: children.map(mkNode),
+      edges: [...internal.values()].map((g) => mkEdge(g.from, g.to, g.type, g.count, g.real, g.proposed)),
+      external: [...external.values()].map(({ _k, ...rest }) => rest),
+    };
+    spaceCache.set(ci, out);
+    return out;
+  }
+
+  return {
+    nodeCount: N, edgeCount: E, fold, space,
+    layout: spec.layout ?? 'flat',
+    look,
+    enterAt: spec.space?.enterAt ?? 0.2,
+    ancestors: (id) => { const i = idx.get(id); return i === undefined ? [] : chainOf(i).map((v) => ids[v]!); },
+    node: (id) => { const i = idx.get(id); return i === undefined ? undefined : mkNode(i); },
+    parentOf: (id) => { const i = idx.get(id); return i === undefined || parent[i]! < 0 ? undefined : ids[parent[i]!]!; },
+  };
 }
 
 /** 一步到位:编译 + 折叠。交互场景请自己持有 compileView 的结果,展开/收起只调 fold。 */
@@ -781,7 +949,7 @@ export function listViews(u: Universe): { specs: Record<string, ViewSpec>; error
 }
 
 const KEYS = {
-  spec: ['look', 'select', 'expand', 'size', 'color', 'style', 'relations'],
+  spec: ['look', 'layout', 'space', 'tags', 'select', 'expand', 'size', 'color', 'style', 'relations'],
   select: ['onlyTypes', 'hideTypes', 'withRelations', 'schema', 'where'],
   expand: ['relation', 'depth', 'auto'],
   size: ['when', 'attr', 'expr', 'signal', 'recency', 'by', 'rollup', 'scale', 'range'],
@@ -808,6 +976,7 @@ export function validateSpec(spec: unknown, u?: Universe): string[] {
   if (!isObj(spec)) return ['规格必须是一个 JSON 对象'];
   unknownKeys(spec, KEYS.spec, '规格');
   if (spec.look !== undefined && !['galaxy', 'plain'].includes(spec.look as string)) bad.push('look 只能是 galaxy 或 plain');
+  if (spec.layout !== undefined && !['flat', 'spaces'].includes(spec.layout as string)) bad.push('layout 只能是 flat 或 spaces');
   if (spec.select !== undefined) {
     if (!isObj(spec.select)) bad.push('select 必须是对象');
     else { unknownKeys(spec.select, KEYS.select, 'select'); if (spec.select.where !== undefined) checkSrc(spec.select.where, 'select.where'); }
