@@ -105,3 +105,54 @@ test('扫描:生成 dir/file 树,且可重复执行', () => {
   assert.equal(again.op === 'batch' && again.ops.length, 0);
   assert.equal(createUniverse().nodes.size, 0);
 });
+
+test('视图:大小来自属性,目录大小沿 contains 汇总,规则按顺序匹配', async () => {
+  const { evaluateView, BUILTIN_VIEWS } = await import('../src/view.ts');
+  const u = genesis();
+  apply(u, planScan(u, ['a/x.ts', 'a/y.md', 'b/z.ts'], 'repo', 'demo', (p) => ({ size: { 'a/x.ts': 100, 'a/y.md': 900, 'b/z.ts': 10 }[p]! })));
+  const scene = evaluateView(u, BUILTIN_VIEWS.galaxy!);
+  const byId = new Map(scene.nodes.map((n) => [n.id, n]));
+  assert.equal(byId.get('a/')!.value, 1000); // 汇总 = 100 + 900
+  assert.equal(byId.get('repo')!.value, 1010);
+  assert.ok(byId.get('a/y.md')!.r > byId.get('a/x.ts')!.r, '文件越大节点越大');
+  assert.ok(byId.get('a/x.ts')!.r > byId.get('b/z.ts')!.r);
+  assert.equal(byId.get('a/')!.shape, 'nebula');
+  assert.equal(byId.get('a/x.ts')!.color, byId.get('b/z.ts')!.color, '同扩展名同色');
+  assert.notEqual(byId.get('a/x.ts')!.color, byId.get('a/y.md')!.color, '不同扩展名不同色');
+  assert.ok(scene.edges.every((e) => e.mode === 'orbit'), 'contains 在银河视图里是轨道');
+});
+
+test('视图:同一份关系,换视图就换了表达(隐藏 contains、按关系筛节点)', async () => {
+  const { evaluateView, BUILTIN_VIEWS } = await import('../src/view.ts');
+  const u = genesis();
+  apply(u, planScan(u, ['a/x.ts'], 'repo', 'demo'));
+  apply(u, { op: 'addNode', id: 'goal', label: 'goal', attrs: { type: 'concept' } });
+  apply(u, { op: 'addEdge', from: 'goal', type: 'dependsOn', to: 'a/x.ts' });
+  const deps = evaluateView(u, BUILTIN_VIEWS.deps!);
+  assert.deepEqual(deps.nodes.map((n) => n.id).sort(), ['a/x.ts', 'goal']);
+  assert.equal(deps.edges.length, 1, 'contains 被隐藏');
+  const tree = evaluateView(u, BUILTIN_VIEWS.tree!);
+  assert.equal(tree.nodes.length, 5); // universe、repo、a/、a/x.ts、goal
+  assert.equal(tree.look, 'plain');
+});
+
+test('视图:宇宙里的 kind=view 节点覆盖内置视图,坏 JSON 只报错不崩', async () => {
+  const { listViews } = await import('../src/view.ts');
+  const u = genesis();
+  apply(u, { op: 'addNode', id: '~view/galaxy', label: '我的银河', attrs: { kind: 'view', spec: '{"look":"plain"}' } });
+  apply(u, { op: 'addNode', id: '~view/bad', label: 'bad', attrs: { kind: 'view', spec: '{oops' } });
+  const { specs, errors } = listViews(u);
+  assert.equal(specs.galaxy!.look, 'plain');
+  assert.ok(specs.deps);
+  assert.match(errors.bad!, /不是合法 JSON/);
+});
+
+test('视图:color by group —— 同一子树继承同一个颜色', async () => {
+  const { evaluateView, BUILTIN_VIEWS } = await import('../src/view.ts');
+  const u = genesis();
+  apply(u, planScan(u, ['a/b/x.ts', 'a/c/y.ts', 'z/w.ts'], 'repo', 'demo'));
+  const c = new Map(evaluateView(u, BUILTIN_VIEWS.galaxy!).nodes.map((n) => [n.id, n.color]));
+  assert.equal(c.get('a/b/'), c.get('a/c/'));
+  assert.equal(c.get('a/b/'), c.get('a/'));
+  assert.notEqual(c.get('a/'), c.get('z/'));
+});

@@ -49,6 +49,30 @@ auth -related- session
 3. `Store.policy`:操作前的权限检查位置,现在恒为允许。
 4. 安全模式:将来启动时可不加载任何代码节点。
 
+## 视图 = 函数
+
+画面不是数据的一部分,而是 `evaluateView(宇宙, 视图规格) -> 场景` 这个纯函数的结果(`src/view.ts`)。
+规格是一组**有序规则**,第一条匹配的生效:
+
+```jsonc
+{
+  "look": "galaxy",
+  "select": { "withRelations": ["dependsOn"] },          // 显示哪些节点
+  "size":  [{ "when": {"type":"dir"},  "attr": "size", "rollup": {"relation":"contains","op":"sum"}, "scale":"log" },
+            { "when": {"type":"file"}, "attr": "size", "scale":"sqrt" },
+            { "by": "degree" }],                          // 大小来自属性 / 沿关系汇总 / 度数
+  "color": [{ "when": {"type":"dir"},  "by": "group", "relation": "contains", "level": 1 },   // 同一子树同色
+            { "when": {"type":"file"}, "by": "attr:ext" }, { "by": "type" }],
+  "style": [{ "when": {"type":"dir"}, "shape": "nebula" }, { "when": {"type":"module"}, "shape": "ringed" }],
+  "relations": { "contains": { "mode": "orbit" }, "describes": { "mode": "faint" }, "*": { "mode": "line", "arrow": true } }
+}
+```
+
+- **关系怎么画由视图决定**:`contains` 在 `galaxy` 里是轨道(子绕父转),在 `tree` 里是连线,在 `deps` 里被隐藏。
+- **派生属性是规则**:目录大小 = 沿 `contains` 汇总子孙的 `size`;颜色可以继承祖先。
+- 视图存放在宇宙里:`kind=view` 的节点,id 为 `~view/<名字>`,`spec` 属性是上面的 JSON;同名覆盖内置视图。改它,查看器立刻变化。
+- CLI/AI 也能算视图:`stars views`、`stars view galaxy [--json]`。
+
 ## 校验(lint)
 
 `stars lint`,有 error 时退出码 1。规则在 `src/lint.ts` 的 `RULES` 里,一项一个函数:
@@ -96,5 +120,6 @@ node src/cli.ts serve                        # 实时查看器
 
 - 多进程并发写入是"最后写入者胜"(每次 commit 前会重新读盘,窗口很小,但没有锁)。
 - `contains` 同时用于文件系统层级(`single-parent`)和逻辑分组时会冲突:逻辑上的"模块包含文件"目前只能用 `describes`。是否拆成两种类型(`contains` / `groups`)待定。
-- 查看器是独立的小实现,**没有**复用旧 webapp 的渲染层(它绑定在旧 schema 上)。
+- 查看器是独立的小实现,**没有**复用旧 webapp 的渲染层(它绑定在旧 schema 上)。视图规格目前只能改文件/用 CLI 改,查看器里还没有编辑器。
+- 视图规则只支持相等匹配(`when`),还没有表达式;`rollup` 假定关系无环。
 - 还没有查询语言;`ls/nb/path` 只覆盖最基本的过滤、邻域、最短路径。

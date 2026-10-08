@@ -7,7 +7,8 @@ import { parseArgs } from 'node:util';
 import { lint } from './lint.ts';
 import { StarsError, getEdge, type Attrs, type Universe } from './model.ts';
 import { filterNodes, neighborhood, shortestPath, type Dir } from './query.ts';
-import { listFiles, planScan } from './scan.ts';
+import { listFiles, planScan, statMeta } from './scan.ts';
+import { evaluateView, listViews } from './view.ts';
 import { startServer } from './serve.ts';
 import { Store } from './store.ts';
 
@@ -33,6 +34,8 @@ const HELP = `stars —— 关系编辑器(内核 CLI)
   path <a> <b>                       最短路径
   lint                               体检(有 error 时退出码为 1)
   log                                操作日志   [-n 20]
+  views                              列出视图(内置 + 宇宙里 kind=view 的节点)
+  view <name>                        计算一个视图并输出场景摘要(--json 输出完整场景)
   serve                              启动实时查看器  [--port 4321]
 
 全局选项
@@ -158,7 +161,7 @@ function run(): void {
     case 'scan': {
       const dir = resolve(args[0] ?? '.');
       const rootId = o.under ?? 'repo';
-      const op = planScan(store.load(), listFiles(dir), rootId, basename(dir));
+      const op = planScan(store.load(), listFiles(dir), rootId, basename(dir), statMeta(dir));
       if (op.op === 'batch' && op.ops.length === 0) {
         console.log('没有新内容');
         return;
@@ -223,6 +226,25 @@ function run(): void {
     case 'log': {
       const log = store.readLog().slice(-Number(o.n ?? 20));
       say(log, () => log.map((e) => `#${e.n} ${e.t.slice(11, 19)} ${e.author.padEnd(8)} ${e.undoOf ? `undo #${e.undoOf}` : summarize(e.op)}`).join('\n') || '(无记录)');
+      return;
+    }
+    case 'views': {
+      const { specs, errors } = listViews(store.load());
+      say({ views: Object.keys(specs), errors }, () => Object.keys(specs).map((n) => `${n}  (${specs[n]!.look ?? 'galaxy'})`).join('\n') + Object.values(errors).map((e) => `\n错误: ${e}`).join(''));
+      return;
+    }
+    case 'view': {
+      need(1, 'view <name>');
+      const { specs } = listViews(store.load());
+      const spec = specs[args[0]!];
+      if (!spec) throw new StarsError(`没有视图 "${args[0]}"(stars views 查看列表)`);
+      const scene = evaluateView(store.load(), spec);
+      say(scene, () => {
+        const top = [...scene.nodes].sort((a, b) => b.r - a.r).slice(0, 8);
+        const modes = scene.edges.reduce<Record<string, number>>((m, e) => ((m[e.mode] = (m[e.mode] ?? 0) + 1), m), {});
+        return [`${args[0]}: ${scene.nodes.length} 节点 · ${scene.edges.length} 边 ${JSON.stringify(modes)}`,
+          ...top.map((n) => `  ${n.r.toFixed(1).padStart(5)}  ${n.shape.padEnd(6)} ${n.color}  ${n.id}${n.value !== undefined ? `  (值 ${n.value})` : ''}`)].join('\n');
+      });
       return;
     }
     case 'serve': {

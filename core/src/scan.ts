@@ -2,8 +2,8 @@
 // 作为宇宙的第一批居民。语义关系(依赖、解释……)留给 AI 或人去补。
 
 import { execFileSync } from 'node:child_process';
-import { readdirSync } from 'node:fs';
-import { join, posix } from 'node:path';
+import { readdirSync, statSync } from 'node:fs';
+import { extname, join, posix } from 'node:path';
 import { type Universe, edgeKey } from './model.ts';
 import { type Op } from './ops.ts';
 
@@ -26,8 +26,20 @@ export function listFiles(dir: string): string[] {
   }
 }
 
-/** 生成一个 batch:只添加宇宙里还没有的节点和边,所以可重复扫描。 */
-export function planScan(u: Universe, files: string[], rootId: string, rootLabel: string): Op {
+export type FileMeta = (path: string) => { size: number } | null;
+
+export function statMeta(dir: string): FileMeta {
+  return (path) => {
+    try {
+      return { size: statSync(join(dir, path)).size };
+    } catch {
+      return null;
+    }
+  };
+}
+
+/** 生成一个 batch:只添加宇宙里还没有的节点和边;已有文件节点的 size 变了会被刷新。所以可重复扫描。 */
+export function planScan(u: Universe, files: string[], rootId: string, rootLabel: string, meta?: FileMeta): Op {
   const ops: Op[] = [];
   const nodes = new Set(u.nodes.keys());
   const edges = new Set(u.edges.keys());
@@ -53,7 +65,17 @@ export function planScan(u: Universe, files: string[], rootId: string, rootLabel
       addContains(parent, dirPath);
       parent = dirPath;
     }
-    addNode(f, posix.basename(f), { type: 'file', file: f });
+    const attrs: Record<string, string> = { type: 'file', file: f };
+    const ext = extname(f).slice(1).toLowerCase();
+    if (ext) attrs.ext = ext;
+    const size = meta?.(f)?.size;
+    if (size !== undefined) attrs.size = String(size);
+    if (nodes.has(f)) {
+      const old = u.nodes.get(f);
+      const set: Record<string, string> = {};
+      for (const k of ['size', 'ext']) if (attrs[k] !== undefined && old?.attrs[k] !== attrs[k]) set[k] = attrs[k]!;
+      if (old && Object.keys(set).length > 0) ops.push({ op: 'setNode', id: f, set });
+    } else addNode(f, posix.basename(f), attrs);
     addContains(parent, f);
   }
   return { op: 'batch', ops };

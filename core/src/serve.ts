@@ -4,15 +4,22 @@ import { createServer, type ServerResponse } from 'node:http';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lint } from './lint.ts';
+import { evaluateView, listViews } from './view.ts';
 import { type Store } from './store.ts';
 
 const viewerDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'viewer');
 
-function snapshot(store: Store, baseDir: string): string {
+function snapshot(store: Store, baseDir: string, viewName: string): string {
   try {
     const u = store.load();
+    const { specs, errors } = listViews(u);
+    const view = specs[viewName] ? viewName : Object.keys(specs)[0]!;
     return JSON.stringify({
       t: Date.now(),
+      view,
+      views: Object.keys(specs),
+      viewErrors: Object.values(errors),
+      scene: evaluateView(u, specs[view]!),
       nodes: [...u.nodes.values()],
       edges: [...u.edges.values()],
       issues: lint(u, { baseDir }),
@@ -24,14 +31,15 @@ function snapshot(store: Store, baseDir: string): string {
 }
 
 export function startServer(store: Store, port: number, baseDir: string): void {
-  const clients = new Set<ServerResponse>();
+  const clients = new Map<ServerResponse, string>();
 
   const server = createServer((req, res) => {
     const url = req.url ?? '/';
-    if (url === '/events') {
+    if (url.startsWith('/events')) {
+      const viewName = new URL(url, 'http://x').searchParams.get('view') ?? 'galaxy';
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
-      res.write(`data: ${snapshot(store, baseDir)}\n\n`);
-      clients.add(res);
+      res.write(`data: ${snapshot(store, baseDir, viewName)}\n\n`);
+      clients.set(res, viewName);
       req.on('close', () => clients.delete(res));
       return;
     }
@@ -59,8 +67,7 @@ export function startServer(store: Store, port: number, baseDir: string): void {
     if (name !== target && name !== basename(store.logFile)) return;
     clearTimeout(timer);
     timer = setTimeout(() => {
-      const payload = `data: ${snapshot(store, baseDir)}\n\n`;
-      for (const c of clients) c.write(payload);
+      for (const [c, viewName] of clients) c.write(`data: ${snapshot(store, baseDir, viewName)}\n\n`);
     }, 40);
   });
 

@@ -6,19 +6,21 @@
 <title>星罗 · 宇宙</title>
 <style>
   :root {
-    --bg: #050508; --panel: #0e0e13cc; --line: #25252e; --text: #d8d8e0; --muted: #7a7a88;
-    --accent: #4facfe; --warn: #ffaa00; --err: #ff4d4d;
+    --bg: #02020a; --panel: #0b0b14c8; --line: #23233a; --text: #d8d8ea; --muted: #7a7a96;
+    --accent: #7aa7ff; --warn: #ffb347; --err: #ff5a5a;
   }
-  @media (prefers-color-scheme: light) { :root { color-scheme: dark; } }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); color-scheme: dark;
     font: 13px/1.5 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; overflow: hidden; }
   canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
-  .panel { position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-    backdrop-filter: blur(10px); padding: 10px 12px; }
-  #tools { top: 12px; left: 12px; width: 280px; }
-  #tools input { width: 100%; background: #0a0a0e; border: 1px solid var(--line); color: var(--text);
-    border-radius: 6px; padding: 6px 8px; font: inherit; outline: none; }
+  .panel { position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    backdrop-filter: blur(14px); padding: 10px 12px; box-shadow: 0 0 40px #0006; }
+  #tools { top: 12px; left: 12px; width: 290px; }
+  #views { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+  .vbtn { cursor: pointer; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); user-select: none; }
+  .vbtn.on { color: #fff; border-color: var(--accent); background: #7aa7ff22; }
+  #tools input { width: 100%; background: #07070f; border: 1px solid var(--line); color: var(--text);
+    border-radius: 7px; padding: 6px 8px; font: inherit; outline: none; }
   #tools input:focus { border-color: var(--accent); }
   #chips { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
   .chip { cursor: pointer; user-select: none; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line);
@@ -33,7 +35,7 @@
   #side .sub { color: var(--muted); font-size: 12px; word-break: break-all; }
   #side .sec { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
   #side .sec > .t { color: var(--muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 4px; }
-  .row { display: flex; gap: 6px; padding: 1px 0; cursor: default; }
+  .row { display: flex; gap: 6px; padding: 1px 0; }
   .row.link { cursor: pointer; } .row.link:hover { color: var(--accent); }
   .tag { color: var(--muted); }
   .sev-error { color: var(--err); } .sev-warn { color: var(--warn); } .sev-info { color: var(--muted); }
@@ -49,171 +51,163 @@
 <canvas id="c"></canvas>
 <div id="banner"></div>
 <div class="panel" id="tools">
+  <div id="views"></div>
   <input id="q" placeholder="过滤节点… ( / )" autocomplete="off">
   <div id="chips"></div>
   <div id="status">连接中…</div>
 </div>
 <div class="panel" id="side"></div>
-<div id="hint"><kbd>/</kbd> 过滤 · <kbd>Esc</kbd> 取消选择 · 点击节点聚焦 · 滚轮缩放 · 拖动平移/拖节点 · <kbd>F</kbd> 适应窗口</div>
+<div id="hint"><kbd>/</kbd> 过滤 · <kbd>Esc</kbd> 取消 · 点击节点聚焦 · 滚轮缩放 · 拖动平移/拖节点 · <kbd>F</kbd> 适应窗口 · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 切换视图</div>
 <script src="/d3.js"></script>
 <script>
 (() => {
+  const TAU = Math.PI * 2;
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-  let data = { nodes: [], edges: [], issues: [], log: [] };
-  let simNodes = [], simLinks = [];
-  const nodeById = new Map();
-  let schema = new Map();           // 类型名 -> 模式节点
-  let hiddenTypes = new Set(['dir', 'file']); // 默认先收起扫描出来的文件噪声
-  let showSchema = false;
+  let data = { nodes: [], edges: [], issues: [], log: [], scene: { look: 'galaxy', nodes: [], edges: [] }, views: [] };
+  let look = 'galaxy';
+  let currentView = (location.hash.match(/view=([\w-]+)/) || [])[1] || 'galaxy';
+  let es = null;
+  const sim = new Map();            // id -> 模拟节点(保留位置)
+  const raw = new Map();            // id -> 宇宙里的原始节点
+  let links = [];
+  let hiddenTypes = new Set();
   let selected = null, hovered = null, query = '';
   let transform = d3.zoomIdentity;
-  let firstLoad = true;
+  let userMoved = false;
+  let fresh = true;                 // 第一次收到某个视图的数据:不播放出生动画,并自动适应窗口
   let issueByNode = new Map();
-  const typesSeen = new Set();
+  let edgeColors = new Map();
 
-  const hashColor = (s) => {
-    let h = 0; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-    return `hsl(${h % 360} 85% 62%)`;
-  };
-  const nodeColor = (n) => n.attrs.color || schema.get(n.attrs.type)?.attrs.color || (n.attrs.type ? hashColor(n.attrs.type) : '#e8e8f0');
-  const edgeColor = (e) => schema.get(e.type)?.attrs.color || hashColor('edge:' + e.type);
-  const isSym = (type) => schema.get(type)?.attrs.symmetric === 'true';
-  const isSchema = (n) => n.id.startsWith('~');
-  const typeOf = (n) => (isSchema(n) ? '~模式' : n.attrs.type || '(无类型)');
+  // ---------- 颜色工具 ----------
+  const hex2rgb = (h) => { const v = parseInt(h.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
+  const mix = (a, b, t) => a.map((x, i) => Math.round(x + (b[i] - x) * t));
+  const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 
+  // ---------- 力导向 ----------
   const simulation = d3.forceSimulation()
-    .force('link', d3.forceLink().id((d) => d.id).distance((l) => (l.type === 'contains' ? 34 : 90)).strength(0.5))
-    .force('charge', d3.forceManyBody().strength(-70).distanceMax(600))
-    .force('center', d3.forceCenter(0, 0).strength(0.04))
-    .force('collide', d3.forceCollide().radius((d) => d.r + 3))
-    .alphaDecay(0.02)
-    .on('tick', () => {});
+    .force('link', d3.forceLink().id((d) => d.id)
+      .distance((l) => (l.distance ?? 90) + l.source.r + l.target.r)
+      .strength((l) => l.strength ?? 0.3))
+    .force('charge', d3.forceManyBody().strength((d) => -(18 + d.r * d.r * 1.1)).distanceMax(500))
+    .force('center', d3.forceCenter(0, 0).strength(0.05))
+    .force('collide', d3.forceCollide().radius((d) => d.r * 1.3 + 2))
+    .alphaDecay(0.012).alphaTarget(0.035).velocityDecay(0.42);
 
-  function visible(n) {
-    if (isSchema(n)) return showSchema;
-    return !hiddenTypes.has(typeOf(n));
+  // 轨道关系:给"子"一个切向速度,像行星绕恒星转。转速随轨道半径衰减。
+  simulation.force('swirl', () => {
+    for (const l of links) {
+      if (l.mode !== 'orbit') continue;
+      const s = l.source, t = l.target;
+      if (t.fx != null) continue;
+      const dx = t.x - s.x, dy = t.y - s.y, d = Math.hypot(dx, dy) || 1;
+      const w = 0.07 * Math.sqrt(40 / d) * (l.dir || 1);
+      t.vx += (-dy / d) * w; t.vy += (dx / d) * w;
+    }
+  });
+
+  // ---------- 数据接入 ----------
+  function connect() {
+    if (es) es.close();
+    es = new EventSource('/events?view=' + encodeURIComponent(currentView));
+    es.onmessage = (ev) => ingest(JSON.parse(ev.data));
+    es.onerror = () => { $('status').textContent = '连接断开,重连中…'; };
   }
 
   function ingest(snap) {
     if (snap.error) { banner(snap.error); return; }
-    banner(null);
+    banner(snap.viewErrors && snap.viewErrors.length ? snap.viewErrors.join(';') : null);
     data = snap;
-    schema = new Map(snap.nodes.filter(isSchema).map((n) => [n.id.slice(1), n]));
+    look = snap.scene.look;
+    currentView = snap.view;
+    raw.clear();
+    for (const n of snap.nodes) raw.set(n.id, n);
+
     issueByNode = new Map();
     for (const i of snap.issues) for (const id of i.nodes) {
       const cur = issueByNode.get(id);
-      if (!cur || (i.severity === 'error') || (i.severity === 'warn' && cur !== 'error')) issueByNode.set(id, i.severity);
+      if (!cur || i.severity === 'error' || (i.severity === 'warn' && cur !== 'error')) issueByNode.set(id, i.severity);
     }
+    edgeColors = new Map(snap.scene.edges.map((e) => [`${e.from}|${e.type}|${e.to}`, e.color]));
 
-    const prev = new Map(nodeById);
-    nodeById.clear();
-    const deg = new Map();
-    for (const e of snap.edges) { deg.set(e.from, (deg.get(e.from) || 0) + 1); deg.set(e.to, (deg.get(e.to) || 0) + 1); }
-
-    simNodes = snap.nodes.map((raw) => {
-      const old = prev.get(raw.id);
-      const n = Object.assign(old || { x: undefined, y: undefined, born: firstLoad ? 0 : performance.now() }, raw);
-      n.deg = deg.get(raw.id) || 0;
-      n.r = 3 + Math.sqrt(n.deg) * 1.7;
-      nodeById.set(n.id, n);
-      return n;
-    });
-    // 新节点出生在已有邻居旁边,而不是随机位置
-    for (const n of simNodes) {
+    const seen = new Set();
+    for (const sn of snap.scene.nodes) {
+      seen.add(sn.id);
+      let n = sim.get(sn.id);
+      if (!n) { n = { id: sn.id, x: undefined, y: undefined, born: fresh ? 0 : performance.now(), phase: Math.random() * TAU }; sim.set(sn.id, n); }
+      Object.assign(n, sn);
+      n.rgb = hex2rgb(sn.color);
+      n.core = mix(n.rgb, [255, 255, 255], 0.65);
+    }
+    for (const id of [...sim.keys()]) if (!seen.has(id)) sim.delete(id);
+    // 新节点出生在已有邻居旁边
+    for (const n of sim.values()) {
       if (n.x !== undefined) continue;
-      const nb = snap.edges.map((e) => (e.from === n.id ? e.to : e.to === n.id ? e.from : null))
-        .map((id) => id && nodeById.get(id)).find((m) => m && m.x !== undefined);
-      n.x = (nb ? nb.x : 0) + (Math.random() - 0.5) * 30;
-      n.y = (nb ? nb.y : 0) + (Math.random() - 0.5) * 30;
+      const e = snap.scene.edges.find((e) => (e.from === n.id && sim.get(e.to)?.x !== undefined) || (e.to === n.id && sim.get(e.from)?.x !== undefined));
+      const nb = e ? sim.get(e.from === n.id ? e.to : e.from) : null;
+      const a = Math.random() * TAU, d = 20 + Math.random() * 25;
+      n.x = (nb ? nb.x : 0) + Math.cos(a) * d; n.y = (nb ? nb.y : 0) + Math.sin(a) * d;
     }
-    if (selected && !nodeById.has(selected)) selected = null;
+    if (selected && !sim.has(selected)) selected = null;
 
-    for (const n of simNodes) typesSeen.add(typeOf(n));
     rebuildGraph();
-    renderChips();
-    renderSide();
-    $('status').innerHTML = `<b>${snap.nodes.filter((n) => !isSchema(n)).length}</b> 节点 · <b>${snap.edges.length}</b> 条边 · `
+    renderViews(); renderChips(); renderSide();
+    const nn = snap.nodes.filter((n) => !n.id.startsWith('~')).length;
+    $('status').innerHTML = `视图 <b>${snap.scene.nodes.length}</b>/${nn} 节点 · <b>${snap.scene.edges.length}</b> 边 · `
       + `<span class="sev-error">${snap.issues.filter((i) => i.severity === 'error').length} 错误</span> · `
       + `<span class="sev-warn">${snap.issues.filter((i) => i.severity === 'warn').length} 警告</span>`;
-    if (firstLoad) { firstLoad = false; setTimeout(fit, 700); }
+    if (fresh) { fresh = false; userMoved = false; setTimeout(fit, 900); setTimeout(() => { if (!userMoved) fit(); }, 3600); }
   }
 
+  const typeOf = (id) => (raw.get(id)?.attrs.type) || '(无类型)';
+  const visible = (n) => !hiddenTypes.has(typeOf(n.id));
+
   function rebuildGraph() {
-    const vis = simNodes.filter(visible);
+    const vis = [...sim.values()].filter(visible);
     const ids = new Set(vis.map((n) => n.id));
-    simLinks = data.edges.filter((e) => ids.has(e.from) && ids.has(e.to)).map((e) => ({ ...e, source: e.from, target: e.to }));
+    const deg = new Map();
+    links = data.scene.edges.filter((e) => ids.has(e.from) && ids.has(e.to)).map((e) => {
+      deg.set(e.from, (deg.get(e.from) || 0) + 1);
+      return { ...e, source: e.from, target: e.to };
+    });
     simulation.nodes(vis);
-    simulation.force('link').links(simLinks);
-    simulation.alpha(0.6).restart();
+    simulation.force('link').links(links);
+    simulation.alpha(0.5).restart();
   }
 
   function banner(msg) {
     const b = $('banner');
     b.style.display = msg ? 'block' : 'none';
-    b.textContent = msg ? '宇宙文件有误: ' + msg : '';
+    b.textContent = msg ? '⚠ ' + msg : '';
   }
 
+  // ---------- 面板 ----------
+  function renderViews() {
+    $('views').innerHTML = data.views.map((v, i) => `<span class="vbtn ${v === data.view ? 'on' : ''}" data-v="${esc(v)}" title="按 ${i + 1}">${esc(v)}</span>`).join('');
+  }
+  function setView(v) {
+    if (!v || v === currentView) return;
+    currentView = v; location.hash = 'view=' + v; fresh = true; selected = null; hiddenTypes.clear(); connect();
+  }
+  $('views').addEventListener('click', (ev) => { const el = ev.target.closest('.vbtn'); if (el) setView(el.dataset.v); });
+
   function renderChips() {
-    const counts = new Map();
-    for (const n of simNodes) counts.set(typeOf(n), (counts.get(typeOf(n)) || 0) + 1);
-    const chips = [...counts].sort((a, b) => b[1] - a[1]).map(([t, c]) => {
-      const sample = simNodes.find((n) => typeOf(n) === t);
-      const on = t === '~模式' ? showSchema : !hiddenTypes.has(t);
-      const color = t === '~模式' ? '#888' : nodeColor(sample);
-      return `<span class="chip ${on ? 'on' : ''}" data-t="${esc(t)}"><i style="background:${color}"></i>${esc(t)} ${c}</span>`;
-    });
-    $('chips').innerHTML = chips.join('');
+    const counts = new Map(), sample = new Map();
+    for (const n of sim.values()) { const t = typeOf(n.id); counts.set(t, (counts.get(t) || 0) + 1); sample.set(t, n); }
+    $('chips').innerHTML = [...counts].sort((a, b) => b[1] - a[1]).map(([t, c]) =>
+      `<span class="chip ${hiddenTypes.has(t) ? '' : 'on'}" data-t="${esc(t)}"><i style="background:${sample.get(t).color}"></i>${esc(t)} ${c}</span>`).join('');
   }
   $('chips').addEventListener('click', (ev) => {
     const el = ev.target.closest('.chip'); if (!el) return;
     const t = el.dataset.t;
-    if (t === '~模式') showSchema = !showSchema;
-    else if (hiddenTypes.has(t)) hiddenTypes.delete(t); else hiddenTypes.add(t);
+    if (hiddenTypes.has(t)) hiddenTypes.delete(t); else hiddenTypes.add(t);
     rebuildGraph(); renderChips();
   });
 
-  function renderSide() {
-    const el = $('side');
-    const n = selected && nodeById.get(selected);
-    if (!n) {
-      const feed = data.log.slice().reverse().slice(0, 14).map((e) =>
-        `<div class="row"><span class="tag">#${e.n}</span><span class="author">${esc(e.author)}</span><span>${esc(summ(e))}</span></div>`).join('');
-      const groups = new Map();
-      for (const i of data.issues.filter((i) => i.severity !== 'info')) {
-        const g = groups.get(i.rule) || { sev: i.severity, items: [] };
-        g.items.push(i); groups.set(i.rule, g);
-      }
-      const issues = [...groups].map(([rule, g]) => g.items.length <= 3
-        ? g.items.map((i) => `<div class="row sev-${g.sev}">${esc(i.message)}</div>`).join('')
-        : `<div class="row sev-${g.sev}"><b>${g.items.length} × ${esc(rule)}</b></div><div class="row sev-${g.sev}" style="opacity:.7">例如 ${esc(g.items[0].message)}</div>`).join('');
-      el.innerHTML = `<h3>宇宙</h3><div class="sub">点击任意节点查看它的关系</div>`
-        + (issues ? `<div class="sec"><div class="t">需要关注</div>${issues}</div>` : '')
-        + `<div class="sec"><div class="t">最近变更</div>${feed || '<span class="tag">暂无</span>'}</div>`;
-      return;
-    }
-    const out = data.edges.filter((e) => e.from === n.id), inn = data.edges.filter((e) => e.to === n.id);
-    const attrs = Object.entries(n.attrs).filter(([k]) => !['type', 'summary'].includes(k))
-      .map(([k, v]) => `<div class="row"><span class="tag">${esc(k)}</span><span>${esc(v)}</span></div>`).join('');
-    const edgeRow = (e, other, arrow) => `<div class="row link" data-id="${esc(other)}"><span class="tag">${arrow}</span>`
-      + `<span style="color:${edgeColor(e)}">${esc(e.type)}</span><span>${esc(nodeById.get(other)?.label || other)}</span>`
-      + (e.attrs.status ? `<span class="sev-warn">${esc(e.attrs.status)}</span>` : '') + '</div>';
-    const myIssues = data.issues.filter((i) => i.nodes.includes(n.id));
-    el.innerHTML = `<h3 style="color:${nodeColor(n)}">${esc(n.label)}</h3>
-      <div class="sub">${esc(n.id)}${n.attrs.type ? ' · ' + esc(n.attrs.type) : ''}</div>
-      ${n.attrs.summary ? `<p>${esc(n.attrs.summary)}</p>` : ''}
-      ${attrs ? `<div class="sec">${attrs}</div>` : ''}
-      <div class="sec"><div class="t">出边 ${out.length}</div>${out.map((e) => edgeRow(e, e.to, '→')).join('') || '<span class="tag">无</span>'}</div>
-      <div class="sec"><div class="t">入边 ${inn.length}</div>${inn.map((e) => edgeRow(e, e.from, '←')).join('') || '<span class="tag">无</span>'}</div>
-      ${myIssues.length ? `<div class="sec"><div class="t">问题</div>${myIssues.map((i) => `<div class="row sev-${i.severity}">${esc(i.message)}</div>`).join('')}</div>` : ''}`;
-  }
-  $('side').addEventListener('click', (ev) => {
-    const el = ev.target.closest('.row.link'); if (!el) return;
-    select(el.dataset.id, true);
-  });
+  const fmtBytes = (b) => (b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : b >= 1024 ? (b / 1024).toFixed(1) + ' KB' : b + ' B');
   const summ = (e) => {
     if (e.undoOf) return `撤销 #${e.undoOf}`;
     const o = e.op;
@@ -225,148 +219,261 @@
     return o.op;
   };
 
+  function renderSide() {
+    const el = $('side');
+    const n = selected && raw.get(selected);
+    const sn = selected && sim.get(selected);
+    if (!n) {
+      const feed = data.log.slice().reverse().slice(0, 14).map((e) =>
+        `<div class="row"><span class="tag">#${e.n}</span><span class="author">${esc(e.author)}</span><span>${esc(summ(e))}</span></div>`).join('');
+      const groups = new Map();
+      for (const i of data.issues.filter((i) => i.severity !== 'info')) {
+        const g = groups.get(i.rule) || { sev: i.severity, items: [] };
+        g.items.push(i); groups.set(i.rule, g);
+      }
+      const issues = [...groups].map(([rule, g]) => g.items.length <= 3
+        ? g.items.map((i) => `<div class="row sev-${g.sev}">${esc(i.message)}</div>`).join('')
+        : `<div class="row sev-${g.sev}"><b>${g.items.length} × ${esc(rule)}</b></div><div class="row sev-${g.sev}" style="opacity:.7">例如 ${esc(g.items[0].message)}</div>`).join('');
+      el.innerHTML = `<h3>宇宙</h3><div class="sub">点击任意节点查看它的关系;用上方按钮切换视图 —— 同一份关系,不同的表达</div>`
+        + (issues ? `<div class="sec"><div class="t">需要关注</div>${issues}</div>` : '')
+        + `<div class="sec"><div class="t">最近变更</div>${feed || '<span class="tag">暂无</span>'}</div>`;
+      return;
+    }
+    const out = data.edges.filter((e) => e.from === n.id), inn = data.edges.filter((e) => e.to === n.id);
+    const attrs = Object.entries(n.attrs).filter(([k]) => !['type', 'summary'].includes(k))
+      .map(([k, v]) => `<div class="row"><span class="tag">${esc(k)}</span><span>${esc(k === 'size' ? fmtBytes(+v) : v)}</span></div>`).join('');
+    const edgeRow = (e, other, arrow) => `<div class="row link" data-id="${esc(other)}"><span class="tag">${arrow}</span>`
+      + `<span style="color:${edgeColors.get(`${e.from}|${e.type}|${e.to}`) || '#8a8aa8'}">${esc(e.type)}</span><span>${esc(raw.get(other)?.label || other)}</span>`
+      + (e.attrs.status ? `<span class="sev-warn">${esc(e.attrs.status)}</span>` : '') + '</div>';
+    const myIssues = data.issues.filter((i) => i.nodes.includes(n.id));
+    el.innerHTML = `<h3 style="color:${sn ? sn.color : '#fff'}">${esc(n.label)}</h3>
+      <div class="sub">${esc(n.id)}${n.attrs.type ? ' · ' + esc(n.attrs.type) : ''}${sn && sn.value !== undefined ? ' · 视图值 ' + esc(sn.value) : ''}</div>
+      ${n.attrs.summary ? `<p>${esc(n.attrs.summary)}</p>` : ''}
+      ${attrs ? `<div class="sec">${attrs}</div>` : ''}
+      <div class="sec"><div class="t">出边 ${out.length}</div>${out.map((e) => edgeRow(e, e.to, '→')).join('') || '<span class="tag">无</span>'}</div>
+      <div class="sec"><div class="t">入边 ${inn.length}</div>${inn.map((e) => edgeRow(e, e.from, '←')).join('') || '<span class="tag">无</span>'}</div>
+      ${myIssues.length ? `<div class="sec"><div class="t">问题</div>${myIssues.map((i) => `<div class="row sev-${i.severity}">${esc(i.message)}</div>`).join('')}</div>` : ''}`;
+  }
+  $('side').addEventListener('click', (ev) => { const el = ev.target.closest('.row.link'); if (el) select(el.dataset.id, true); });
+
   function select(id, center) {
     selected = id;
-    const n = id && nodeById.get(id);
-    if (n && !visible(n)) { hiddenTypes.delete(typeOf(n)); rebuildGraph(); renderChips(); }
-    if (n && center) {
-      const t = d3.zoomIdentity.translate(innerWidth / 2 - 100, innerHeight / 2).scale(transform.k).translate(-n.x, -n.y);
-      d3.select(canvas).transition().duration(450).call(zoom.transform, t);
+    const n = id && sim.get(id);
+    if (n && !visible(n)) { hiddenTypes.delete(typeOf(id)); rebuildGraph(); renderChips(); }
+    if (n && center && n.x !== undefined) {
+      const t = d3.zoomIdentity.translate(innerWidth / 2 - 100, innerHeight / 2).scale(Math.max(transform.k, 1)).translate(-n.x, -n.y);
+      d3.select(canvas).transition().duration(500).call(zoom.transform, t);
     }
     renderSide();
   }
 
-  // --- 交互 ---
+  // ---------- 交互 ----------
   const find = (px, py) => {
     const [x, y] = transform.invert([px, py]);
-    return simulation.find(x, y, 14 / transform.k + 4);
+    return simulation.find(x, y, 16 / transform.k + 6);
   };
-  const zoom = d3.zoom().scaleExtent([0.1, 8])
+  const zoom = d3.zoom().scaleExtent([0.08, 10])
     .filter((ev) => !(ev.type === 'mousedown' && find(ev.offsetX, ev.offsetY)) && !ev.button)
-    .on('zoom', (ev) => { transform = ev.transform; });
+    .on('zoom', (ev) => { transform = ev.transform; if (ev.sourceEvent) userMoved = true; });
   d3.select(canvas).call(zoom).on('dblclick.zoom', null);
-
   d3.select(canvas).call(d3.drag()
     .subject((ev) => find(ev.x, ev.y))
-    .on('start', (ev) => { if (!ev.active) simulation.alphaTarget(0.25).restart(); ev.subject.fx = ev.subject.x; ev.subject.fy = ev.subject.y; ev.subject.moved = false; })
+    .on('start', (ev) => { ev.subject.fx = ev.subject.x; ev.subject.fy = ev.subject.y; ev.subject.moved = false; })
     .on('drag', (ev) => { const [x, y] = transform.invert([ev.sourceEvent.offsetX, ev.sourceEvent.offsetY]); ev.subject.fx = x; ev.subject.fy = y; ev.subject.moved = true; })
-    .on('end', (ev) => { if (!ev.active) simulation.alphaTarget(0); ev.subject.fx = null; ev.subject.fy = null; if (!ev.subject.moved) select(ev.subject.id, false); }));
-
+    .on('end', (ev) => { ev.subject.fx = null; ev.subject.fy = null; if (!ev.subject.moved) select(ev.subject.id, false); }));
   canvas.addEventListener('mousemove', (ev) => { hovered = find(ev.offsetX, ev.offsetY) || null; canvas.style.cursor = hovered ? 'pointer' : 'default'; });
   canvas.addEventListener('click', (ev) => { if (!find(ev.offsetX, ev.offsetY)) select(null); });
   $('q').addEventListener('input', (ev) => { query = ev.target.value.trim().toLowerCase(); });
   addEventListener('keydown', (ev) => {
-    if (ev.key === '/' && document.activeElement !== $('q')) { ev.preventDefault(); $('q').focus(); }
+    const typing = document.activeElement === $('q');
+    if (ev.key === '/' && !typing) { ev.preventDefault(); $('q').focus(); }
     else if (ev.key === 'Escape') { $('q').blur(); $('q').value = ''; query = ''; select(null); }
-    else if ((ev.key === 'f' || ev.key === 'F') && document.activeElement !== $('q')) fit();
+    else if (!typing && (ev.key === 'f' || ev.key === 'F')) fit();
+    else if (!typing && /^[1-9]$/.test(ev.key) && data.views[+ev.key - 1]) setView(data.views[+ev.key - 1]);
   });
 
   function fit() {
-    const vis = simulation.nodes();
+    const vis = simulation.nodes().filter((n) => n.x !== undefined);
     if (!vis.length) return;
     const xs = vis.map((n) => n.x), ys = vis.map((n) => n.y);
     const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-    const k = Math.min(2, 0.85 * Math.min(innerWidth / Math.max(60, x1 - x0), innerHeight / Math.max(60, y1 - y0)));
-    const t = d3.zoomIdentity.translate(innerWidth / 2, innerHeight / 2).scale(k).translate(-(x0 + x1) / 2, -(y0 + y1) / 2);
-    d3.select(canvas).transition().duration(600).call(zoom.transform, t);
+    const k = Math.min(2.2, 0.82 * Math.min((innerWidth - 340) / Math.max(80, x1 - x0), innerHeight / Math.max(80, y1 - y0)));
+    const t = d3.zoomIdentity.translate(innerWidth / 2 - 20, innerHeight / 2).scale(k).translate(-(x0 + x1) / 2, -(y0 + y1) / 2);
+    d3.select(canvas).transition().duration(700).call(zoom.transform, t);
   }
 
-  // --- 绘制 ---
-  function resize() {
-    const dpr = devicePixelRatio || 1;
-    canvas.width = innerWidth * dpr; canvas.height = innerHeight * dpr;
-  }
+  // ---------- 绘制 ----------
+  function resize() { const dpr = devicePixelRatio || 1; canvas.width = innerWidth * dpr; canvas.height = innerHeight * dpr; }
   addEventListener('resize', resize); resize();
 
-  const matches = (n) => !query || `${n.id} ${n.label} ${n.attrs.summary || ''}`.toLowerCase().includes(query);
+  // 星空:屏幕空间,三层视差
+  const stars = Array.from({ length: 520 }, (_, i) => {
+    const r = Math.random(); // 伪随机但固定
+    return { x: Math.random(), y: Math.random(), s: 0.3 + Math.pow(Math.random(), 3) * 1.6, layer: i % 3, ph: Math.random() * TAU, hue: Math.random() };
+  });
+
+  const matches = (id) => { if (!query) return true; const n = raw.get(id); return !!n && `${n.id} ${n.label} ${n.attrs.summary || ''}`.toLowerCase().includes(query); };
+
+  function glow(x, y, rad, c, a) {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
+    g.addColorStop(0, rgba(c, a)); g.addColorStop(0.3, rgba(c, a * 0.4)); g.addColorStop(0.7, rgba(c, a * 0.08)); g.addColorStop(1, rgba(c, 0));
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, rad, 0, TAU); ctx.fill();
+  }
+
+  function drawBackdrop(now) {
+    const W = innerWidth, H = innerHeight;
+    if (look !== 'galaxy') { ctx.fillStyle = '#07070d'; ctx.fillRect(0, 0, W, H); return; }
+    const g = ctx.createRadialGradient(W * 0.5, H * 0.46, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.85);
+    g.addColorStop(0, '#0d0b22'); g.addColorStop(0.5, '#05050f'); g.addColorStop(1, '#01010605');
+    ctx.fillStyle = '#010106'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    // 银河光带:一条斜向的柔光
+    ctx.save(); ctx.translate(W * 0.5 + transform.x * 0.04, H * 0.5 + transform.y * 0.04); ctx.rotate(-0.45);
+    const band = ctx.createLinearGradient(0, -H * 0.35, 0, H * 0.35);
+    band.addColorStop(0, 'rgba(90,70,200,0)'); band.addColorStop(0.5, 'rgba(110,90,230,0.07)'); band.addColorStop(1, 'rgba(60,120,220,0)');
+    ctx.fillStyle = band; ctx.fillRect(-W, -H * 0.35, W * 2, H * 0.7); ctx.restore();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const s of stars) {
+      const par = 0.015 + s.layer * 0.03;
+      const x = (((s.x * W + transform.x * par) % W) + W) % W, y = (((s.y * H + transform.y * par) % H) + H) % H;
+      const tw = 0.6 + 0.4 * Math.sin(now / 700 + s.ph);
+      ctx.fillStyle = s.hue > 0.8 ? `rgba(255,214,170,${0.55 * tw})` : s.hue < 0.2 ? `rgba(170,200,255,${0.6 * tw})` : `rgba(235,235,255,${0.5 * tw})`;
+      ctx.beginPath(); ctx.arc(x, y, s.s * (0.7 + s.layer * 0.25), 0, TAU); ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  function drawNode(n, now, a) {
+    const r = n.r, x = n.x, y = n.y, c = n.rgb;
+    switch (n.shape) {
+      case 'nebula': {
+        const br = 1 + 0.05 * Math.sin(now / 1400 + n.phase);
+        glow(x, y, r * 6.5 * br, c, 0.32 * a); glow(x, y, r * 3, c, 0.38 * a); glow(x, y, r * 1, n.core, 0.7 * a);
+        break;
+      }
+      case 'ringed': {
+        glow(x, y, r * 3.4, c, 0.5 * a);
+        ctx.strokeStyle = rgba(n.core, 0.75 * a); ctx.lineWidth = Math.max(0.7, r * 0.12);
+        ctx.beginPath(); ctx.ellipse(x, y, r * 2.3, r * 0.85, -0.45, 0, TAU); ctx.stroke();
+        ctx.fillStyle = rgba(n.core, a); ctx.beginPath(); ctx.arc(x, y, r * 0.75, 0, TAU); ctx.fill();
+        break;
+      }
+      case 'pulsar': {
+        const p = 0.5 + 0.5 * Math.sin(now / 520 + n.phase);
+        glow(x, y, r * (3.6 + p * 1.6), c, 0.6 * a);
+        ctx.strokeStyle = rgba(n.core, (0.35 + 0.3 * p) * a); ctx.lineWidth = Math.max(0.6, r * 0.09);
+        const L = r * (3.2 + p * 3.2);
+        ctx.beginPath(); ctx.moveTo(x - L, y); ctx.lineTo(x + L, y); ctx.moveTo(x, y - L); ctx.lineTo(x, y + L); ctx.stroke();
+        ctx.fillStyle = rgba(n.core, a); ctx.beginPath(); ctx.arc(x, y, r * 0.7, 0, TAU); ctx.fill();
+        break;
+      }
+      case 'dot':
+        ctx.fillStyle = rgba(c, a); ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+        break;
+      default: { // star
+        const tw = 0.85 + 0.15 * Math.sin(now / 600 + n.phase);
+        glow(x, y, r * 5 * tw, c, 0.75 * a);
+        if (r >= 5) {
+          ctx.strokeStyle = rgba(n.core, 0.3 * a); ctx.lineWidth = 0.7;
+          const L = r * 3.4; ctx.beginPath(); ctx.moveTo(x - L, y); ctx.lineTo(x + L, y); ctx.moveTo(x, y - L); ctx.lineTo(x, y + L); ctx.stroke();
+        }
+        ctx.fillStyle = rgba(n.core, a); ctx.beginPath(); ctx.arc(x, y, Math.max(0.9, r * 0.62), 0, TAU); ctx.fill();
+      }
+    }
+  }
 
   function draw(now) {
     const dpr = devicePixelRatio || 1;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, innerWidth, innerHeight);
+    drawBackdrop(now);
+
+    const galaxy = look === 'galaxy';
     ctx.save();
     ctx.translate(transform.x, transform.y); ctx.scale(transform.k, transform.k);
+    const k = transform.k;
 
     const focus = selected ? new Set([selected]) : null;
-    if (focus) for (const l of simLinks) { if (l.source.id === selected) focus.add(l.target.id); if (l.target.id === selected) focus.add(l.source.id); }
-    const alphaOf = (n) => (query && !matches(n) ? 0.08 : focus && !focus.has(n.id) ? 0.18 : 1);
+    if (focus) for (const l of links) { if (l.source.id === selected) focus.add(l.target.id); if (l.target.id === selected) focus.add(l.source.id); }
+    const alphaOf = (n) => (query && !matches(n.id) ? 0.1 : focus && !focus.has(n.id) ? 0.2 : 1);
 
+    ctx.globalCompositeOperation = galaxy ? 'lighter' : 'source-over';
     // 边
-    for (const l of simLinks) {
+    for (const l of links) {
       const a = l.source, b = l.target;
       if (a.x === undefined || b.x === undefined) continue;
       const alpha = Math.min(alphaOf(a), alphaOf(b));
-      const proposed = l.attrs.status === 'proposed';
-      const hot = focus && (l.source.id === selected || l.target.id === selected);
-      ctx.globalAlpha = alpha * (hot ? 0.95 : 0.5);
-      ctx.strokeStyle = proposed ? '#ffd24a' : edgeColor(l);
-      ctx.lineWidth = (hot ? 1.8 : 1) / transform.k * (l.type === 'contains' ? 0.8 : 1.3);
-      ctx.setLineDash(proposed ? [5 / transform.k, 4 / transform.k] : []);
+      const hot = focus && (a.id === selected || b.id === selected);
+      const col = l.proposed ? [255, 210, 74] : hex2rgb(l.color);
+      const d = Math.hypot(b.x - a.x, b.y - a.y);
+      if (l.mode === 'orbit') {
+        ctx.strokeStyle = rgba(mix(col, a.rgb, 0.5), (hot ? 0.28 : 0.07) * alpha); ctx.lineWidth = (hot ? 1.2 : 0.7) / k;
+        ctx.beginPath(); ctx.arc(a.x, a.y, d, 0, TAU); ctx.stroke();
+        if (hot) { ctx.strokeStyle = rgba(col, 0.6 * alpha); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+        continue;
+      }
+      const base = l.mode === 'faint' ? 0.14 : 0.4;
+      ctx.strokeStyle = rgba(col, (hot ? 0.9 : base) * alpha);
+      ctx.lineWidth = (l.width || 1) * (hot ? 1.8 : 1) / k * (galaxy ? 1 : 1.2);
+      ctx.setLineDash(l.proposed ? [5 / k, 4 / k] : []);
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-      if (!isSym(l.type) && l.type !== 'contains') {
-        const ang = Math.atan2(b.y - a.y, b.x - a.x), s = 6 / transform.k;
-        const tx = b.x - Math.cos(ang) * (b.r + 2), ty = b.y - Math.sin(ang) * (b.r + 2);
-        ctx.setLineDash([]); ctx.fillStyle = ctx.strokeStyle;
+      ctx.setLineDash([]);
+      if (l.arrow && d > 1) {
+        const ang = Math.atan2(b.y - a.y, b.x - a.x), s = 7 / k;
+        const tx = b.x - Math.cos(ang) * (b.r * 1.3 + 3), ty = b.y - Math.sin(ang) * (b.r * 1.3 + 3);
+        ctx.fillStyle = rgba(col, (hot ? 0.95 : 0.6) * alpha);
         ctx.beginPath(); ctx.moveTo(tx, ty);
         ctx.lineTo(tx - Math.cos(ang - 0.4) * s, ty - Math.sin(ang - 0.4) * s);
         ctx.lineTo(tx - Math.cos(ang + 0.4) * s, ty - Math.sin(ang + 0.4) * s);
         ctx.closePath(); ctx.fill();
       }
     }
-    ctx.setLineDash([]);
 
-    // 节点
-    const nodes = simulation.nodes();
+    // 节点:星云先画,其余在上
+    const nodes = simulation.nodes().filter((n) => n.x !== undefined);
+    const ordered = [...nodes.filter((n) => n.shape === 'nebula'), ...nodes.filter((n) => n.shape !== 'nebula')];
+    for (const n of ordered) {
+      drawNode(n, now, alphaOf(n) * (n === hovered ? 1.25 : 1));
+      const age = now - (n.born || -1e9);
+      if (age < 1800) { // 新生:扩散环
+        const p = age / 1800;
+        ctx.strokeStyle = rgba(n.rgb, (1 - p) * 0.9); ctx.lineWidth = 2 / k;
+        ctx.beginPath(); ctx.arc(n.x, n.y, n.r + 4 + p * 60, 0, TAU); ctx.stroke();
+      }
+    }
+
+    ctx.globalCompositeOperation = 'source-over';
+    // 状态环与标签
     for (const n of nodes) {
-      if (n.x === undefined) continue;
-      const color = nodeColor(n);
-      const a = alphaOf(n);
-      ctx.globalAlpha = a;
-      ctx.shadowColor = color; ctx.shadowBlur = (n.id === selected || n === hovered ? 24 : 10) * transform.k;
-      ctx.fillStyle = color;
-      ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 6.2832); ctx.fill();
-      ctx.shadowBlur = 0;
-      const sev = issueByNode.get(n.id);
+      const sev = issueByNode.get(n.id), a = alphaOf(n);
       if (sev === 'error' || sev === 'warn') {
-        ctx.strokeStyle = sev === 'error' ? '#ff4d4d' : '#ffaa00'; ctx.lineWidth = 1.5 / transform.k;
-        ctx.beginPath(); ctx.arc(n.x, n.y, n.r + 3, 0, 6.2832); ctx.stroke();
+        ctx.strokeStyle = rgba(sev === 'error' ? [255, 90, 90] : [255, 179, 71], 0.9 * a); ctx.lineWidth = 1.4 / k;
+        ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 1.5 + 3, 0, TAU); ctx.stroke();
       }
       if (n.id === selected) {
-        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5 / transform.k;
-        ctx.beginPath(); ctx.arc(n.x, n.y, n.r + 5, 0, 6.2832); ctx.stroke();
-      }
-      const age = now - (n.born || -1e9);
-      if (age < 1600) { // 新生节点的扩散环
-        const p = age / 1600;
-        ctx.globalAlpha = (1 - p) * 0.9; ctx.strokeStyle = color; ctx.lineWidth = 2 / transform.k;
-        ctx.beginPath(); ctx.arc(n.x, n.y, n.r + 4 + p * 46, 0, 6.2832); ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 1.4 / k;
+        ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 1.5 + 6, 0, TAU); ctx.stroke();
       }
     }
-
-    // 标签:放大时、聚焦邻居、悬停、搜索命中、枢纽节点
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    const fs = 11 / Math.max(transform.k, 0.6);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.lineJoin = 'round';
+    const fs = 11 / Math.max(k, 0.55);
     ctx.font = `${fs}px -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif`;
-    ctx.lineJoin = 'round';
     for (const n of nodes) {
-      if (n.x === undefined) continue;
-      const show = n === hovered || n.id === selected || (focus && focus.has(n.id)) || (query && matches(n))
-        || transform.k > 1.6 || n.deg >= 5 || nodes.length <= 40;
+      const show = n === hovered || n.id === selected || (focus && focus.has(n.id)) || (query && matches(n.id))
+        || k > 1.7 || n.r >= 8 || nodes.length <= 40;
       if (!show) continue;
-      ctx.globalAlpha = Math.max(alphaOf(n), 0.5) * (n.deg >= 5 || transform.k > 1.6 || n === hovered || focus || nodes.length <= 40 ? 1 : 0.8);
-      ctx.strokeStyle = '#050508'; ctx.lineWidth = 3 / Math.max(transform.k, 0.6);
-      ctx.strokeText(n.label, n.x, n.y + n.r + 3);
-      ctx.fillStyle = '#e6e6ee'; ctx.fillText(n.label, n.x, n.y + n.r + 3);
+      ctx.globalAlpha = Math.max(alphaOf(n), 0.45);
+      const y = n.y + n.r * 1.3 + 3;
+      ctx.strokeStyle = 'rgba(2,2,10,0.9)'; ctx.lineWidth = 3 / Math.max(k, 0.55); ctx.strokeText(n.label, n.x, y);
+      ctx.fillStyle = '#e8e8f6'; ctx.fillText(n.label, n.x, y);
     }
+    ctx.globalAlpha = 1;
     ctx.restore();
     requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);
 
-  // --- 实时连接 ---
-  const es = new EventSource('/events');
-  es.onmessage = (ev) => ingest(JSON.parse(ev.data));
-  es.onerror = () => { $('status').textContent = '连接断开,重连中…'; };
+  connect();
 })();
 </script>
 </body>
