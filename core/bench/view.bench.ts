@@ -30,6 +30,13 @@ const fileChanged = Object.fromEntries(ids.map((id, i) => [id, Date.now() - (i %
 console.log(`节点 ${u.nodes.size} · 边 ${u.edges.size}\n`);
 
 const galaxy = BUILTIN_VIEWS.galaxy!, recent = BUILTIN_VIEWS.recent!;
+const exprView = {
+  ...galaxy,
+  select: { where: "type != 'file' || size > 5000" },
+  size: [{ expr: 'log1p(size) * (days(fileChanged) < 30 ? 2 : 1)', scale: 'sqrt', range: [2, 12] }],
+  color: [{ expr: 'recent(fileChanged, 14)', from: '#2f3b6e', to: '#ffcf70' }],
+  style: [{ expr: "size > 30000 ? 'pulsar' : 'star'" }],
+};
 for (let i = 0; i < 2; i++) {
   console.log(i === 0 ? '--- 冷启动 ---' : '--- 预热后 ---');
   const c = time('galaxy 编译(宇宙/规格/信号变了才做一次)', () => compileView(u, galaxy));
@@ -39,4 +46,6 @@ for (let i = 0; i < 2; i++) {
   const r = time('recent 编译(含信号与汇总)', () => compileView(u, recent, { signals: { fileChanged } }));
   time('  fold 收起', () => r.fold());
   time('evaluateView 一步到位(galaxy)', () => evaluateView(u, galaxy));
+  const x = time('表达式视图 编译(size/color/style/where 全是表达式)', () => compileView(u, exprView as never, { signals: { fileChanged } }));
+  time('  fold', () => x.fold());
 }

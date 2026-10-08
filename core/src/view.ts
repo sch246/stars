@@ -4,13 +4,14 @@
 // 这个文件同时在 Node(CLI)和浏览器(查看器)里运行:只依赖 model.ts,不碰 DOM、不碰文件系统。
 
 import { type Node, type Universe, SCHEMA_PREFIX, isSchemaId, isSymmetric, schemaNode } from './model.ts';
+import { checkExpr, compileExpr, compileFn, freeIdentifiers, type ExprEnv } from './expr.ts';
 
 export type Shape = 'dot' | 'star' | 'nebula' | 'ringed' | 'pulsar';
 /** region:不画线,子节点被一个"域"包围;orbit:子绕父转;line/faint:连线;hidden:不显示 */
 export type RelationMode = 'orbit' | 'region' | 'line' | 'faint' | 'hidden';
 
 /** 规则的前提:所有 key=value 都相等才匹配(key=type 时匹配节点类型)。省略 = 恒匹配。 */
-type When = Record<string, string>;
+type When = Record<string, string> | string;
 
 /** 外部给的"信号":id -> 数值(常用毫秒时间戳)。如 touched(图里最近被编辑)、fileChanged(文件最近被提交/修改)。 */
 export type SignalMap = Map<string, number> | Record<string, number>;
@@ -19,6 +20,8 @@ export interface SizeRule {
   when?: When;
   /** 取哪个属性当数值(如 size);省略则按度数 */
   attr?: string;
+  /** 表达式,返回数值,如 "log1p(size) * (days(touched) < 7 ? 2 : 1)"(与 attr/signal 三选一) */
+  expr?: string;
   /** 改取某个信号(见 EvalOptions.signals);配合 recency 把时间戳变成 0..1 的"新鲜度" */
   signal?: string;
   recency?: { halfLifeDays: number };
@@ -35,6 +38,8 @@ export interface ColorRule {
   relation?: string;
   level?: number;
   value?: string; // 固定颜色
+  /** 表达式:返回 "#rrggbb" 颜色,或 0..1 的数(在 from→to 之间渐变) */
+  expr?: string;
   /** by=recency:用哪个信号、半衰期(天)、冷色 → 热色;rollup 让容器取后代里最新的 */
   signal?: string;
   halfLifeDays?: number;
@@ -44,7 +49,9 @@ export interface ColorRule {
 }
 export interface StyleRule {
   when?: When;
-  shape: Shape;
+  shape?: Shape;
+  /** 表达式,返回形状名(dot/star/nebula/ringed/pulsar) */
+  expr?: string;
 }
 export interface RelationRule {
   mode: RelationMode;
@@ -74,6 +81,8 @@ export interface ViewSpec {
     /** 只保留至少有一条这些类型的边的节点 */
     withRelations?: string[];
     schema?: boolean;
+    /** 表达式(布尔),为真的节点才入选,如 "days(touched) < 7 && degree > 2" —— 把视图当"第一遍搜寻"用 */
+    where?: string;
   };
   expand?: ExpandRule;
   size?: SizeRule[];
@@ -287,9 +296,11 @@ function scaleValue(v: number, max: number, scale: 'sqrt' | 'log' | 'linear', [l
 
 const SHAPE_LIST: Shape[] = ['dot', 'star', 'nebula', 'ringed', 'pulsar'];
 
-/** 规则前提编译成函数:避免对每个节点 Object.entries。 */
-function compileWhen(when?: When): ((n: Node) => boolean) | null {
+/** 规则前提编译成函数 (节点, 下标) => 是否匹配:避免对每个节点 Object.entries;字符串前提是表达式。 */
+type Pred = (n: Node, i: number) => boolean;
+function compileWhen(when: When | undefined, exprFor: (src: string) => (i: number) => unknown): Pred | null {
   if (!when) return null;
+  if (typeof when === 'string') { const f = exprFor(when); return (_n, i) => !!f(i); }
   const ents = Object.entries(when);
   if (ents.length === 0) return null;
   const get = (n: Node, k: string) => (k === 'id' ? n.id : k === 'label' ? n.label : n.attrs[k]);
@@ -300,10 +311,10 @@ function compileWhen(when?: When): ((n: Node) => boolean) | null {
   }
   return (n) => ents.every(([k, v]) => get(n, k) === v);
 }
-const firstMatch = (preds: Array<((n: Node) => boolean) | null>, n: Node): number => {
-  for (let i = 0; i < preds.length; i++) {
-    const p = preds[i]!;
-    if (p === null || p(n)) return i;
+const firstMatch = (preds: Array<Pred | null>, n: Node, i: number): number => {
+  for (let k = 0; k < preds.length; k++) {
+    const p = preds[k]!;
+    if (p === null || p(n, i)) return k;
   }
   return -1;
 };
@@ -432,20 +443,6 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
   const desc = new Int32Array(N);
   for (let k = N - 1; k >= 0; k--) { const v = order[k]!, p = parent[v]!; if (p >= 0) desc[p]! += desc[v]! + 1; }
 
-  // ---- 选择:哪些节点有资格出现 ----
-  const selected = new Uint8Array(N);
-  let hasRel: Uint8Array | null = null;
-  if (sel.withRelations) {
-    const want = new Set(sel.withRelations.map((t) => typeIdx.get(t)).filter((x): x is number => x !== undefined));
-    hasRel = new Uint8Array(N);
-    for (let e = 0; e < E; e++) if (want.has(ety[e]!)) { hasRel[ef[e]!] = 1; hasRel[et[e]!] = 1; }
-  }
-  for (let i = 0; i < N; i++) {
-    const n = nodeList[i]!, type = n.attrs.type ?? '';
-    selected[i] = (isSchemaId(n.id) && !sel.schema) || (sel.onlyTypes && !sel.onlyTypes.includes(type)) || sel.hideTypes?.includes(type)
-      || (hasRel && !hasRel[i]) ? 0 : 1;
-  }
-
   // ---- 度数:全图里"会显示的"边的条数。静态的,所以展开/收起时节点大小不会跳变 ----
   const degree = new Int32Array(N);
   for (let e = 0; e < E; e++) if (tShown[ety[e]!]) { degree[ef[e]!]!++; degree[et[e]!]!++; }
@@ -484,10 +481,72 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     return a;
   };
 
+
+  // ---- 表达式环境:标识符 → 列(类型化数组/字符串数组),函数节点 → 用户函数 ----
+  const childCount = new Int32Array(N);
+  for (let i = 0; i < N; i++) childCount[i] = treeKids.start[i + 1]! - treeKids.start[i]!;
+  const colCache = new Map<string, ArrayLike<number | string>>();
+  const exprSignal = (name: string): Float64Array | null => (opts.signals?.[name] ? signalArr(name) : null);
+  const exprColumn = (name: string): ArrayLike<number | string> => {
+    let col = colCache.get(name);
+    if (col) return col;
+    switch (name) {
+      case 'id': col = ids; break;
+      case 'label': col = nodeList.map((n) => n.label); break;
+      case 'degree': col = degree; break;
+      case 'depth': col = depth; break;
+      case 'children': col = childCount; break;
+      case 'descendants': col = desc; break;
+      default: {
+        col = exprSignal(name) ?? undefined;
+        if (!col) { // 属性列:全是数字就做成数值列,否则是字符串列(缺失 → 0 / '')
+          let numeric = true, any = false;
+          for (let i = 0; i < N; i++) { const v = nodeList[i]!.attrs[name]; if (v === undefined || v === '') continue; any = true; if (!Number.isFinite(Number(v))) { numeric = false; break; } }
+          if (any && numeric) { const a = new Float64Array(N); for (let i = 0; i < N; i++) a[i] = Number(nodeList[i]!.attrs[name] ?? 0) || 0; col = a; }
+          else col = nodeList.map((n) => n.attrs[name] ?? '');
+        }
+      }
+    }
+    colCache.set(name, col);
+    return col;
+  };
+  const userFns: Record<string, (...args: never[]) => unknown> = {};
+  const exprEnv: ExprEnv = { column: exprColumn, fns: userFns, now };
+  for (const n of nodeList) { // 函数节点:~fn/<名字>,kind=function,code 是一个函数表达式
+    if (!n.id.startsWith(`${SCHEMA_PREFIX}fn/`) || n.attrs.kind !== 'function' || !n.attrs.code) continue;
+    userFns[n.id.slice(SCHEMA_PREFIX.length + 3)] = compileFn(n.attrs.code, exprEnv);
+  }
+  const exprCache = new Map<string, (i: number) => unknown>();
+  const exprFor = (src: string): ((i: number) => unknown) => {
+    let f = exprCache.get(src);
+    if (!f) { f = compileExpr(src, exprEnv); exprCache.set(src, f); }
+    return f;
+  };
+  const whereFn = sel.where ? exprFor(sel.where) : null;
+
+  // ---- 选择:哪些节点有资格出现 ----
+  const selected = new Uint8Array(N);
+  let hasRel: Uint8Array | null = null;
+  if (sel.withRelations) {
+    const want = new Set(sel.withRelations.map((t) => typeIdx.get(t)).filter((x): x is number => x !== undefined));
+    hasRel = new Uint8Array(N);
+    for (let e = 0; e < E; e++) if (want.has(ety[e]!)) { hasRel[ef[e]!] = 1; hasRel[et[e]!] = 1; }
+  }
+  for (let i = 0; i < N; i++) {
+    const n = nodeList[i]!, type = n.attrs.type ?? '';
+    selected[i] = (isSchemaId(n.id) && !sel.schema) || (sel.onlyTypes && !sel.onlyTypes.includes(type)) || sel.hideTypes?.includes(type)
+      || (hasRel && !hasRel[i]) || (whereFn && !whereFn(i)) ? 0 : 1;
+  }
+
   // ---- 大小:每条规则在自己匹配到的节点里独立归一化 ----
   const sizeRules = spec.size ?? [];
-  const sizePreds = sizeRules.map((r) => compileWhen(r.when));
+  const sizePreds = sizeRules.map((r) => compileWhen(r.when, exprFor));
   const ruleVals = sizeRules.map((r): Float64Array => {
+    if (r.expr) {
+      const f = exprFor(r.expr), out = new Float64Array(N);
+      for (let i = 0; i < N; i++) { const v = Number(f(i)); out[i] = Number.isFinite(v) ? v : 0; }
+      return out;
+    }
     if (r.signal) {
       const raw = signalArr(r.signal, r.rollup);
       if (!r.recency) return raw;
@@ -503,7 +562,7 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
   const maxByRule = new Float64Array(sizeRules.length);
   for (let i = 0; i < N; i++) {
     if (!selected[i]) continue;
-    const k = firstMatch(sizePreds, nodeList[i]!);
+    const k = firstMatch(sizePreds, nodeList[i]!, i);
     sizeRule[i] = k;
     if (k >= 0) maxByRule[k] = sizeRules[k]!.recency ? 1 : Math.max(maxByRule[k]!, ruleVals[k]![i]!);
   }
@@ -517,7 +576,7 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
 
   // ---- 颜色 ----
   const colorRules = spec.color ?? [];
-  const colorPreds = colorRules.map((r) => compileWhen(r.when));
+  const colorPreds = colorRules.map((r) => compileWhen(r.when, exprFor));
   const hashMemo = new Map<string, string>();
   const hc = (s: string) => { let c = hashMemo.get(s); if (c === undefined) { c = hashColor(s); hashMemo.set(s, c); } return c; };
   const typeColor = new Map<string, string>();
@@ -553,10 +612,17 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
   for (let i = 0; i < N; i++) {
     if (!selected[i]) { color[i] = DEFAULT_COLOR; continue; }
     const n = nodeList[i]!;
-    const k = firstMatch(colorPreds, n);
+    const k = firstMatch(colorPreds, n, i);
     const cr = k >= 0 ? colorRules[k]! : undefined;
     let c = DEFAULT_COLOR;
-    if (cr?.value) c = cr.value;
+    if (cr?.expr) {
+      const v = exprFor(cr.expr)(i);
+      if (typeof v === 'number') {
+        let table = recencyTables.get(k);
+        if (!table) { table = Array.from({ length: 64 }, (_, q) => mixHex(cr.from ?? '#2f3b6e', cr.to ?? '#ffcf70', q / 63)); recencyTables.set(k, table); }
+        c = table[Math.round(Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0)) * 63)]!;
+      } else if (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)) c = v;
+    } else if (cr?.value) c = cr.value;
     else if (cr?.by === 'type') c = n.attrs.color ?? colorOfType(n.attrs.type);
     else if (cr?.by === 'recency') {
       let table = recencyTables.get(k);
@@ -573,11 +639,14 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
 
   // ---- 样式 ----
   const styleRules = spec.style ?? [];
-  const stylePreds = styleRules.map((r) => compileWhen(r.when));
+  const stylePreds = styleRules.map((r) => compileWhen(r.when, exprFor));
   const shapeIdx = new Uint8Array(N);
   for (let i = 0; i < N; i++) {
-    const k = selected[i] ? firstMatch(stylePreds, nodeList[i]!) : -1;
-    shapeIdx[i] = SHAPE_LIST.indexOf(k >= 0 ? styleRules[k]!.shape : 'star');
+    const k = selected[i] ? firstMatch(stylePreds, nodeList[i]!, i) : -1;
+    const rule = k >= 0 ? styleRules[k]! : undefined;
+    const shape = rule?.expr ? String(exprFor(rule.expr)(i)) : rule?.shape;
+    const si = SHAPE_LIST.indexOf((shape ?? 'star') as Shape);
+    shapeIdx[i] = si >= 0 ? si : 1;
   }
 
   // ---- 边的静态外观:每种类型一份 ----
@@ -700,19 +769,25 @@ export function listViews(u: Universe): { specs: Record<string, ViewSpec>; error
 
 const KEYS = {
   spec: ['look', 'select', 'expand', 'size', 'color', 'style', 'relations'],
-  select: ['onlyTypes', 'hideTypes', 'withRelations', 'schema'],
+  select: ['onlyTypes', 'hideTypes', 'withRelations', 'schema', 'where'],
   expand: ['relation', 'depth', 'auto'],
-  size: ['when', 'attr', 'signal', 'recency', 'by', 'rollup', 'scale', 'range'],
-  color: ['when', 'by', 'relation', 'level', 'value', 'signal', 'halfLifeDays', 'from', 'to', 'rollup'],
-  style: ['when', 'shape'],
+  size: ['when', 'attr', 'expr', 'signal', 'recency', 'by', 'rollup', 'scale', 'range'],
+  color: ['when', 'by', 'relation', 'level', 'value', 'expr', 'signal', 'halfLifeDays', 'from', 'to', 'rollup'],
+  style: ['when', 'shape', 'expr'],
   relation: ['mode', 'distance', 'strength', 'color', 'width', 'arrow', 'spin'],
 };
 const SHAPES = ['dot', 'star', 'nebula', 'ringed', 'pulsar'];
 const MODES = ['orbit', 'region', 'line', 'faint', 'hidden'];
 
 /** 检查视图规格,返回问题列表(空 = 没问题)。CLI、查看器编辑器和 AI 写入前都应该先过一遍。 */
-export function validateSpec(spec: unknown): string[] {
+export function validateSpec(spec: unknown, u?: Universe): string[] {
   const bad: string[] = [];
+  const checkSrc = (src: unknown, where: string) => {
+    if (typeof src !== 'string') { bad.push(`${where} 必须是字符串表达式`); return; }
+    const err = checkExpr(src);
+    if (err) bad.push(`${where} 的表达式有误: ${err}(${src})`);
+    if (u) for (const m of src.matchAll(/\bfn\.(\w+)/g)) if (!u.nodes.has(`${SCHEMA_PREFIX}fn/${m[1]}`)) bad.push(`${where}: fn.${m[1]} 不存在(需要节点 ${SCHEMA_PREFIX}fn/${m[1]},kind=function,带 code)`);
+  };
   const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
   const unknownKeys = (o: Record<string, unknown>, allowed: string[], where: string) => {
     for (const k of Object.keys(o)) if (!allowed.includes(k)) bad.push(`${where}: 未知字段 "${k}"(可用: ${allowed.join(', ')})`);
@@ -720,7 +795,10 @@ export function validateSpec(spec: unknown): string[] {
   if (!isObj(spec)) return ['规格必须是一个 JSON 对象'];
   unknownKeys(spec, KEYS.spec, '规格');
   if (spec.look !== undefined && !['galaxy', 'plain'].includes(spec.look as string)) bad.push('look 只能是 galaxy 或 plain');
-  if (spec.select !== undefined) isObj(spec.select) ? unknownKeys(spec.select, KEYS.select, 'select') : bad.push('select 必须是对象');
+  if (spec.select !== undefined) {
+    if (!isObj(spec.select)) bad.push('select 必须是对象');
+    else { unknownKeys(spec.select, KEYS.select, 'select'); if (spec.select.where !== undefined) checkSrc(spec.select.where, 'select.where'); }
+  }
   if (spec.expand !== undefined) isObj(spec.expand) ? unknownKeys(spec.expand, KEYS.expand, 'expand') : bad.push('expand 必须是对象');
   for (const key of ['size', 'color', 'style'] as const) {
     const rules = spec[key];
@@ -729,13 +807,15 @@ export function validateSpec(spec: unknown): string[] {
     rules.forEach((r, i) => {
       if (!isObj(r)) { bad.push(`${key}[${i}] 必须是对象`); return; }
       unknownKeys(r, KEYS[key], `${key}[${i}]`);
-      if (key === 'style' && !SHAPES.includes(r.shape as string)) bad.push(`style[${i}].shape 必须是 ${SHAPES.join('/')}`);
+      if (key === 'style' && r.expr === undefined && !SHAPES.includes(r.shape as string)) bad.push(`style[${i}].shape 必须是 ${SHAPES.join('/')}(或写 expr)`);
+      if (r.expr !== undefined) checkSrc(r.expr, `${key}[${i}].expr`);
+      if (typeof r.when === 'string') checkSrc(r.when, `${key}[${i}].when`);
       if (key === 'size' && r.by !== undefined && r.by !== 'degree') bad.push(`size[${i}].by 只能是 "degree"(得到 ${JSON.stringify(r.by)})`);
       if (key === 'color' && r.by !== undefined && !(typeof r.by === 'string' && /^(type|group|recency|attr:.+)$/.test(r.by))) bad.push(`color[${i}].by 只能是 type / group / recency / attr:<属性名>(得到 ${JSON.stringify(r.by)})`);
       if (r.rollup !== undefined && !(isObj(r.rollup) && typeof r.rollup.relation === 'string' && ['sum', 'max', 'count'].includes(r.rollup.op as string))) bad.push(`${key}[${i}].rollup 应为 {"relation":"contains","op":"sum|max|count"}`);
       if (key === 'size' && r.scale !== undefined && !['sqrt', 'log', 'linear'].includes(r.scale as string)) bad.push(`size[${i}].scale 必须是 sqrt/log/linear`);
       if (key === 'size' && r.range !== undefined && !(Array.isArray(r.range) && r.range.length === 2 && r.range.every((x) => typeof x === 'number'))) bad.push(`size[${i}].range 必须是 [最小, 最大]`);
-      if (r.when !== undefined && !isObj(r.when)) bad.push(`${key}[${i}].when 必须是对象`);
+      if (r.when !== undefined && !isObj(r.when) && typeof r.when !== 'string') bad.push(`${key}[${i}].when 必须是对象或表达式字符串`);
     });
   }
   if (spec.relations !== undefined) {

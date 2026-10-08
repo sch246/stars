@@ -255,3 +255,52 @@ test('校验:能指出写错的规则取值,给 AI 和编辑器明确的反馈',
   assert.match(validateSpec({ size: [{ rollup: { relation: 'contains', op: 'avg' } }] }).join('\n'), /rollup/);
   assert.deepEqual(validateSpec({ color: [{ by: 'attr:ext' }, { by: 'recency', signal: 'touched' }] }), []);
 });
+
+test('表达式:大小/颜色/样式/筛选都能写成表达式,信号与度数可用,函数节点可被调用', async () => {
+  const { evaluateView, validateSpec } = await import('../src/view.ts');
+  const DAY = 86_400_000, now = Date.UTC(2026, 9, 1);
+  const u = genesis();
+  apply(u, planScan(u, ['a/hot.ts', 'a/cold.ts', 'a/big.md', 'b/x.ts'], 'repo', 'demo', (p) => ({ size: { 'a/hot.ts': 100, 'a/cold.ts': 100, 'a/big.md': 9000, 'b/x.ts': 100 }[p]! })));
+  apply(u, { op: 'addEdge', from: 'a/hot.ts', type: 'dependsOn', to: 'b/x.ts' });
+  apply(u, { op: 'addNode', id: '~fn/boost', label: 'boost', attrs: { kind: 'function', code: '(t, s) => log1p(s) * (days(t) < 7 ? 3 : 1)' } });
+  const signals = { fileChanged: { 'a/hot.ts': now - DAY, 'a/cold.ts': now - 90 * DAY, 'a/big.md': now - 90 * DAY, 'b/x.ts': now - 90 * DAY } };
+  const spec = {
+    select: { where: "type == 'file' && size > 50" },
+    size: [{ expr: 'fn.boost(fileChanged, size)', scale: 'linear', range: [1, 10] }],
+    color: [{ when: "ext == 'md'", value: '#112233' }, { expr: 'recent(fileChanged, 7)', from: '#000000', to: '#ffffff' }],
+    style: [{ when: 'degree > 1', expr: "size > 50 ? 'pulsar' : 'dot'" }, { shape: 'ringed' }],
+    expand: { depth: 99 },
+  };
+  assert.deepEqual(validateSpec(spec, u), []);
+  const scene = evaluateView(u, spec, { signals, now });
+  const n = new Map(scene.nodes.map((x) => [x.id, x]));
+  assert.deepEqual([...n.keys()].sort(), ['a/big.md', 'a/cold.ts', 'a/hot.ts', 'b/x.ts'], 'where:只留 size>50 的文件');
+  assert.ok(n.get('a/hot.ts')!.r > n.get('a/cold.ts')!.r, '函数节点给最近改过的加权');
+  assert.ok(n.get('a/big.md')!.r > n.get('a/cold.ts')!.r, 'log1p(size) 让大文件更大');
+  assert.equal(n.get('a/big.md')!.color, '#112233', 'when 也可以是表达式');
+  const red = (h: string) => parseInt(h.slice(1, 3), 16);
+  assert.ok(red(n.get('a/hot.ts')!.color) > red(n.get('a/cold.ts')!.color), 'recent() 越新越亮');
+  assert.equal(n.get('a/hot.ts')!.shape, 'pulsar');
+  assert.equal(n.get('a/cold.ts')!.shape, 'ringed', '第一条 when 不匹配,落到下一条');
+
+  assert.match(validateSpec({ size: [{ expr: '1 +* 2' }] }).join(), /表达式/);
+  assert.match(validateSpec({ select: { where: 'degree >' } }).join(), /表达式/);
+  assert.match(validateSpec({ size: [{ expr: 'fn.nope(1)' }] }, u).join(), /fn\.nope/);
+  assert.throws(() => evaluateView(u, { size: [{ expr: 'fn.boost(' }] }), /无法编译/);
+});
+
+test('审阅:从操作日志回溯每条待确认边是谁提的,接受/拒绝后就不再算', async () => {
+  const { proposalsFromLog } = await import('../src/activity.ts');
+  const u = genesis();
+  for (const id of ['a', 'b', 'c']) apply(u, { op: 'addNode', id, label: id });
+  const ts = (n: number) => new Date(2026, 0, n).toISOString();
+  const log = [
+    { n: 1, t: ts(1), author: 'claude', op: { op: 'addEdge', from: 'a', type: 'dependsOn', to: 'b', attrs: { status: 'proposed' } }, inverse: {} },
+    { n: 2, t: ts(2), author: 'gpt', op: { op: 'batch', ops: [{ op: 'addEdge', from: 'b', type: 'dependsOn', to: 'c', attrs: { status: 'proposed' } }] }, inverse: {} },
+  ] as never;
+  apply(u, { op: 'addEdge', from: 'a', type: 'dependsOn', to: 'b', attrs: { status: 'proposed' } });
+  apply(u, { op: 'addEdge', from: 'b', type: 'dependsOn', to: 'c', attrs: { status: 'proposed' } });
+  assert.deepEqual(Object.entries(proposalsFromLog(log, u)).map(([k, v]) => [k, v.author]).sort(), [['a|dependsOn|b', 'claude'], ['b|dependsOn|c', 'gpt']]);
+  apply(u, { op: 'setEdge', from: 'a', type: 'dependsOn', to: 'b', unset: ['status'] });
+  assert.deepEqual(Object.keys(proposalsFromLog(log, u)), ['b|dependsOn|c'], '已接受的不再出现');
+});

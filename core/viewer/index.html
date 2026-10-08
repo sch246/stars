@@ -18,7 +18,8 @@
     backdrop-filter: blur(14px); padding: 10px 12px; box-shadow: 0 0 40px #0006; }
   #tools { top: 12px; left: 12px; width: 290px; }
   #views { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
-  .vbtn { cursor: pointer; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); user-select: none; }
+  .vbtn { white-space: nowrap; cursor: pointer; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); user-select: none; }
+  .static #btn-time, .static #btn-review { display: none; }
   .vbtn.on { color: #fff; border-color: var(--accent); background: #7aa7ff22; }
   #tools input { width: 100%; background: #07070f; border: 1px solid var(--line); color: var(--text);
     border-radius: 7px; padding: 6px 8px; font: inherit; outline: none; }
@@ -46,7 +47,17 @@
   #hint { position: fixed; left: 12px; bottom: 10px; color: var(--muted); font-size: 12px; }
   kbd { border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font: inherit; }
   @media (max-width: 760px) { #side { display: none; } }
-  #modes { display: flex; gap: 6px; margin-top: 8px; }
+  #review { left: 12px; top: 270px; width: 430px; max-height: calc(100vh - 300px); display: flex; flex-direction: column; gap: 6px; }
+  #review[hidden] { display: none; }
+  #rv-list { overflow: auto; display: flex; flex-direction: column; gap: 4px; min-height: 40px; }
+  .rv-row { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; padding: 4px 6px; border: 1px solid var(--line); border-radius: 8px; background: #0a0a14; }
+  .rv-row .t { cursor: pointer; line-height: 1.35; } .rv-row .t:hover { color: var(--accent); }
+  .rv-row .who { color: var(--muted); font-size: 11px; }
+  .rv-row .acts { display: flex; gap: 4px; }
+  .mini { cursor: pointer; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line); background: #12121f; user-select: none; }
+  .mini.ok { color: #7be0a0; } .mini.no { color: #ff7a90; } .mini:hover { border-color: currentColor; }
+  .badge { display: inline-block; min-width: 16px; padding: 0 5px; margin-left: 4px; border-radius: 999px; background: #ffd24a; color: #111; font-size: 11px; text-align: center; }
+  #modes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   #editor { left: 12px; top: 270px; width: 430px; max-height: calc(100vh - 300px); display: flex; flex-direction: column; gap: 6px; }
   #editor[hidden], #timeline[hidden], #legend[hidden], #replaybar[hidden] { display: none; }
   #ed-head { display: flex; justify-content: space-between; align-items: baseline; }
@@ -82,7 +93,7 @@
   <input id="q" placeholder="过滤节点… ( / )" autocomplete="off">
   <div id="chips"></div>
   <div id="status">连接中…</div>
-  <div id="modes"><span class="vbtn" id="btn-edit">✎ 视图规则</span><span class="vbtn" id="btn-time">⏱ 时间线</span></div>
+  <div id="modes"><span class="vbtn" id="btn-edit">✎ 视图规则</span><span class="vbtn" id="btn-time">⏱ 时间线</span><span class="vbtn" id="btn-review">✓ 审阅<span class="badge" id="rv-badge" hidden>0</span></span></div>
 </div>
 <div class="panel" id="editor" hidden>
   <div id="ed-head"><b id="ed-name"></b><span>JSON · 改动即时预览,保存后写入宇宙</span></div>
@@ -100,8 +111,16 @@
     <div><code>color[]</code> when, by: type | attr:x | group | recency(signal, halfLifeDays, from, to, rollup), value</div>
     <div><code>style[]</code> when, shape: dot/star/nebula/ringed/pulsar</div>
     <div><code>relations</code> 边类型 → mode: region/orbit/line/faint/hidden, distance, strength, color, arrow, spin(<code>*</code> 为兜底)</div>
+    <div><b>表达式</b>(原生 JS 编译,很快):<code>size[].expr</code> 数值 · <code>color[].expr</code> 返回 #rrggbb 或 0..1(配 from/to) · <code>style[].expr</code> 返回形状名 · <code>when</code>/<code>select.where</code> 可写布尔表达式</div>
+    <div>变量:<code>id label type degree depth children descendants</code>、任意属性名(数字自动转数值)、信号 <code>touched fileChanged</code>;函数:<code>log log1p sqrt min max clamp mix hsl hash days(t) recent(t,半衰期)</code>、<code>fn.名字(...)</code>(宇宙里的函数节点,<code>stars fn-set</code> 创建)</div>
     <div>规则按顺序匹配,<b>第一条</b>生效;<code>when</code> 是 key=value 相等(type 匹配节点类型)。信号:touched / fileChanged。</div>
   </details>
+</div>
+<div class="panel" id="review" hidden>
+  <div id="ed-head"><b>待审阅的提议</b><span id="rv-sub"></span></div>
+  <div id="rv-list"></div>
+  <div class="btns"><span class="btn pri" id="rv-all">全部接受</span><span class="btn" id="rv-none">全部拒绝</span><span class="btn" id="rv-undo" title="撤销最近一次写入">↶ 撤销上一步</span></div>
+  <div id="rv-msg" style="font-size:12px;color:var(--muted)"></div>
 </div>
 <div class="panel" id="timeline" hidden>
   <div id="tl-head">
@@ -202,6 +221,12 @@ import { edgeKey } from '/core/model.js';
 
   // ---------- 数据接入 ----------
   function connect() {
+    if (window.__STARS_STATIC__) { // 静态导出:数据内嵌,没有服务器
+      document.body.classList.add('static');
+      ingest(window.__STARS_STATIC__);
+      $('status').innerHTML += ' · <b>静态导出(只读)</b>';
+      return;
+    }
     if (es) es.close();
     es = new EventSource('/events');
     es.onmessage = (ev) => ingest(JSON.parse(ev.data));
@@ -257,7 +282,10 @@ import { edgeKey } from '/core/model.js';
     const ids = new Set([...auto.keys(), ...manual.keys()]);
     for (const id of ids) { const v = manual.has(id) ? manual.get(id) : auto.get(id); (v ? opened : shut).push(id); }
     const t0 = performance.now();
-    if (structural || !compiled) compiled = compileView(uni, draftSpec ?? specs[currentView], { signals: data.signals || {}, now: Date.now() });
+    if (structural || !compiled) {
+      try { compiled = compileView(uni, draftSpec ?? specs[currentView], { signals: data.signals || {}, now: Date.now() }); }
+      catch (err) { banner('视图无法编译: ' + err.message); return; }
+    }
     const t1 = performance.now();
     scene = compiled.fold({ expanded: opened, collapsed: shut });
     perf.compileMs = structural ? t1 - t0 : perf.compileMs; perf.foldMs = performance.now() - t1;
@@ -290,7 +318,7 @@ import { edgeKey } from '/core/model.js';
     if (selected && !sim.has(selected)) selected = null;
 
     rebuildGraph();
-    renderViews(); renderChips(); renderSide(); renderLegend();
+    renderViews(); renderChips(); renderSide(); renderLegend(); renderReview();
     layoutPanels();
     const nn = data.nodes.filter((n) => !n.id.startsWith('~')).length;
     const folded = scene.nodes.filter((n) => n.container && !n.expanded).length;
@@ -397,7 +425,7 @@ import { edgeKey } from '/core/model.js';
       .map(([k, v]) => `<div class="row"><span class="tag">${esc(k)}</span><span>${esc(k === 'size' ? fmtBytes(+v) : v)}</span></div>`).join('');
     const edgeRow = (e, other, arrow) => `<div class="row link" data-id="${esc(other)}"><span class="tag">${arrow}</span>`
       + `<span style="color:${edgeColors.get(`${e.from}|${e.type}|${e.to}`) || '#8a8aa8'}">${esc(e.type)}</span><span>${esc(raw.get(other)?.label || other)}</span>`
-      + (e.attrs.status ? `<span class="sev-warn">${esc(e.attrs.status)}</span>` : '') + '</div>';
+      + (e.attrs.status === 'proposed' ? `<span class="sev-warn">待确认</span><span class="mini ok" data-act="accept" data-from="${esc(e.from)}" data-type="${esc(e.type)}" data-to="${esc(e.to)}">✓</span><span class="mini no" data-act="reject" data-from="${esc(e.from)}" data-type="${esc(e.type)}" data-to="${esc(e.to)}">✗</span>` : (e.attrs.status ? `<span class="sev-warn">${esc(e.attrs.status)}</span>` : '')) + '</div>';
     const myIssues = data.issues.filter((i) => i.nodes.includes(n.id));
     el.innerHTML = `<h3 style="color:${sn ? sn.color : '#fff'}">${esc(n.label)}</h3>
       <div class="sub">${esc(n.id)}${n.attrs.type ? ' · ' + esc(n.attrs.type) : ''}${sn && sn.value !== undefined ? ' · 视图值 ' + esc(sn.value) : ''}</div>
@@ -416,7 +444,7 @@ import { edgeKey } from '/core/model.js';
     const rel = scene.expand.relation;
     const rows = scene.edges.filter((e) => e.type !== rel && (e.from === id || e.to === id)).map((e) => {
       const other = e.from === id ? e.to : e.from;
-      return `<div class="row link" data-id="${esc(other)}"><span class="tag">${e.from === id ? '→' : '←'}</span><span style="color:${e.color}">${esc(e.type)}</span><span>${esc(raw.get(other)?.label || other)}</span><span class="tag">×${e.count}${e.lifted ? ' · 汇总' : ''}</span></div>`;
+      return `<div class="row link" data-id="${esc(other)}"><span class="tag">${e.from === id ? '→' : '←'}</span><span style="color:${e.color}">${esc(e.type)}</span><span>${esc(raw.get(other)?.label || other)}</span><span class="tag">×${e.count}${e.lifted ? ' · 汇总' : ''}</span>${e.lifted ? `<span class="mini ok" data-act="promote" data-from="${esc(e.from)}" data-type="${esc(e.type)}" data-to="${esc(e.to)}" data-count="${e.count}" title="把这条汇总关系提升为容器之间真实存在的边">提升</span>` : ''}</div>`;
     });
     return rows.length ? `<div class="sec"><div class="t">收起后的对外关系(含内部汇总)</div>${rows.join('')}</div>` : '';
   }
@@ -468,6 +496,7 @@ import { edgeKey } from '/core/model.js';
   // ---------- 与服务端的接口(写入需要页面内嵌的 token)----------
   const token = (document.querySelector('meta[name=stars-token]') || {}).content || '';
   async function api(path, body) {
+    if (window.__STARS_STATIC__) throw new Error('这是静态导出,只读;请连接实时查看器来保存');
     const r = await fetch(path, {
       method: body ? 'POST' : 'GET',
       headers: { 'x-stars-token': token, ...(body ? { 'content-type': 'application/json' } : {}) },
@@ -495,9 +524,10 @@ import { edgeKey } from '/core/model.js';
     $('ed-name').textContent = currentView + (isCustom(currentView) ? '' : '(内置)');
     draftSpec = null; editorDirty = false; if (clearMsg) msg.innerHTML = '';
   }
-  function layoutPanels() { const b = $('tools').getBoundingClientRect().bottom + 10; $('editor').style.top = b + 'px'; $('editor').style.maxHeight = `calc(100vh - ${b + 30}px)`; }
+  function layoutPanels() { const b = $('tools').getBoundingClientRect().bottom + 10; for (const id of ['editor', 'review']) { $(id).style.top = b + 'px'; $(id).style.maxHeight = `calc(100vh - ${b + 30}px)`; } }
   addEventListener('resize', layoutPanels);
   function toggleEditor(on) {
+    if (on && typeof toggleReview === 'function' && !$('review').hidden) { $('review').hidden = true; $('btn-review').classList.remove('on'); }
     layoutPanels();
     $('editor').hidden = !on; $('btn-edit').classList.toggle('on', on);
     if (on) loadEditor(); else if (draftSpec) { draftSpec = null; editorDirty = false; recompute(); }
@@ -506,7 +536,7 @@ import { edgeKey } from '/core/model.js';
   ta.addEventListener('input', debounce(() => {
     let spec;
     try { spec = JSON.parse(ta.value); } catch (e) { msg.innerHTML = `<span class="bad">JSON 有误:${esc(e.message)}</span>`; return; }
-    const problems = validateSpec(spec);
+    const problems = validateSpec(spec, uni);
     if (problems.length) { msg.innerHTML = problems.map((p) => `<span class="bad">${esc(p)}</span>`).join(''); return; }
     draftSpec = spec; editorDirty = true;
     msg.innerHTML = '<span class="ok">✓ 规格有效,已预览(尚未保存)</span>';
@@ -530,6 +560,54 @@ import { edgeKey } from '/core/model.js';
     if (!isCustom(currentView)) { msg.innerHTML = '<span class="bad">内置视图不能删除(可以保存一个同名自定义视图来覆盖它)</span>'; return; }
     try { await api('/api/op', { op: { op: 'removeNode', id: '~view/' + currentView }, author: 'viewer' }); msg.innerHTML = '<span class="ok">已删除</span>'; } catch (e) { msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
   });
+
+    // ---------- 审阅:接受/拒绝 AI(或别人)提议的边;把汇总出来的边提升为真边 ----------
+  const edgeKeyOf = (e) => `${e.from}|${e.type}|${e.to}`;
+  const proposed = () => data.edges.filter((e) => e.attrs.status === 'proposed');
+  const rvMsg = (t, bad) => { $('rv-msg').style.color = bad ? 'var(--warn)' : 'var(--muted)'; $('rv-msg').textContent = t; };
+  async function write(op, okText) {
+    try { const r = await api('/api/op', { op, author: 'viewer' }); rvMsg(`${okText}(操作 #${r.n},可撤销)`); }
+    catch (e) { rvMsg('写入失败:' + e.message, true); }
+  }
+  const acceptOp = (e) => ({ op: 'setEdge', from: e.from, type: e.type, to: e.to, unset: ['status'] });
+  const rejectOp = (e) => ({ op: 'removeEdge', from: e.from, type: e.type, to: e.to });
+  function renderReview() {
+    const list = proposed(), props = data.proposals || {};
+    $('rv-badge').hidden = list.length === 0; $('rv-badge').textContent = list.length;
+    if ($('review').hidden) return;
+    $('rv-sub').textContent = list.length ? `${list.length} 条等待确认` : '没有待确认的了';
+    $('rv-list').innerHTML = list.map((e, i) => {
+      const who = props[edgeKeyOf(e)];
+      return `<div class="rv-row"><div class="t" data-i="${i}"><span style="color:#dfe3ff">${esc(raw.get(e.from)?.label || e.from)}</span> <span style="color:${edgeColors.get(edgeKeyOf(e)) || '#ffd24a'}">—${esc(e.type)}→</span> <span style="color:#dfe3ff">${esc(raw.get(e.to)?.label || e.to)}</span>`
+        + `<div class="who">${who ? esc(who.author) + ' · ' + ago(who.t) : '来源未知'}</div></div>`
+        + `<div class="acts"><span class="mini ok" data-ok="${i}" title="接受">✓</span><span class="mini no" data-no="${i}" title="拒绝(删除这条边)">✗</span></div></div>`;
+    }).join('') || '<div class="tag" style="padding:8px">🎉 都处理完了</div>';
+    $('rv-all').style.opacity = $('rv-none').style.opacity = list.length ? 1 : 0.4;
+  }
+  function toggleReview(on) {
+    if (on) toggleEditor(false);
+    $('review').hidden = !on; $('btn-review').classList.toggle('on', on);
+    if (on) { layoutPanels(); renderReview(); }
+  }
+  $('btn-review').addEventListener('click', () => toggleReview($('review').hidden));
+  $('rv-list').addEventListener('click', (ev) => {
+    const list = proposed(); const t = ev.target.closest('[data-i],[data-ok],[data-no]'); if (!t) return;
+    if (t.dataset.ok !== undefined) write(acceptOp(list[+t.dataset.ok]), '已接受');
+    else if (t.dataset.no !== undefined) write(rejectOp(list[+t.dataset.no]), '已拒绝并删除');
+    else { const e = list[+t.dataset.i]; select(e.from, true); }
+  });
+  $('rv-all').addEventListener('click', () => { const l = proposed(); if (l.length) write({ op: 'batch', ops: l.map(acceptOp) }, `已接受全部 ${l.length} 条`); });
+  $('rv-none').addEventListener('click', () => { const l = proposed(); if (l.length && confirm(`拒绝并删除全部 ${l.length} 条提议?(之后可以撤销)`)) write({ op: 'batch', ops: l.map(rejectOp) }, `已拒绝全部 ${l.length} 条`); });
+  $('rv-undo').addEventListener('click', async () => { try { const r = await api('/api/undo', {}); rvMsg(`已撤销(操作 #${r.n})`); } catch (e) { rvMsg('撤销失败:' + e.message, true); } });
+  // 面板里单条边的操作(节点详情里的 proposed 边;收起容器里的汇总边)
+  $('side').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-act]'); if (!b) return;
+    ev.stopPropagation();
+    const e = { from: b.dataset.from, type: b.dataset.type, to: b.dataset.to };
+    if (b.dataset.act === 'accept') write(acceptOp(e), '已接受');
+    else if (b.dataset.act === 'reject') write(rejectOp(e), '已拒绝');
+    else if (b.dataset.act === 'promote') write({ op: 'addEdge', ...e, attrs: { note: `由 ${b.dataset.count} 条内部关系汇总提升` } }, '已提升为真边');
+  }, true);
 
   // ---------- 图例:视图用到"新旧"时说明颜色的含义 ----------
   function renderLegend() {

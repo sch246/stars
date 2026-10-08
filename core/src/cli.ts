@@ -12,7 +12,9 @@ import { filterNodes, neighborhood, shortestPath, type Dir } from './query.ts';
 import { listFiles, planScan, statMeta } from './scan.ts';
 import { execFileSync } from 'node:child_process';
 import { loadSignals } from './activity.ts';
+import { compileFn } from './expr.ts';
 import { BUILTIN_VIEWS, evaluateView, listViews, validateSpec } from './view.ts';
+import { exportHtml } from './exporter.ts';
 import { startServer } from './serve.ts';
 import { Store } from './store.ts';
 
@@ -41,9 +43,11 @@ const HELP = `stars —— 关系编辑器(内核 CLI)
   views                              列出视图(内置 + 宇宙里 kind=view 的节点)
   view <name>                        计算一个视图并输出场景摘要   [--depth N 展开层数] [--expand id,id 强制展开] [--json 完整场景]
   view-set <name>                    新建/覆盖一个视图(规格会先校验)   --spec '<JSON>' 或 --from <文件>   [--label 显示名]
+  fn-set <name>                      新建/覆盖一个函数节点,供视图表达式里 fn.<name>(...) 调用   --code '<函数表达式>' 或 --from <文件>
   merge <base> <ours> <theirs>       按事实三方合并宇宙文件(git 合并驱动;结果写入 <ours>,有冲突退出码 1)
   install-merge                      在当前 git 仓库里启用上面的合并驱动(写 .git/config 和 .gitattributes)
-  serve                              启动实时查看器  [--port 4321] [--host 127.0.0.1]
+  export <out.html>                  导出成一个自包含的 HTML(含查看器与当前宇宙),拷到任何机器双击就能看(只读)
+  serve                              启动实时查看器  [--port 4321] [--host 127.0.0.1] [--allow-host 域名 ...(反向代理用,也可用 STARS_ALLOW_HOSTS)]
 
 全局选项
   -f, --file <路径>     宇宙文件(默认 $STARS_FILE 或 ./universe.stars)
@@ -74,7 +78,9 @@ const { values: o, positionals: pos } = parseArgs({
     under: { type: 'string' },
     port: { type: 'string' },
     host: { type: 'string' },
+    'allow-host': { type: 'string', multiple: true },
     spec: { type: 'string' },
+    code: { type: 'string' },
     from: { type: 'string' },
     n: { type: 'string', short: 'n' },
     help: { type: 'boolean', short: 'h' },
@@ -254,7 +260,7 @@ function run(): void {
         return;
       }
       const u0 = store.load();
-      const signals = JSON.stringify(spec).includes('"signal"')
+      const signals = /"signal"|touched|fileChanged/.test(JSON.stringify(spec))
         ? loadSignals(store.readLog(), u0, process.env.STARS_ROOT ?? dirname(file))
         : undefined;
       const scene = evaluateView(u0, spec, {
@@ -284,7 +290,7 @@ function run(): void {
       } catch (err) {
         throw new StarsError(`规格不是合法 JSON: ${(err as Error).message}`);
       }
-      const problems = validateSpec(spec);
+      const problems = validateSpec(spec, store.load());
       if (problems.length > 0) throw new StarsError(`规格有问题:\n  - ${problems.join('\n  - ')}`);
       const id = `~view/${args[0]}`;
       const compact = JSON.stringify(spec);
@@ -292,6 +298,18 @@ function run(): void {
       if (u.nodes.has(id)) store.commit({ op: 'setNode', id, label: o.label, set: { spec: compact } }, ctx);
       else store.commit({ op: 'addNode', id, label: o.label ?? args[0]!, attrs: { kind: 'view', spec: compact } }, ctx);
       console.log(`${u.nodes.has(id) ? '~' : '+'} 视图 ${args[0]}${BUILTIN_VIEWS[args[0]!] ? '(覆盖同名内置视图)' : ''}`);
+      return;
+    }
+    case 'fn-set': {
+      need(1, "fn-set <name> --code '(x, y) => ...' | --from <文件>");
+      const code = (o.from !== undefined ? readFileSync(resolve(o.from), 'utf8') : o.code)?.trim();
+      if (!code) throw new StarsError('需要 --code 或 --from');
+      if (!/^[\w-]+$/.test(args[0]!)) throw new StarsError('函数名只能含字母、数字、_ 和 -');
+      try { compileFn(code, { now: Date.now(), fns: {} }); } catch (err) { throw new StarsError((err as Error).message); }
+      const id = `~fn/${args[0]}`, u = store.load();
+      if (u.nodes.has(id)) store.commit({ op: 'setNode', id, label: o.label, set: { code } }, ctx);
+      else store.commit({ op: 'addNode', id, label: o.label ?? args[0]!, attrs: { kind: 'function', code } }, ctx);
+      console.log(`${u.nodes.has(id) ? '~' : '+'} 函数 fn.${args[0]}`);
       return;
     }
     case 'merge': {
@@ -315,8 +333,16 @@ function run(): void {
       console.log(`已启用:merge.stars.driver 写入 ${root}/.git/config(本机配置),${has ? '' : '.gitattributes 新增了一行 *.stars merge=stars(请提交)'}`);
       return;
     }
+    case 'export': {
+      need(1, 'export <out.html>');
+      const html = exportHtml(store, process.env.STARS_ROOT ?? dirname(file));
+      writeFileSync(resolve(args[0]!), html);
+      console.log(`已导出 ${resolve(args[0]!)}(${(html.length / 1024).toFixed(0)} KB,自包含,只读)`);
+      return;
+    }
     case 'serve': {
-      startServer(store, Number(o.port ?? 4321), process.env.STARS_ROOT ?? dirname(file), o.host ?? '127.0.0.1');
+      const extra = [...(o['allow-host'] ?? []), ...(process.env.STARS_ALLOW_HOSTS?.split(',') ?? [])].map((h) => h.trim()).filter(Boolean);
+      startServer(store, Number(o.port ?? 4321), process.env.STARS_ROOT ?? dirname(file), o.host ?? '127.0.0.1', console.log, extra);
       return;
     }
     default:

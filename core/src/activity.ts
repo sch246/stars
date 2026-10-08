@@ -98,3 +98,26 @@ export function loadSignals(log: LogEntry[], u: Universe, baseDir: string, ttlMs
   }
   return { touched: touchedFromLog(log), fileChanged: fileChangedFor(u, hit.times) };
 }
+
+export interface Proposal { author: string; t: number; n: number }
+
+/** 当前仍待确认的边 -> 是谁、何时提议的(从操作日志里回溯)。 */
+export function proposalsFromLog(log: LogEntry[], u: Universe): Record<string, Proposal> {
+  const out: Record<string, Proposal> = {};
+  const key = (f: string, t: string, to: string) => `${f}|${t}|${to}`;
+  const visit = (op: Op, e: LogEntry): void => {
+    if (op.op === 'batch') { for (const sub of op.ops) visit(sub, e); return; }
+    if (op.op === 'addEdge') { if (op.attrs?.status === 'proposed') out[key(op.from, op.type, op.to)] = { author: e.author, t: Date.parse(e.t), n: e.n }; else delete out[key(op.from, op.type, op.to)]; }
+    if (op.op === 'removeEdge') delete out[key(op.from, op.type, op.to)];
+    if (op.op === 'setEdge' && op.unset?.includes('status')) delete out[key(op.from, op.type, op.to)];
+    if (op.op === 'setEdge' && op.set?.status === 'proposed') out[key(op.from, op.type, op.to)] = { author: e.author, t: Date.parse(e.t), n: e.n };
+  };
+  for (const e of log) visit(e.op, e);
+  // 只保留宇宙里仍然是 proposed 的
+  for (const k of Object.keys(out)) {
+    const [f, t, to] = k.split('|');
+    const edge = [...u.edges.values()].find((x) => x.from === f && x.type === t && x.to === to);
+    if (!edge || edge.attrs.status !== 'proposed') delete out[k];
+  }
+  return out;
+}

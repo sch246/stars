@@ -92,3 +92,23 @@ test('历史:提交图是 DAG(分叉与合并),能还原任意提交时的宇宙
   assert.deepEqual(d.removedNodes, []);
   assert.throws(() => gitSnapshot(file, '../etc/passwd'), /非法/);
 });
+
+test('反向代理:--allow-host 放行代理的域名(Host 与 Origin),其他主机仍被拒绝', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'stars-proxy-'));
+  const store = new Store(join(dir, 'universe.stars'));
+  store.create(genesis);
+  const port = await freePort();
+  const srv = startServer(store, port, dir, '127.0.0.1', () => {}, ['stars.example.com']);
+  await new Promise((r) => setTimeout(r, 150));
+  const op = JSON.stringify({ op: { op: 'addNode', id: 'p', label: 'P' } });
+  const h = (host: string, origin?: string) => ({ host, 'x-stars-token': srv.token, 'content-type': 'application/json', ...(origin ? { origin } : {}) });
+  try {
+    assert.equal(await raw(port, '/', { host: 'stars.example.com' }), 200, '代理域名可访问');
+    assert.equal(await raw(port, '/', { host: 'other.example.com' }), 403, '其他域名仍被拒绝');
+    // nginx 默认把 Host 改写成上游地址,而浏览器的 Origin 是代理的域名
+    assert.equal(await raw(port, '/api/op', h(`127.0.0.1:${port}`, 'https://stars.example.com'), 'POST', op), 200, '信任的代理域名作为 Origin 可写');
+    assert.equal(await raw(port, '/api/op', h(`127.0.0.1:${port}`, 'https://evil.example.com'), 'POST',
+      JSON.stringify({ op: { op: 'addNode', id: 'q', label: 'Q' } })), 403, '不信任的 Origin 仍被拒绝');
+    assert.ok(parse(readFileSync(store.file, 'utf8')).nodes.has('p') && !parse(readFileSync(store.file, 'utf8')).nodes.has('q'));
+  } finally { srv.close(); }
+});

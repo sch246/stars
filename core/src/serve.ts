@@ -10,18 +10,17 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { stripTypeScriptTypes } from 'node:module';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadSignals } from './activity.ts';
 import { diffUniverses, gitHistory, gitSnapshot } from './history.ts';
-import { lint } from './lint.ts';
 import { StarsError } from './model.ts';
 import { type Op } from './ops.ts';
+import { buildSnapshot } from './snapshot.ts';
 import { type Store } from './store.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const viewerDir = resolve(here, '..', 'viewer');
 
-/** 浏览器能直接 import 的共享模块(只有这两个,且都不依赖 Node)。 */
-const SHARED = new Set(['model', 'view']);
+/** 浏览器能直接 import 的共享模块(都不依赖 Node)。 */
+const SHARED = new Set(['model', 'view', 'expr']);
 
 function sharedModule(name: string): string {
   const ts = readFileSync(resolve(here, `${name}.ts`), 'utf8');
@@ -30,16 +29,7 @@ function sharedModule(name: string): string {
 
 function snapshot(store: Store, baseDir: string): string {
   try {
-    const u = store.load();
-    const log = store.readLog();
-    return JSON.stringify({
-      t: Date.now(),
-      nodes: [...u.nodes.values()],
-      edges: [...u.edges.values()],
-      issues: lint(u, { baseDir }),
-      log: log.slice(-60),
-      signals: loadSignals(log, u, baseDir),
-    });
+    return JSON.stringify(buildSnapshot(store, baseDir));
   } catch (err) {
     return JSON.stringify({ t: Date.now(), error: (err as Error).message });
   }
@@ -63,6 +53,7 @@ function readBody(req: IncomingMessage, limit = 1 << 20): Promise<string> {
 
 export function startServer(
   store: Store, port: number, baseDir: string, host = '127.0.0.1', log: (message: string) => void = console.log,
+  extraHosts: string[] = [],
 ): { token: string; close: () => void } {
   const token = randomBytes(16).toString('hex');
   const clients = new Set<ServerResponse>();
@@ -70,6 +61,7 @@ export function startServer(
 
   const allowedHosts = new Set(['localhost', '127.0.0.1', '[::1]']);
   if (host !== '0.0.0.0' && host !== '::') allowedHosts.add(host);
+  for (const h of extraHosts) allowedHosts.add(h.replace(/:\d+$/, '')); // 反向代理转发过来的主机名
   const hostOk = (req: IncomingMessage): boolean => {
     const h = (req.headers.host ?? '').replace(/:\d+$/, '');
     // 监听所有网卡时无法枚举合法主机名,只能退而求其次靠 token(并在启动时警告)
@@ -84,7 +76,10 @@ export function startServer(
   const api = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
     if (req.headers['x-stars-token'] !== token) return json(res, 403, { error: '缺少或错误的 token' });
     const origin = req.headers.origin;
-    if (origin && new URL(origin).host !== req.headers.host) return json(res, 403, { error: '跨源请求被拒绝' });
+    if (origin) { // 同源,或来自明确信任的主机名(反向代理时 Origin 是代理的域名)
+      const o = new URL(origin);
+      if (o.host !== req.headers.host && !allowedHosts.has(o.hostname)) return json(res, 403, { error: '跨源请求被拒绝' });
+    }
     try {
       if (req.method === 'GET' && url.pathname === '/api/history') {
         const h = gitHistory(store.file);
@@ -118,7 +113,7 @@ export function startServer(
     const path = url.pathname;
     if (path.startsWith('/api/')) { void api(req, res, url); return; }
     if (path === '/events') {
-      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' }); // 最后一项让 nginx 不要缓冲事件流
       res.write(`data: ${snapshot(store, baseDir)}\n\n`);
       clients.add(res);
       req.on('close', () => clients.delete(res));
@@ -157,9 +152,13 @@ export function startServer(
     }, 40);
   });
 
+  // 反向代理/负载均衡常在连接空闲 30~60 秒后断开,定期发一条注释行保活
+  const keepalive = setInterval(() => { for (const c of clients) c.write(': ping\n\n'); }, 20_000);
+  keepalive.unref();
+
   server.listen(port, host, () => {
     log(`宇宙查看器: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}   (监听 ${store.file})`);
     if (host === '0.0.0.0' || host === '::') log('警告:监听了所有网卡,局域网内的人都能访问这个宇宙;写入接口仍受 token 保护。');
   });
-  return { token, close: () => { watcher.close(); for (const c of clients) c.end(); server.close(); } };
+  return { token, close: () => { clearInterval(keepalive); watcher.close(); for (const c of clients) c.end(); server.close(); } };
 }
