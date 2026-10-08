@@ -208,3 +208,42 @@ test('折叠:contains 里有环也不会让节点消失', async () => {
   const ids = evaluateView(u, BUILTIN_VIEWS.orbit!, { depth: 9 }).nodes.map((n) => n.id);
   assert.ok(ids.includes('p') && ids.includes('q'));
 });
+
+test('信号:recency 把时间戳变成新鲜度,颜色/大小随之变化,目录取后代里最新的', async () => {
+  const { evaluateView, BUILTIN_VIEWS, recencyWeight, validateSpec } = await import('../src/view.ts');
+  const DAY = 86_400_000, now = Date.UTC(2026, 9, 1);
+  assert.equal(recencyWeight(now, 10, now), 1);
+  assert.ok(Math.abs(recencyWeight(now - 10 * DAY, 10, now) - 0.5) < 1e-9);
+  assert.equal(recencyWeight(undefined, 10, now), 0);
+
+  const u = genesis();
+  apply(u, planScan(u, ['a/new.ts', 'a/old.ts', 'b/older.ts'], 'repo', 'demo'));
+  const fileChanged = { 'a/new.ts': now - DAY, 'a/old.ts': now - 60 * DAY, 'b/older.ts': now - 200 * DAY };
+  const scene = evaluateView(u, BUILTIN_VIEWS.recent!, { signals: { fileChanged, touched: {} }, now, depth: 9 });
+  const c = new Map(scene.nodes.map((n) => [n.id, n.color]));
+  assert.notEqual(c.get('a/new.ts'), c.get('a/old.ts'));
+  assert.notEqual(c.get('a/old.ts'), c.get('b/older.ts'));
+  // 越新越接近"热色"(红通道更高:#ffcf70 vs #2f3b6e)
+  const red = (h: string) => parseInt(h.slice(1, 3), 16);
+  assert.ok(red(c.get('a/new.ts')!) > red(c.get('a/old.ts')!));
+  assert.equal(c.get('a/'), c.get('a/new.ts'), '目录取后代里最新的那个');
+  assert.ok(red(c.get('a/')!) > red(c.get('b/')!));
+
+  assert.deepEqual(validateSpec(BUILTIN_VIEWS.recent), []);
+  assert.deepEqual(Object.values(BUILTIN_VIEWS).flatMap((v) => validateSpec(v)), []);
+  assert.ok(validateSpec({ colour: [] }).length > 0);
+  assert.ok(validateSpec({ style: [{ shape: 'cube' }] }).length > 0);
+  assert.ok(validateSpec({ relations: { x: { mode: 'wavy' } } }).length > 0);
+});
+
+test('信号:操作日志里每个节点最近被触及的时间', async () => {
+  const { touchedFromLog } = await import('../src/activity.ts');
+  const t = (s: string) => new Date(s).toISOString();
+  const log = [
+    { n: 1, t: t('2026-01-01'), author: 'h', op: { op: 'addNode', id: 'a', label: 'a' }, inverse: { op: 'removeNode', id: 'a' } },
+    { n: 2, t: t('2026-02-01'), author: 'h', op: { op: 'batch', ops: [{ op: 'addEdge', from: 'a', type: 'x', to: 'b' }] }, inverse: { op: 'batch', ops: [] } },
+  ] as never;
+  const out = touchedFromLog(log);
+  assert.equal(out.a, Date.parse('2026-02-01'));
+  assert.equal(out.b, Date.parse('2026-02-01'));
+});

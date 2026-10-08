@@ -12,10 +12,16 @@ export type RelationMode = 'orbit' | 'region' | 'line' | 'faint' | 'hidden';
 /** 规则的前提:所有 key=value 都相等才匹配(key=type 时匹配节点类型)。省略 = 恒匹配。 */
 type When = Record<string, string>;
 
+/** 外部给的"信号":id -> 数值(常用毫秒时间戳)。如 touched(图里最近被编辑)、fileChanged(文件最近被提交/修改)。 */
+export type SignalMap = Map<string, number> | Record<string, number>;
+
 export interface SizeRule {
   when?: When;
   /** 取哪个属性当数值(如 size);省略则按度数 */
   attr?: string;
+  /** 改取某个信号(见 EvalOptions.signals);配合 recency 把时间戳变成 0..1 的"新鲜度" */
+  signal?: string;
+  recency?: { halfLifeDays: number };
   by?: 'degree';
   /** 沿某种关系向下汇总:sum / max / count(子孙数) */
   rollup?: { relation: string; op: 'sum' | 'max' | 'count' };
@@ -24,11 +30,17 @@ export interface SizeRule {
 }
 export interface ColorRule {
   when?: When;
-  /** 'type' | 'attr:xxx' | 'group'(继承祖先的颜色:沿 relation 往上数到第 level 层的祖先,同一子树同色) */
+  /** 'type' | 'attr:xxx' | 'group'(继承祖先的颜色:沿 relation 往上数到第 level 层的祖先,同一子树同色) | 'recency'(按信号的新旧在 from→to 之间渐变) */
   by?: string;
   relation?: string;
   level?: number;
   value?: string; // 固定颜色
+  /** by=recency:用哪个信号、半衰期(天)、冷色 → 热色;rollup 让容器取后代里最新的 */
+  signal?: string;
+  halfLifeDays?: number;
+  from?: string;
+  to?: string;
+  rollup?: { relation: string; op: 'max' | 'sum' };
 }
 export interface StyleRule {
   when?: When;
@@ -120,6 +132,10 @@ export interface EvalOptions {
   collapsed?: Iterable<string>;
   /** 覆盖 spec.expand.depth */
   depth?: number;
+  /** 外部信号(见 SignalMap);视图是纯函数,时间也是输入 */
+  signals?: Record<string, SignalMap>;
+  /** 当前时间(毫秒),默认 Date.now();测试里固定它 */
+  now?: number;
 }
 
 const GALAXY_SIZE: SizeRule[] = [
@@ -146,6 +162,22 @@ export const BUILTIN_VIEWS: Record<string, ViewSpec> = {
     expand: { relation: 'contains', depth: 1, auto: { radiusPx: 58 } },
     size: GALAXY_SIZE,
     color: GALAXY_COLOR,
+    style: GALAXY_STYLE,
+    relations: {
+      contains: { mode: 'region', distance: 46, strength: 0.7, spin: 0.5 },
+      '*': { mode: 'line', distance: 140, strength: 0.18 },
+    },
+  },
+  // 热力:大小仍是体量,颜色是"多久之前动过"(文件看 git/工作区,图里的节点看编辑记录)
+  recent: {
+    look: 'galaxy',
+    expand: { relation: 'contains', depth: 1, auto: { radiusPx: 58 } },
+    size: GALAXY_SIZE,
+    color: [
+      { when: { type: 'dir' }, by: 'recency', signal: 'fileChanged', rollup: { relation: 'contains', op: 'max' }, halfLifeDays: 10 },
+      { when: { type: 'file' }, by: 'recency', signal: 'fileChanged', halfLifeDays: 10 },
+      { by: 'recency', signal: 'touched', halfLifeDays: 3 },
+    ],
     style: GALAXY_STYLE,
     relations: {
       contains: { mode: 'region', distance: 46, strength: 0.7, spin: 0.5 },
@@ -261,6 +293,23 @@ function rollup(u: Universe, relation: string, op: 'sum' | 'max' | 'count', own:
   };
   for (const id of u.nodes.keys()) go(id);
   return memo;
+}
+
+const DAY_MS = 86_400_000;
+
+/** 时间戳 -> 新鲜度:刚发生 = 1,每过一个半衰期减半;没有记录 = 0。 */
+export function recencyWeight(t: number | undefined, halfLifeDays: number, now: number): number {
+  if (!t) return 0;
+  return 0.5 ** (Math.max(0, now - t) / DAY_MS / Math.max(halfLifeDays, 0.001));
+}
+
+function toRgb(h: string): [number, number, number] {
+  const v = parseInt(h.replace('#', ''), 16);
+  return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+}
+export function mixHex(a: string, b: string, t: number): string {
+  const [x, y] = [toRgb(a), toRgb(b)];
+  return '#' + [0, 1, 2].map((i) => Math.round(x[i]! + (y[i]! - x[i]!) * t).toString(16).padStart(2, '0')).join('');
 }
 
 function scaleValue(v: number, max: number, scale: 'sqrt' | 'log' | 'linear', [lo, hi]: [number, number]): number {
@@ -387,6 +436,19 @@ export function evaluateView(u: Universe, spec: ViewSpec, opts: EvalOptions = {}
   }
 
   // --- 4. 视觉属性:对所有入选节点统一归一化,这样展开/收起时节点大小不会跳变 ---
+  const now = opts.now ?? Date.now();
+  const signalCache = new Map<string, Map<string, number>>();
+  const signalOf = (name: string, rel?: { relation: string; op: 'max' | 'sum' }): Map<string, number> => {
+    const key = `${name}|${rel?.relation ?? ''}|${rel?.op ?? ''}`;
+    let m = signalCache.get(key);
+    if (!m) {
+      const src = opts.signals?.[name];
+      const base = src instanceof Map ? src : new Map(Object.entries(src ?? {}));
+      m = rel ? rollup(u, rel.relation, rel.op, (n) => base.get(n.id) ?? 0) : base;
+      signalCache.set(key, m);
+    }
+    return m;
+  };
   const sizeRules = spec.size ?? [];
   const sizeOf = new Map<string, { rule: number; value: number }>();
   const attrNum = (n: Node, attr: string) => {
@@ -394,18 +456,21 @@ export function evaluateView(u: Universe, spec: ViewSpec, opts: EvalOptions = {}
     return Number.isFinite(x) ? x : 0;
   };
   const rolled = sizeRules.map((r) =>
-    r.rollup ? rollup(u, r.rollup.relation, r.rollup.op, (n) => (r.attr ? attrNum(n, r.attr) : 0)) : null);
+    r.rollup && !r.signal ? rollup(u, r.rollup.relation, r.rollup.op, (n) => (r.attr ? attrNum(n, r.attr) : 0)) : null);
   for (const n of nodes) {
     const i = sizeRules.findIndex((r) => matches(n, r.when));
     if (i === -1) continue;
     const r = sizeRules[i]!;
-    const value = r.by === 'degree' || (!r.attr && !r.rollup)
-      ? (degree.get(n.id) ?? 0)
-      : (rolled[i]?.get(n.id) ?? attrNum(n, r.attr ?? ''));
+    let value: number;
+    if (r.signal) {
+      const raw = signalOf(r.signal, r.rollup && r.rollup.op !== 'count' ? { relation: r.rollup.relation, op: r.rollup.op } : undefined).get(n.id);
+      value = r.recency ? recencyWeight(raw, r.recency.halfLifeDays, now) : (raw ?? 0);
+    } else if (r.by === 'degree' || (!r.attr && !r.rollup)) value = degree.get(n.id) ?? 0;
+    else value = rolled[i]?.get(n.id) ?? attrNum(n, r.attr ?? '');
     sizeOf.set(n.id, { rule: i, value });
   }
   const maxByRule = new Map<number, number>();
-  for (const { rule, value } of sizeOf.values()) maxByRule.set(rule, Math.max(maxByRule.get(rule) ?? 0, value));
+  for (const { rule, value } of sizeOf.values()) maxByRule.set(rule, sizeRules[rule]!.recency ? 1 : Math.max(maxByRule.get(rule) ?? 0, value));
 
   const colorRules = spec.color ?? [];
   const styleRules = spec.style ?? [];
@@ -431,6 +496,10 @@ export function evaluateView(u: Universe, spec: ViewSpec, opts: EvalOptions = {}
     const cr = colorRules.find((c) => matches(n, c.when));
     if (cr?.value) color = cr.value;
     else if (cr?.by === 'type') color = n.attrs.color ?? schemaNode(u, n.attrs.type ?? '')?.attrs.color ?? (n.attrs.type ? hashColor(n.attrs.type) : DEFAULT_COLOR);
+    else if (cr?.by === 'recency') {
+      const raw = signalOf(cr.signal ?? 'touched', cr.rollup).get(n.id);
+      color = mixHex(cr.from ?? '#2f3b6e', cr.to ?? '#ffcf70', recencyWeight(raw, cr.halfLifeDays ?? 14, now));
+    }
     else if (cr?.by === 'group') color = hashColor(groupOf(parentMap(cr.relation ?? 'contains'), n.id, cr.level ?? 1));
     else if (cr?.by?.startsWith('attr:')) {
       const v = n.attrs[cr.by.slice(5)];
@@ -526,4 +595,52 @@ export function listViews(u: Universe): { specs: Record<string, ViewSpec>; error
     }
   }
   return { specs, errors };
+}
+
+const KEYS = {
+  spec: ['look', 'select', 'expand', 'size', 'color', 'style', 'relations'],
+  select: ['onlyTypes', 'hideTypes', 'withRelations', 'schema'],
+  expand: ['relation', 'depth', 'auto'],
+  size: ['when', 'attr', 'signal', 'recency', 'by', 'rollup', 'scale', 'range'],
+  color: ['when', 'by', 'relation', 'level', 'value', 'signal', 'halfLifeDays', 'from', 'to', 'rollup'],
+  style: ['when', 'shape'],
+  relation: ['mode', 'distance', 'strength', 'color', 'width', 'arrow', 'spin'],
+};
+const SHAPES = ['dot', 'star', 'nebula', 'ringed', 'pulsar'];
+const MODES = ['orbit', 'region', 'line', 'faint', 'hidden'];
+
+/** 检查视图规格,返回问题列表(空 = 没问题)。CLI、查看器编辑器和 AI 写入前都应该先过一遍。 */
+export function validateSpec(spec: unknown): string[] {
+  const bad: string[] = [];
+  const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+  const unknownKeys = (o: Record<string, unknown>, allowed: string[], where: string) => {
+    for (const k of Object.keys(o)) if (!allowed.includes(k)) bad.push(`${where}: 未知字段 "${k}"(可用: ${allowed.join(', ')})`);
+  };
+  if (!isObj(spec)) return ['规格必须是一个 JSON 对象'];
+  unknownKeys(spec, KEYS.spec, '规格');
+  if (spec.look !== undefined && !['galaxy', 'plain'].includes(spec.look as string)) bad.push('look 只能是 galaxy 或 plain');
+  if (spec.select !== undefined) isObj(spec.select) ? unknownKeys(spec.select, KEYS.select, 'select') : bad.push('select 必须是对象');
+  if (spec.expand !== undefined) isObj(spec.expand) ? unknownKeys(spec.expand, KEYS.expand, 'expand') : bad.push('expand 必须是对象');
+  for (const key of ['size', 'color', 'style'] as const) {
+    const rules = spec[key];
+    if (rules === undefined) continue;
+    if (!Array.isArray(rules)) { bad.push(`${key} 必须是规则数组(按顺序匹配,第一条生效)`); continue; }
+    rules.forEach((r, i) => {
+      if (!isObj(r)) { bad.push(`${key}[${i}] 必须是对象`); return; }
+      unknownKeys(r, KEYS[key], `${key}[${i}]`);
+      if (key === 'style' && !SHAPES.includes(r.shape as string)) bad.push(`style[${i}].shape 必须是 ${SHAPES.join('/')}`);
+      if (key === 'size' && r.scale !== undefined && !['sqrt', 'log', 'linear'].includes(r.scale as string)) bad.push(`size[${i}].scale 必须是 sqrt/log/linear`);
+      if (key === 'size' && r.range !== undefined && !(Array.isArray(r.range) && r.range.length === 2 && r.range.every((x) => typeof x === 'number'))) bad.push(`size[${i}].range 必须是 [最小, 最大]`);
+      if (r.when !== undefined && !isObj(r.when)) bad.push(`${key}[${i}].when 必须是对象`);
+    });
+  }
+  if (spec.relations !== undefined) {
+    if (!isObj(spec.relations)) bad.push('relations 必须是对象(键是边类型,* 是兜底)');
+    else for (const [t, r] of Object.entries(spec.relations)) {
+      if (!isObj(r)) { bad.push(`relations.${t} 必须是对象`); continue; }
+      unknownKeys(r, KEYS.relation, `relations.${t}`);
+      if (!MODES.includes(r.mode as string)) bad.push(`relations.${t}.mode 必须是 ${MODES.join('/')}`);
+    }
+  }
+  return bad;
 }
