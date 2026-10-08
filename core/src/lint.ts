@@ -19,6 +19,8 @@ export interface LintOptions {
   /** 节点 file 属性相对于哪个目录;不给则跳过文件检查 */
   baseDir?: string;
   fileExists?: (absPath: string) => boolean;
+  /** 不逐个 stat 文件(只看 missing=true 的标记)。监听器在跑时用:它已经在维护这个标记 */
+  skipFileStat?: boolean;
 }
 
 type Rule = (u: Universe, o: LintOptions) => Issue[];
@@ -121,14 +123,13 @@ const multipleParents: Rule = (u) => {
 };
 
 const missingFile: Rule = (u, o) => {
-  if (!o.baseDir) return [];
   const exists = o.fileExists ?? existsSync;
   const out: Issue[] = [];
   for (const n of u.nodes.values()) {
     const f = n.attrs.file;
     if (!f) continue;
     const path = f.split('#')[0]!;
-    if (!exists(resolve(o.baseDir, path))) {
+    if (n.attrs.missing === 'true' || (o.baseDir && !o.skipFileStat && !exists(resolve(o.baseDir, path)))) {
       out.push({ rule: 'missing-file', severity: 'warn', nodes: [n.id], message: `${n.id} 指向的文件不存在: ${path}` });
     }
   }

@@ -138,6 +138,8 @@
 <script type="module">
 import { compileView, listViews, validateSpec } from '/core/view.js';
 import { edgeKey } from '/core/model.js';
+import { apply } from '/core/ops.js';
+import { trackProposals } from '/core/proposals.js';
 (() => {
   const TAU = Math.PI * 2;
   const canvas = document.getElementById('c');
@@ -229,8 +231,58 @@ import { edgeKey } from '/core/model.js';
     }
     if (es) es.close();
     es = new EventSource('/events');
-    es.onmessage = (ev) => ingest(JSON.parse(ev.data));
+    es.onmessage = (ev) => handle(JSON.parse(ev.data));
     es.onerror = () => { $('status').textContent = '连接断开,重连中…'; };
+  }
+
+  // ---------- 增量协议:snapshot 一次,之后只收新增的日志条目(ops)与实时信号(signals) ----------
+  let lastN = 0, staleLive = false, recomputeTimer = null, lastCompile = 100;
+  function handle(m) {
+    if (m.type === 'ops' || m.type === 'signals' || m.type === 'issues') {
+      if (replay) { staleLive = true; return; } // 回放中:实时更新先不动画面,退出回放时重新同步
+      if (m.type === 'ops') return applyOps(m.entries);
+      if (m.type === 'signals') return applySignals(m);
+      data.issues = m.issues; rebuildIssues(); renderSide(); renderStatus();
+      return;
+    }
+    ingest(m);
+  }
+  function resync() { if (es) es.close(); connect(); }   // 日志出现缺口等不一致:重新连接,服务端会先发一份完整快照
+  function scheduleRecompute() {
+    if (recomputeTimer) return;
+    // 编译较贵:变化很密集时按上一次编译耗时自适应地合并,保证界面不被拖死
+    recomputeTimer = setTimeout(() => { recomputeTimer = null; recompute(true); }, Math.max(120, lastCompile * 3));
+  }
+  function applyOps(entries) {
+    for (const e of entries) {
+      if (e.n <= lastN) continue;                       // 重复(快照已包含)
+      if (e.n !== lastN + 1) { resync(); return; }      // 缺口
+      try { apply(uni, e.op); } catch { resync(); return; }
+      lastN = e.n;
+      data.log.push(e); if (data.log.length > 60) data.log.shift();
+      data.proposals = data.proposals || {};
+      trackProposals(data.proposals, e);
+    }
+    data.nodes = [...uni.nodes.values()]; data.edges = [...uni.edges.values()];
+    raw.clear(); for (const n of data.nodes) raw.set(n.id, n);
+    const lv = listViews(uni); specs = lv.specs; viewErrors = Object.values(lv.errors); viewNames = Object.keys(specs);
+    if (!specs[currentView]) currentView = viewNames[0];
+    scheduleRecompute();
+    renderReview();
+    renderStatus();
+  }
+  function applySignals(m) {
+    const sg = (data.signals = data.signals || {});
+    if (m.replace) { sg.fileChanged = m.fileChanged; sg.touched = m.touched; if (m.size) sg.size = m.size; }
+    else { sg.size = Object.assign(sg.size || {}, m.size); sg.fileChanged = Object.assign(sg.fileChanged || {}, m.changed); }
+    scheduleRecompute();
+  }
+  function rebuildIssues() {
+    issueByNode = new Map();
+    for (const i of data.issues) for (const id of i.nodes) {
+      const cur = issueByNode.get(id);
+      if (!cur || i.severity === 'error' || (i.severity === 'warn' && cur !== 'error')) issueByNode.set(id, i.severity);
+    }
   }
 
   function buildUniverse(snap) {
@@ -244,6 +296,7 @@ import { edgeKey } from '/core/model.js';
   function ingest(snap) {
     if (snap.error) { banner(snap.error); return; }
     liveSnap = snap;
+    lastN = snap.n || 0; staleLive = false;
     if (replay) return;
     applyData(snap);
     if (!$('editor').hidden && !editorDirty) loadEditor(false);
@@ -288,6 +341,7 @@ import { edgeKey } from '/core/model.js';
     }
     const t1 = performance.now();
     scene = compiled.fold({ expanded: opened, collapsed: shut });
+    if (structural) lastCompile = t1 - t0;
     perf.compileMs = structural ? t1 - t0 : perf.compileMs; perf.foldMs = performance.now() - t1;
     look = scene.look;
     edgeColors = new Map(scene.edges.map((e) => [`${e.from}|${e.type}|${e.to}`, e.color]));
@@ -320,12 +374,17 @@ import { edgeKey } from '/core/model.js';
     rebuildGraph();
     renderViews(); renderChips(); renderSide(); renderLegend(); renderReview();
     layoutPanels();
+    renderStatus();
+  }
+
+  function renderStatus() {
     const nn = data.nodes.filter((n) => !n.id.startsWith('~')).length;
     const folded = scene.nodes.filter((n) => n.container && !n.expanded).length;
     $('status').innerHTML = `视图 <b>${scene.nodes.length}</b>/${nn} 节点 · <b>${scene.edges.length}</b> 边`
       + (folded ? ` · <b>${folded}</b> 个收起` : '') + ` · `
       + `<span class="sev-error">${data.issues.filter((i) => i.severity === 'error').length} 错误</span> · `
-      + `<span class="sev-warn">${data.issues.filter((i) => i.severity === 'warn').length} 警告</span>`;
+      + `<span class="sev-warn">${data.issues.filter((i) => i.severity === 'warn').length} 警告</span>`
+      + (data.watching ? ' · <b style="color:#7be0a0">● 实时同步</b>' : '');
   }
 
   const typeOf = (id) => (raw.get(id)?.attrs.type) || '(无类型)';
@@ -696,7 +755,8 @@ import { edgeKey } from '/core/model.js';
     renderTimeline(); renderReplayBar();
   }
   function exitReplay() {
-    stopPlay(); replay = null; if (liveSnap) applyData(liveSnap);
+    stopPlay(); replay = null;
+    if (staleLive) { staleLive = false; resync(); } else if (liveSnap) applyData(liveSnap);
     renderTimeline(); renderReplayBar();
   }
   function renderReplayBar() {
@@ -1123,7 +1183,7 @@ import { edgeKey } from '/core/model.js';
   }
   requestAnimationFrame(draw);
 
-  window.__stars = { nodes: () => simulation.nodes(), transform: () => transform, scene: () => scene, regions: () => regions, perf, recompute, manual, auto, compiled: () => compiled }; // 调试/自动化用
+  window.__stars = { nodes: () => simulation.nodes(), transform: () => transform, scene: () => scene, regions: () => regions, perf, hasNode: (id) => uni.nodes.has(id), nodeCount: () => uni.nodes.size, lastN: () => lastN, recompute, manual, auto, compiled: () => compiled }; // 调试/自动化用
   connect();
 })();
 </script>

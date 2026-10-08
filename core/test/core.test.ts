@@ -304,3 +304,34 @@ test('审阅:从操作日志回溯每条待确认边是谁提的,接受/拒绝�
   apply(u, { op: 'setEdge', from: 'a', type: 'dependsOn', to: 'b', unset: ['status'] });
   assert.deepEqual(Object.keys(proposalsFromLog(log, u)), ['b|dependsOn|c'], '已接受的不再出现');
 });
+
+test('存储:延迟写入 —— 日志先落盘,别的进程读到的仍然是最新一致的宇宙,期间别人的写入不会被覆盖', async () => {
+  const { mkdtempSync, readFileSync: rf } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { Store } = await import('../src/store.ts');
+  const { readRev } = await import('../src/format.ts');
+  const dir = mkdtempSync(join(tmpdir(), 'stars-defer-'));
+  const file = join(dir, 'universe.stars');
+  const a = new Store(file);
+  a.create(rf(new URL('../genesis.stars', import.meta.url), 'utf8'));
+  a.commit({ op: 'addNode', id: 'w1', label: 'w1' }, { author: 'fs' }, undefined, { defer: true });
+  a.commit({ op: 'addNode', id: 'w2', label: 'w2' }, { author: 'fs' }, undefined, { defer: true });
+  assert.ok(!rf(file, 'utf8').includes('node w1'), '宇宙文件还没写(延迟)');
+  assert.equal(readRev(rf(file, 'utf8')), 0);
+  // 另一个进程(CLI)此刻读,应当看到延迟写入的修改
+  const b = new Store(file);
+  assert.ok(b.load().nodes.has('w1') && b.load().nodes.has('w2'), '读时回放日志,看到最新状态');
+  // 另一个进程在延迟写入期间提交:不能被后来的 flush 覆盖掉
+  b.commit({ op: 'addNode', id: 'cli', label: 'cli' }, { author: 'human' });
+  a.commit({ op: 'addNode', id: 'w3', label: 'w3' }, { author: 'fs' }, undefined, { defer: true });
+  a.flush();
+  const final = new Store(file).load();
+  for (const id of ['w1', 'w2', 'w3', 'cli']) assert.ok(final.nodes.has(id), `${id} 没有丢`);
+  assert.equal(readRev(rf(file, 'utf8')), a.logCount(), '落盘后文件头的 rev 追上日志');
+  // 没有 rev 的旧文件不做任何回放
+  const legacy = join(dir, 'legacy.stars');
+  const text = rf(file, 'utf8').replace(/^stars 1 rev=\d+/, 'stars 1');
+  (await import('node:fs')).writeFileSync(legacy, text);
+  assert.ok(new Store(legacy).load().nodes.has('cli'));
+});

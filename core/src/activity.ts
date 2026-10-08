@@ -8,6 +8,7 @@ import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Universe } from './model.ts';
 import { type Op } from './ops.ts';
+import { type Proposal, trackProposals } from './proposals.ts';
 import { type LogEntry } from './store.ts';
 
 export interface Signals {
@@ -90,34 +91,36 @@ export function fileChangedFor(u: Universe, times: Map<string, number>): Record<
 
 /** git 那部分相对昂贵,按目录缓存几秒。 */
 const cache = new Map<string, { at: number; times: Map<string, number> }>();
-export function loadSignals(log: LogEntry[], u: Universe, baseDir: string, ttlMs = 3000): Signals {
+export function loadSignals(log: LogEntry[], u: Universe, baseDir: string, ttlMs = 3000, live?: LiveSignals): Signals & { size?: Record<string, number> } {
   let hit = cache.get(baseDir);
   if (!hit || Date.now() - hit.at > ttlMs) {
     hit = { at: Date.now(), times: fileTimes(baseDir) };
     cache.set(baseDir, hit);
   }
-  return { touched: touchedFromLog(log), fileChanged: fileChangedFor(u, hit.times) };
+  const fileChanged = fileChangedFor(u, hit.times);
+  if (live) for (const [id, t] of Object.entries(live.changed)) if (u.nodes.has(id) && !(fileChanged[id]! >= t)) fileChanged[id] = t; // 实时修改比 git 记录新
+  const out: Signals & { size?: Record<string, number> } = { touched: touchedFromLog(log), fileChanged };
+  if (live) out.size = Object.fromEntries(Object.entries(live.size).filter(([id]) => u.nodes.has(id)));
+  return out;
 }
 
-export interface Proposal { author: string; t: number; n: number }
+/** git 提交/切分支之后让缓存失效,下次取信号时重新读 git。 */
+export function invalidateSignals(baseDir?: string): void {
+  if (baseDir) cache.delete(baseDir); else cache.clear();
+}
+
+/** 监听器报告的、不写进宇宙的实时状态:当前大小(与宇宙里记录的不同时)与修改时间。 */
+export interface LiveSignals { size: Record<string, number>; changed: Record<string, number> }
+
+export type { Proposal } from './proposals.ts';
 
 /** 当前仍待确认的边 -> 是谁、何时提议的(从操作日志里回溯)。 */
 export function proposalsFromLog(log: LogEntry[], u: Universe): Record<string, Proposal> {
   const out: Record<string, Proposal> = {};
-  const key = (f: string, t: string, to: string) => `${f}|${t}|${to}`;
-  const visit = (op: Op, e: LogEntry): void => {
-    if (op.op === 'batch') { for (const sub of op.ops) visit(sub, e); return; }
-    if (op.op === 'addEdge') { if (op.attrs?.status === 'proposed') out[key(op.from, op.type, op.to)] = { author: e.author, t: Date.parse(e.t), n: e.n }; else delete out[key(op.from, op.type, op.to)]; }
-    if (op.op === 'removeEdge') delete out[key(op.from, op.type, op.to)];
-    if (op.op === 'setEdge' && op.unset?.includes('status')) delete out[key(op.from, op.type, op.to)];
-    if (op.op === 'setEdge' && op.set?.status === 'proposed') out[key(op.from, op.type, op.to)] = { author: e.author, t: Date.parse(e.t), n: e.n };
-  };
-  for (const e of log) visit(e.op, e);
+  for (const e of log) trackProposals(out, e);
   // 只保留宇宙里仍然是 proposed 的
-  for (const k of Object.keys(out)) {
-    const [f, t, to] = k.split('|');
-    const edge = [...u.edges.values()].find((x) => x.from === f && x.type === t && x.to === to);
-    if (!edge || edge.attrs.status !== 'proposed') delete out[k];
-  }
+  const live = new Set<string>();
+  for (const e of u.edges.values()) if (e.attrs.status === 'proposed') live.add(`${e.from}|${e.type}|${e.to}`);
+  for (const k of Object.keys(out)) if (!live.has(k)) delete out[k];
   return out;
 }

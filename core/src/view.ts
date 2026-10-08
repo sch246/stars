@@ -456,12 +456,23 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     if (!a) { a = buildCsr(N, ef, et, (e) => ety[e] === t, E); adjCache.set(t, a); }
     return a;
   };
+  /** 信号里"有记录"的节点才有值,其余是 NaN(用来覆盖同名属性,如监听器报告的实时 size) */
+  const sparseSignal = (name: string): Float64Array | null => {
+    const src = opts.signals?.[name];
+    if (!src) return null;
+    const a = new Float64Array(N).fill(NaN);
+    if (src instanceof Map) for (let i = 0; i < N; i++) { const v = src.get(ids[i]!); if (v !== undefined) a[i] = v; }
+    else for (let i = 0; i < N; i++) { const v = src[ids[i]!]; if (v !== undefined) a[i] = v; }
+    return a;
+  };
   const attrCache = new Map<string, Float64Array>();
   const attrArr = (attr: string): Float64Array => {
     let a = attrCache.get(attr);
     if (!a) {
       a = new Float64Array(N);
       for (let i = 0; i < N; i++) { const x = Number(nodeList[i]!.attrs[attr]); a[i] = Number.isFinite(x) ? x : 0; }
+      const over = sparseSignal(attr); // 同名信号(如实时 size)覆盖属性
+      if (over) for (let i = 0; i < N; i++) if (over[i]! === over[i]!) a[i] = over[i]!;
       attrCache.set(attr, a);
     }
     return a;
@@ -498,11 +509,13 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
       case 'children': col = childCount; break;
       case 'descendants': col = desc; break;
       default: {
-        col = exprSignal(name) ?? undefined;
+        const sig = exprSignal(name);
+        const hasAttr = nodeList.some((n) => n.attrs[name] !== undefined);
+        col = sig && !hasAttr ? sig : undefined;
         if (!col) { // 属性列:全是数字就做成数值列,否则是字符串列(缺失 → 0 / '')
           let numeric = true, any = false;
           for (let i = 0; i < N; i++) { const v = nodeList[i]!.attrs[name]; if (v === undefined || v === '') continue; any = true; if (!Number.isFinite(Number(v))) { numeric = false; break; } }
-          if (any && numeric) { const a = new Float64Array(N); for (let i = 0; i < N; i++) a[i] = Number(nodeList[i]!.attrs[name] ?? 0) || 0; col = a; }
+          if (any && numeric) { col = attrArr(name); }
           else col = nodeList.map((n) => n.attrs[name] ?? '');
         }
       }

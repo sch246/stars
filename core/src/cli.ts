@@ -15,6 +15,7 @@ import { loadSignals } from './activity.ts';
 import { compileFn } from './expr.ts';
 import { BUILTIN_VIEWS, evaluateView, listViews, validateSpec } from './view.ts';
 import { exportHtml } from './exporter.ts';
+import { FsWatcher } from './watch.ts';
 import { startServer } from './serve.ts';
 import { Store } from './store.ts';
 
@@ -46,8 +47,9 @@ const HELP = `stars —— 关系编辑器(内核 CLI)
   fn-set <name>                      新建/覆盖一个函数节点,供视图表达式里 fn.<name>(...) 调用   --code '<函数表达式>' 或 --from <文件>
   merge <base> <ours> <theirs>       按事实三方合并宇宙文件(git 合并驱动;结果写入 <ours>,有冲突退出码 1)
   install-merge                      在当前 git 仓库里启用上面的合并驱动(写 .git/config 和 .gitattributes)
+  watch                              监听文件系统,把文件/目录的新增、删除、重命名实时同步进宇宙(Ctrl-C 退出)  [--mount repo] [--debounce 80] [--poll 120]
   export <out.html>                  导出成一个自包含的 HTML(含查看器与当前宇宙),拷到任何机器双击就能看(只读)
-  serve                              启动实时查看器  [--port 4321] [--host 127.0.0.1] [--allow-host 域名 ...(反向代理用,也可用 STARS_ALLOW_HOSTS)]
+  serve                              启动实时查看器  [--port 4321] [--host 127.0.0.1] [--allow-host 域名 ...(反向代理用,也可用 STARS_ALLOW_HOSTS)] [--watch(同时实时同步文件系统)]
 
 全局选项
   -f, --file <路径>     宇宙文件(默认 $STARS_FILE 或 ./universe.stars)
@@ -77,6 +79,10 @@ const { values: o, positionals: pos } = parseArgs({
     dir: { type: 'string' },
     under: { type: 'string' },
     port: { type: 'string' },
+    watch: { type: 'boolean' },
+    mount: { type: 'string' },
+    debounce: { type: 'string' },
+    poll: { type: 'string' },
     host: { type: 'string' },
     'allow-host': { type: 'string', multiple: true },
     spec: { type: 'string' },
@@ -340,14 +346,44 @@ function run(): void {
       console.log(`已导出 ${resolve(args[0]!)}(${(html.length / 1024).toFixed(0)} KB,自包含,只读)`);
       return;
     }
+    case 'watch': {
+      const w = new FsWatcher(watchOptions());
+      const r = w.start();
+      console.log(`监听 ${process.env.STARS_ROOT ?? dirname(file)} → ${file}(挂载根 ${o.mount ?? 'repo'})。启动对账 ${r.ms.toFixed(0)}ms: ${describeSync(r)}。Ctrl-C 退出。`);
+      process.on('SIGINT', () => { w.stop(); process.exit(0); });
+      return;
+    }
     case 'serve': {
       const extra = [...(o['allow-host'] ?? []), ...(process.env.STARS_ALLOW_HOSTS?.split(',') ?? [])].map((h) => h.trim()).filter(Boolean);
-      startServer(store, Number(o.port ?? 4321), process.env.STARS_ROOT ?? dirname(file), o.host ?? '127.0.0.1', console.log, extra);
+      const baseDir = process.env.STARS_ROOT ?? dirname(file);
+      const server = startServer(store, Number(o.port ?? 4321), baseDir, o.host ?? '127.0.0.1', console.log, extra);
+      if (o.watch) {
+        server.setWatching(true);
+        const w = new FsWatcher({
+          ...watchOptions(),
+          onSync: (r) => { server.pushLive(r.live); if (r.op) console.log(`${r.full ? '全量' : '增量'}对账 ${r.ms.toFixed(0)}ms: ${describeSync(r)}`); },
+          onGit: () => server.gitChanged(),
+        });
+        const first = w.start();
+        console.log(`实时同步已开启(挂载根 ${o.mount ?? 'repo'}):启动对账 ${first.ms.toFixed(0)}ms,${describeSync(first)}`);
+        process.on('SIGINT', () => { w.stop(); server.close(); process.exit(0); });
+      }
       return;
     }
     default:
       throw new StarsError(`未知命令 "${cmd}"(stars help 查看用法)`);
   }
+}
+
+function watchOptions() {
+  return {
+    root: process.env.STARS_ROOT ?? dirname(file), mountId: o.mount ?? 'repo', store, log: console.log,
+    debounceMs: o.debounce ? Number(o.debounce) : undefined, pollSec: o.poll ? Number(o.poll) : undefined,
+  };
+}
+function describeSync(r: { stats: { added: number; removed: number; renamed: number; missing: number; revived: number } }): string {
+  const s = r.stats, parts = [s.added && `+${s.added}`, s.removed && `-${s.removed}`, s.renamed && `↔${s.renamed} 改名`, s.missing && `${s.missing} 缺失`, s.revived && `${s.revived} 恢复`].filter(Boolean);
+  return parts.length ? parts.join(' ') : '没有变化';
 }
 
 function summarize(op: import('./ops.ts').Op): string {
@@ -358,6 +394,7 @@ function summarize(op: import('./ops.ts').Op): string {
     case 'addEdge': return `+edge ${op.from} -${op.type}-> ${op.to}`;
     case 'removeEdge': return `-edge ${op.from} -${op.type}-> ${op.to}`;
     case 'setEdge': return `~edge ${op.from} -${op.type}-> ${op.to}`;
+    case 'renameNodes': return `↔ 改名 ×${op.pairs.length}`;
     case 'batch': return `batch ×${op.ops.length}`;
   }
 }

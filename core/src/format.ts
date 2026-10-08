@@ -115,7 +115,10 @@ function emitValue(v: string): string {
 }
 
 function emitAttrs(attrs: Attrs): string {
-  const keys = Object.keys(attrs).sort((a, b) => {
+  const ks = Object.keys(attrs);
+  if (ks.length === 0) return '';
+  if (ks.length === 1) return ` ${ks[0]}=${emitValue(attrs[ks[0]!]!)}`;
+  const keys = ks.sort((a, b) => {
     const ia = ATTR_ORDER.indexOf(a);
     const ib = ATTR_ORDER.indexOf(b);
     if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
@@ -124,18 +127,23 @@ function emitAttrs(attrs: Attrs): string {
   return keys.map((k) => ` ${k}=${emitValue(attrs[k]!)}`).join('');
 }
 
-const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+/** 文件头里的 rev=N:这个文件已经包含了操作日志的前 N 条。没有 rev(旧文件)返回 undefined。 */
+export function readRev(text: string): number | undefined {
+  const m = /^stars \d+ rev=(\d+)/m.exec(text.slice(0, 200));
+  return m ? Number(m[1]) : undefined;
+}
 
-export function serialize(u: Universe): string {
-  const out: string[] = [`stars ${FORMAT_VERSION}`, ''];
-  for (const n of [...u.nodes.values()].sort((a, b) => cmp(a.id, b.id))) {
+export function serialize(u: Universe, rev?: number): string {
+  const out: string[] = [`stars ${FORMAT_VERSION}${rev !== undefined ? ` rev=${rev}` : ''}`, ''];
+  // 默认的字符串排序是按 UTF-16 码元,比带比较函数的排序快得多,而且和"按 id 字典序"完全一致
+  for (const id of [...u.nodes.keys()].sort()) {
+    const n = u.nodes.get(id)!;
     out.push(`node ${n.id} ${JSON.stringify(n.label)}${emitAttrs(n.attrs)}`);
   }
   out.push('');
-  const edges = [...u.edges.values()].sort(
-    (a, b) => cmp(a.from, b.from) || cmp(a.type, b.type) || cmp(a.to, b.to),
-  );
-  for (const e of edges) {
+  // 边的键是 from\0type\0to,\0 比任何字符都小,所以按整串排序就等于按 (from, type, to) 逐段比较
+  for (const key of [...u.edges.keys()].sort()) {
+    const e = u.edges.get(key)!;
     const arrow = isSymmetric(u, e.type) ? `-${e.type}-` : `-${e.type}->`;
     out.push(`${e.from} ${arrow} ${e.to}${emitAttrs(e.attrs)}`);
   }

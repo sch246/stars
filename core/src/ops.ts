@@ -10,6 +10,8 @@ export type Op =
   | { op: 'addNode'; id: string; label: string; attrs?: Attrs }
   | { op: 'setNode'; id: string; label?: string; set?: Attrs; unset?: string[] }
   | { op: 'removeNode'; id: string }
+  /** 批量改 id(一遍扫描,O(节点+边)):节点的所有关系跟着走;逆操作是把每一对反过来 */
+  | { op: 'renameNodes'; pairs: Array<[string, string]> }
   | { op: 'addEdge'; from: string; type: string; to: string; attrs?: Attrs }
   | { op: 'setEdge'; from: string; type: string; to: string; set?: Attrs; unset?: string[] }
   | { op: 'removeEdge'; from: string; type: string; to: string }
@@ -50,6 +52,28 @@ export function apply(u: Universe, op: Op): Op {
           ...incident.map((e): Op => ({ op: 'addEdge', from: e.from, type: e.type, to: e.to, attrs: e.attrs })),
         ],
       };
+    }
+    case 'renameNodes': {
+      const map = new Map(op.pairs);
+      if (map.size !== op.pairs.length) throw new StarsError('renameNodes: 源 id 重复');
+      const targets = new Set<string>();
+      for (const [from, to] of map) {
+        if (!u.nodes.has(from)) throw new StarsError(`节点不存在: ${from}`);
+        assertValidId(to);
+        if (targets.has(to)) throw new StarsError(`renameNodes: 目标 id 重复: ${to}`);
+        targets.add(to);
+        if (u.nodes.has(to) && !map.has(to)) throw new StarsError(`节点已存在: ${to}`);
+      }
+      const nodes = [...u.nodes.entries()], edges = [...u.edges.values()];
+      u.nodes.clear();
+      for (const [id, n] of nodes) { const nid = map.get(id) ?? id; u.nodes.set(nid, nid === id ? n : { ...n, id: nid }); }
+      u.edges.clear();
+      for (const e of edges) {
+        const a = map.get(e.from) ?? e.from, b = map.get(e.to) ?? e.to;
+        const [from, to] = canonicalEnds(u, a, e.type, b);
+        u.edges.set(edgeKey(from, e.type, to), { ...e, from, to });
+      }
+      return { op: 'renameNodes', pairs: op.pairs.map(([a, b]): [string, string] => [b, a]) };
     }
     case 'addEdge': {
       assertValidType(op.type);

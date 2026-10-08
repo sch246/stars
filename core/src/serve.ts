@@ -14,25 +14,19 @@ import { diffUniverses, gitHistory, gitSnapshot } from './history.ts';
 import { StarsError } from './model.ts';
 import { type Op } from './ops.ts';
 import { buildSnapshot } from './snapshot.ts';
-import { type Store } from './store.ts';
+import { invalidateSignals, loadSignals, type LiveSignals } from './activity.ts';
+import { lint } from './lint.ts';
+import { fileSig, type Store } from './store.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const viewerDir = resolve(here, '..', 'viewer');
 
 /** 浏览器能直接 import 的共享模块(都不依赖 Node)。 */
-const SHARED = new Set(['model', 'view', 'expr']);
+const SHARED = new Set(['model', 'view', 'expr', 'ops', 'proposals']);
 
 function sharedModule(name: string): string {
   const ts = readFileSync(resolve(here, `${name}.ts`), 'utf8');
   return stripTypeScriptTypes(ts).replace(/from '\.\/(\w+)\.ts'/g, "from './$1.js'");
-}
-
-function snapshot(store: Store, baseDir: string): string {
-  try {
-    return JSON.stringify(buildSnapshot(store, baseDir));
-  } catch (err) {
-    return JSON.stringify({ t: Date.now(), error: (err as Error).message });
-  }
 }
 
 const OPS = new Set(['addNode', 'setNode', 'removeNode', 'addEdge', 'setEdge', 'removeEdge', 'batch']);
@@ -51,12 +45,33 @@ function readBody(req: IncomingMessage, limit = 1 << 20): Promise<string> {
   });
 }
 
+export interface ServerHandle {
+  token: string;
+  close: () => void;
+  /** 监听器报告了文件的实时状态(大小/修改时间):合并并推给所有查看器 */
+  pushLive: (live: LiveSignals) => void;
+  /** git 提交/切分支:git 派生的"最近修改"信号需要刷新 */
+  gitChanged: () => void;
+  /** 有监听器在维护 missing 标记,issues 不必再逐个 stat 文件 */
+  setWatching: (on: boolean) => void;
+}
+
 export function startServer(
   store: Store, port: number, baseDir: string, host = '127.0.0.1', log: (message: string) => void = console.log,
   extraHosts: string[] = [],
-): { token: string; close: () => void } {
+): ServerHandle {
   const token = randomBytes(16).toString('hex');
   const clients = new Set<ServerResponse>();
+  const live: LiveSignals = { size: {}, changed: {} };
+  let watching = false;
+  let logOffset = store.exists() ? store.readLogSince(0).offset : 0;
+  let lastSig = fileSig(store.file);
+  let delivered = store.logCount();   // 已经投递给查看器的最后一条日志序号
+  const send = (obj: unknown) => { const line = `data: ${JSON.stringify(obj)}\n\n`; for (const c of clients) c.write(line); };
+  const snapshotLine = (): string => {
+    try { return JSON.stringify(buildSnapshot(store, baseDir, live, { skipFileStat: watching })); }
+    catch (err) { return JSON.stringify({ type: 'snapshot', t: Date.now(), error: (err as Error).message }); }
+  };
   process.removeAllListeners('warning'); // stripTypeScriptTypes 的实验性提示对用户是噪音
 
   const allowedHosts = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -114,7 +129,7 @@ export function startServer(
     if (path.startsWith('/api/')) { void api(req, res, url); return; }
     if (path === '/events') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' }); // 最后一项让 nginx 不要缓冲事件流
-      res.write(`data: ${snapshot(store, baseDir)}\n\n`);
+      res.write(`data: ${snapshotLine()}\n\n`);
       clients.add(res);
       req.on('close', () => clients.delete(res));
       return;
@@ -140,17 +155,65 @@ export function startServer(
     res.writeHead(404).end('not found');
   });
 
-  // 监听目录而不是文件:原子保存(写临时文件再 rename)会让文件级监听失效
+  // ---------- 增量推送 ----------
+  // 宇宙文件或日志变了:优先把"新追加的日志条目"推给查看器(浏览器本地 apply),
+  // 只有日志没动、宇宙文件却变了(git 切分支、手改文件),才推整份快照。
+  let issueTimer: NodeJS.Timeout | undefined;
+  const scheduleIssues = () => {
+    if (issueTimer) return;
+    issueTimer = setTimeout(() => {
+      issueTimer = undefined;
+      try { send({ type: 'issues', issues: lint(store.peek(), { baseDir, skipFileStat: watching }) }); } catch { /* 文件正被写 */ }
+    }, 1500);
+  };
+  const onFiles = () => {
+    try {
+      const r = store.readLogSince(logOffset);
+      logOffset = r.offset;
+      const sig = fileSig(store.file);
+      if (r.reset) { lastSig = sig; delivered = store.logCount(); send(JSON.parse(snapshotLine())); return; }
+      if (r.entries.length > 0) {
+        lastSig = sig;
+        delivered = r.entries[r.entries.length - 1]!.n;
+        send({ type: 'ops', entries: r.entries, n: delivered });
+        scheduleIssues();
+        return;
+      }
+      if (sig !== lastSig) {
+        lastSig = sig;
+        if (store.readWrittenSig() === sig) return; // 是 Store 自己写的(延迟落盘),内容查看器早就通过日志拿到了
+        delivered = store.logCount();
+        send(JSON.parse(snapshotLine()));
+      }
+    } catch { send(JSON.parse(snapshotLine())); }
+  };
+
   let timer: NodeJS.Timeout | undefined;
   const target = basename(store.file);
   const watcher = watch(dirname(store.file), (_event, name) => {
-    if (name !== target && name !== basename(store.logFile)) return;
+    if (name !== target && name !== basename(store.logFile)) return; // .sig 旁路文件的变化不关心
     clearTimeout(timer);
-    timer = setTimeout(() => {
-      const payload = `data: ${snapshot(store, baseDir)}\n\n`;
-      for (const c of clients) c.write(payload);
-    }, 40);
+    timer = setTimeout(onFiles, 40); // 提交是"先写文件、再追加日志",合并到同一次处理
   });
+
+  // ---------- 实时信号(文件大小/修改时间)----------
+  let pending: LiveSignals | null = null, liveTimer: NodeJS.Timeout | undefined;
+  const flushLive = () => { liveTimer = undefined; if (pending) { send({ type: 'signals', ...pending }); pending = null; } };
+  const pushLive = (l: LiveSignals) => {
+    if (Object.keys(l.size).length + Object.keys(l.changed).length === 0) return;
+    Object.assign(live.size, l.size); Object.assign(live.changed, l.changed);
+    pending ??= { size: {}, changed: {} };
+    Object.assign(pending.size, l.size); Object.assign(pending.changed, l.changed);
+    liveTimer ??= setTimeout(flushLive, 100);
+  };
+  let gitTimer: NodeJS.Timeout | undefined;
+  const gitChanged = () => {
+    invalidateSignals(baseDir);
+    clearTimeout(gitTimer);
+    gitTimer = setTimeout(() => { // 取一次完整的 fileChanged,让查看器整体替换
+      try { send({ type: 'signals', replace: true, ...loadSignals(store.readLog(), store.peek(), baseDir, 0, live) }); } catch { /* ignore */ }
+    }, 300);
+  };
 
   // 反向代理/负载均衡常在连接空闲 30~60 秒后断开,定期发一条注释行保活
   const keepalive = setInterval(() => { for (const c of clients) c.write(': ping\n\n'); }, 20_000);
@@ -160,5 +223,9 @@ export function startServer(
     log(`宇宙查看器: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}   (监听 ${store.file})`);
     if (host === '0.0.0.0' || host === '::') log('警告:监听了所有网卡,局域网内的人都能访问这个宇宙;写入接口仍受 token 保护。');
   });
-  return { token, close: () => { clearInterval(keepalive); watcher.close(); for (const c of clients) c.end(); server.close(); } };
+  return {
+    token,
+    close: () => { clearInterval(keepalive); clearTimeout(timer); clearTimeout(issueTimer); clearTimeout(liveTimer); clearTimeout(gitTimer); watcher.close(); for (const c of clients) c.end(); server.close(); },
+    pushLive, gitChanged, setWatching: (on) => { watching = on; },
+  };
 }

@@ -112,3 +112,49 @@ test('反向代理:--allow-host 放行代理的域名(Host 与 Origin),其他主
     assert.ok(parse(readFileSync(store.file, 'utf8')).nodes.has('p') && !parse(readFileSync(store.file, 'utf8')).nodes.has('q'));
   } finally { srv.close(); }
 });
+
+test('增量协议:提交只推新增的日志条目;延迟写入落盘不推快照;外部改动文件才推快照;实时信号单独推', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'stars-sse-'));
+  const store = new Store(join(dir, 'universe.stars'));
+  store.create(genesis);
+  const port = await freePort();
+  const srv = startServer(store, port, dir, '127.0.0.1', () => {});
+  const ctl = new AbortController();
+  const msgs: Array<Record<string, unknown>> = [];
+  const res = await fetch(`http://127.0.0.1:${port}/events`, { signal: ctl.signal });
+  void (async () => {
+    const reader = res.body!.getReader(); const dec = new TextDecoder(); let buf = '';
+    try {
+      for (;;) {
+        const { value, done } = await reader.read(); if (done) return;
+        buf += dec.decode(value, { stream: true });
+        let i; while ((i = buf.indexOf('\n\n')) >= 0) { const chunk = buf.slice(0, i); buf = buf.slice(i + 2); if (chunk.startsWith('data: ')) msgs.push(JSON.parse(chunk.slice(6))); }
+      }
+    } catch { /* 中止 */ }
+  })();
+  const waitFor = async (cond: () => boolean) => { for (let i = 0; i < 200 && !cond(); i++) await new Promise((r) => setTimeout(r, 15)); assert.ok(cond(), '等待消息超时;已收到: ' + JSON.stringify(msgs.map((m) => m.type + ':' + (m.n ?? '')))); };
+  try {
+    await waitFor(() => msgs.length >= 1);
+    assert.equal(msgs[0]!.type, 'snapshot');
+    assert.equal(msgs[0]!.n, 0);
+    // 1) 一次普通提交 → 一条 ops,不是快照
+    store.commit({ op: 'addNode', id: 'k1', label: 'k1' }, { author: 'human' });
+    await waitFor(() => msgs.some((m) => m.type === 'ops'));
+    const ops = msgs.find((m) => m.type === 'ops') as { entries: Array<{ n: number; author: string }>; n: number };
+    assert.deepEqual([ops.entries.length, ops.entries[0]!.n, ops.entries[0]!.author, ops.n], [1, 1, 'human', 1]);
+    // 2) 延迟写入:日志先到(ops),之后文件落盘不应触发整份快照
+    store.commit({ op: 'addNode', id: 'k2', label: 'k2' }, { author: 'fs' }, undefined, { defer: true });
+    await waitFor(() => msgs.filter((m) => m.type === 'ops').length === 2);
+    const snapsBefore = msgs.filter((m) => m.type === 'snapshot').length;
+    store.flush();
+    await new Promise((r) => setTimeout(r, 250));
+    assert.equal(msgs.filter((m) => m.type === 'snapshot').length, snapsBefore, '文件落盘(rev 追上已投递的 n)不重发快照');
+    // 3) 外部直接改了宇宙文件、日志没动(比如 git checkout)→ 才推完整快照
+    writeFileSync(store.file, readFileSync(store.file, 'utf8').replace('node k1 "k1"', 'node k1 "被外部改了"'));
+    await waitFor(() => msgs.filter((m) => m.type === 'snapshot').length === snapsBefore + 1);
+    // 4) 监听器报告的实时信号:合并后单独推送
+    srv.pushLive({ size: { k1: 123 }, changed: { k1: 456 } });
+    await waitFor(() => msgs.some((m) => m.type === 'signals'));
+    assert.deepEqual((msgs.find((m) => m.type === 'signals') as { size: object }).size, { k1: 123 });
+  } finally { ctl.abort(); srv.close(); }
+});

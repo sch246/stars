@@ -23,12 +23,12 @@ export function exportHtml(store: Store, baseDir: string): string {
   process.removeAllListeners('warning'); // stripTypeScriptTypes 的实验性提示对用户是噪音
   let html = readFileSync(resolve(here, '..', 'viewer', 'index.html'), 'utf8');
   const d3 = readFileSync(resolve(here, '..', 'viewer', 'd3.v7.min.js'), 'utf8');
-  const kernel = ['model', 'expr', 'view'].map(inline).join('\n');
+  const kernel = ['model', 'expr', 'view', 'ops', 'proposals'].map(inline).join('\n');
   const snapshot = JSON.stringify(buildSnapshot(store, baseDir));
   html = html
     .replace('<meta name="stars-token" content="__STARS_TOKEN__">', '')
     .replace('<script src="/d3.js"></script>', () => `<script>${safe(d3)}</script>`)
-    .replace(/^import \{[^}]*\} from '\/core\/(?:view|model)\.js';\n/gm, '')
+    .replace(/^import \{[^}]*\} from '\/core\/\w+\.js';\n/gm, '')
     .replace('<script type="module">', () => `<script type="module">\nwindow.__STARS_STATIC__ = ${safe(snapshot)};\n${safe(kernel)}\n`);
   return html;
 }
