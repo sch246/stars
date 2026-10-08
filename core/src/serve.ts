@@ -1,25 +1,30 @@
 // 实时查看器的服务端:监听宇宙文件,变化时通过 SSE 推给浏览器。零依赖。
+// 视图的计算在浏览器里做(同一份 model.ts / view.ts,去掉类型后原样提供),
+// 所以展开/收起不需要和服务端往返,CLI 与查看器永远是同一套逻辑。
 import { existsSync, readFileSync, watch } from 'node:fs';
 import { createServer, type ServerResponse } from 'node:http';
+import { stripTypeScriptTypes } from 'node:module';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lint } from './lint.ts';
-import { evaluateView, listViews } from './view.ts';
 import { type Store } from './store.ts';
 
-const viewerDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'viewer');
+const here = dirname(fileURLToPath(import.meta.url));
+const viewerDir = resolve(here, '..', 'viewer');
 
-function snapshot(store: Store, baseDir: string, viewName: string): string {
+/** 浏览器能直接 import 的共享模块(只有这两个,且都不依赖 Node)。 */
+const SHARED = new Set(['model', 'view']);
+
+function sharedModule(name: string): string {
+  const ts = readFileSync(resolve(here, `${name}.ts`), 'utf8');
+  return stripTypeScriptTypes(ts).replace(/from '\.\/(\w+)\.ts'/g, "from './$1.js'");
+}
+
+function snapshot(store: Store, baseDir: string): string {
   try {
     const u = store.load();
-    const { specs, errors } = listViews(u);
-    const view = specs[viewName] ? viewName : Object.keys(specs)[0]!;
     return JSON.stringify({
       t: Date.now(),
-      view,
-      views: Object.keys(specs),
-      viewErrors: Object.values(errors),
-      scene: evaluateView(u, specs[view]!),
       nodes: [...u.nodes.values()],
       edges: [...u.edges.values()],
       issues: lint(u, { baseDir }),
@@ -31,16 +36,22 @@ function snapshot(store: Store, baseDir: string, viewName: string): string {
 }
 
 export function startServer(store: Store, port: number, baseDir: string): void {
-  const clients = new Map<ServerResponse, string>();
+  const clients = new Set<ServerResponse>();
+  process.removeAllListeners('warning'); // stripTypeScriptTypes 的实验性提示对用户是噪音
 
   const server = createServer((req, res) => {
-    const url = req.url ?? '/';
-    if (url.startsWith('/events')) {
-      const viewName = new URL(url, 'http://x').searchParams.get('view') ?? 'galaxy';
+    const url = (req.url ?? '/').split('?')[0]!;
+    if (url === '/events') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
-      res.write(`data: ${snapshot(store, baseDir, viewName)}\n\n`);
-      clients.set(res, viewName);
+      res.write(`data: ${snapshot(store, baseDir)}\n\n`);
+      clients.add(res);
       req.on('close', () => clients.delete(res));
+      return;
+    }
+    const mod = /^\/core\/(\w+)\.js$/.exec(url);
+    if (mod && SHARED.has(mod[1]!)) {
+      res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-cache' });
+      res.end(sharedModule(mod[1]!));
       return;
     }
     const files: Record<string, [string, string]> = {
@@ -49,7 +60,7 @@ export function startServer(store: Store, port: number, baseDir: string): void {
     };
     const hit = files[url];
     if (hit && existsSync(resolve(viewerDir, hit[0]))) {
-      res.writeHead(200, { 'content-type': hit[1] });
+      res.writeHead(200, { 'content-type': hit[1], 'cache-control': 'no-cache' });
       res.end(readFileSync(resolve(viewerDir, hit[0])));
       return;
     }
@@ -67,7 +78,8 @@ export function startServer(store: Store, port: number, baseDir: string): void {
     if (name !== target && name !== basename(store.logFile)) return;
     clearTimeout(timer);
     timer = setTimeout(() => {
-      for (const [c, viewName] of clients) c.write(`data: ${snapshot(store, baseDir, viewName)}\n\n`);
+      const payload = `data: ${snapshot(store, baseDir)}\n\n`;
+      for (const c of clients) c.write(payload);
     }, 40);
   });
 

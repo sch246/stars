@@ -110,7 +110,7 @@ test('视图:大小来自属性,目录大小沿 contains 汇总,规则按顺序�
   const { evaluateView, BUILTIN_VIEWS } = await import('../src/view.ts');
   const u = genesis();
   apply(u, planScan(u, ['a/x.ts', 'a/y.md', 'b/z.ts'], 'repo', 'demo', (p) => ({ size: { 'a/x.ts': 100, 'a/y.md': 900, 'b/z.ts': 10 }[p]! })));
-  const scene = evaluateView(u, BUILTIN_VIEWS.galaxy!);
+  const scene = evaluateView(u, BUILTIN_VIEWS.orbit!);
   const byId = new Map(scene.nodes.map((n) => [n.id, n]));
   assert.equal(byId.get('a/')!.value, 1000); // 汇总 = 100 + 900
   assert.equal(byId.get('repo')!.value, 1010);
@@ -151,8 +151,60 @@ test('视图:color by group —— 同一子树继承同一个颜色', async () 
   const { evaluateView, BUILTIN_VIEWS } = await import('../src/view.ts');
   const u = genesis();
   apply(u, planScan(u, ['a/b/x.ts', 'a/c/y.ts', 'z/w.ts'], 'repo', 'demo'));
-  const c = new Map(evaluateView(u, BUILTIN_VIEWS.galaxy!).nodes.map((n) => [n.id, n.color]));
+  const c = new Map(evaluateView(u, BUILTIN_VIEWS.orbit!).nodes.map((n) => [n.id, n.color]));
   assert.equal(c.get('a/b/'), c.get('a/c/'));
   assert.equal(c.get('a/b/'), c.get('a/'));
   assert.notEqual(c.get('a/'), c.get('z/'));
+});
+
+test('折叠:默认只展开到第一层,收起的容器带"缩影",大小不因折叠而变', async () => {
+  const { evaluateView, BUILTIN_VIEWS } = await import('../src/view.ts');
+  const u = genesis();
+  apply(u, planScan(u, ['a/x.ts', 'a/y.md', 'b/z.ts', 'top.txt'], 'repo', 'demo', () => ({ size: 100 })));
+  const folded = evaluateView(u, BUILTIN_VIEWS.galaxy!);
+  assert.deepEqual(folded.nodes.map((n) => n.id).sort(), ['a/', 'b/', 'repo', 'top.txt', 'universe']);
+  const a = folded.nodes.find((n) => n.id === 'a/')!;
+  assert.equal(a.container, true);
+  assert.equal(a.expanded, false);
+  assert.equal(a.descendants, 2);
+  assert.equal(a.kids!.length, 2);
+  assert.equal(a.parent, 'repo');
+  const open = evaluateView(u, BUILTIN_VIEWS.galaxy!, { expanded: ['a/'] });
+  assert.equal(open.nodes.length, 7);
+  assert.equal(open.nodes.find((n) => n.id === 'a/x.ts')!.parent, 'a/');
+  assert.equal(open.nodes.find((n) => n.id === 'a/')!.r, a.r, '展开前后大小一致');
+  const all = evaluateView(u, BUILTIN_VIEWS.galaxy!, { depth: 99, collapsed: ['b/'] });
+  assert.ok(!all.nodes.some((n) => n.id === 'b/z.ts'));
+  assert.ok(all.nodes.some((n) => n.id === 'a/x.ts'));
+});
+
+test('折叠:内部关系消失,跨容器关系提升到容器上并汇总计数', async () => {
+  const { evaluateView, BUILTIN_VIEWS } = await import('../src/view.ts');
+  const u = genesis();
+  apply(u, planScan(u, ['a/x.ts', 'a/y.ts', 'b/z.ts', 'b/w.ts'], 'repo', 'demo'));
+  apply(u, { op: 'addEdge', from: 'a/x.ts', type: 'dependsOn', to: 'b/z.ts' });
+  apply(u, { op: 'addEdge', from: 'a/y.ts', type: 'dependsOn', to: 'b/w.ts' });
+  apply(u, { op: 'addEdge', from: 'a/x.ts', type: 'dependsOn', to: 'a/y.ts' }); // 内部关系
+  const folded = evaluateView(u, BUILTIN_VIEWS.galaxy!);
+  const dep = folded.edges.filter((e) => e.type === 'dependsOn');
+  assert.equal(dep.length, 1, '内部那条被折叠掉,两条跨容器的汇总成一条');
+  assert.deepEqual([dep[0]!.from, dep[0]!.to, dep[0]!.count, dep[0]!.lifted], ['a/', 'b/', 2, true]);
+  // 只展开 a/:一端是真实文件,一端仍是提升到 b/ 的容器
+  const half = evaluateView(u, BUILTIN_VIEWS.galaxy!, { expanded: ['a/'] }).edges.filter((e) => e.type === 'dependsOn');
+  assert.deepEqual(half.map((e) => `${e.from}>${e.to}:${e.count}:${e.lifted}`).sort(),
+    ['a/x.ts>a/y.ts:1:false', 'a/x.ts>b/:1:true', 'a/y.ts>b/:1:true']);
+  // 全部展开:全是真实的边
+  const full = evaluateView(u, BUILTIN_VIEWS.orbit!).edges.filter((e) => e.type === 'dependsOn');
+  assert.ok(full.every((e) => !e.lifted && e.count === 1));
+  assert.equal(full.length, 3);
+});
+
+test('折叠:contains 里有环也不会让节点消失', async () => {
+  const { evaluateView, BUILTIN_VIEWS } = await import('../src/view.ts');
+  const u = genesis();
+  for (const id of ['p', 'q']) apply(u, { op: 'addNode', id, label: id });
+  apply(u, { op: 'addEdge', from: 'p', type: 'contains', to: 'q' });
+  apply(u, { op: 'addEdge', from: 'q', type: 'contains', to: 'p' });
+  const ids = evaluateView(u, BUILTIN_VIEWS.orbit!, { depth: 9 }).nodes.map((n) => n.id);
+  assert.ok(ids.includes('p') && ids.includes('q'));
 });

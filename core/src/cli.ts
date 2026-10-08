@@ -35,7 +35,7 @@ const HELP = `stars —— 关系编辑器(内核 CLI)
   lint                               体检(有 error 时退出码为 1)
   log                                操作日志   [-n 20]
   views                              列出视图(内置 + 宇宙里 kind=view 的节点)
-  view <name>                        计算一个视图并输出场景摘要(--json 输出完整场景)
+  view <name>                        计算一个视图并输出场景摘要   [--depth N 展开层数] [--expand id,id 强制展开] [--json 完整场景]
   serve                              启动实时查看器  [--port 4321]
 
 全局选项
@@ -62,6 +62,7 @@ const { values: o, positionals: pos } = parseArgs({
     edges: { type: 'boolean' },
     q: { type: 'string', short: 'q' },
     depth: { type: 'string' },
+    expand: { type: 'string' },
     dir: { type: 'string' },
     under: { type: 'string' },
     port: { type: 'string' },
@@ -238,12 +239,19 @@ function run(): void {
       const { specs } = listViews(store.load());
       const spec = specs[args[0]!];
       if (!spec) throw new StarsError(`没有视图 "${args[0]}"(stars views 查看列表)`);
-      const scene = evaluateView(store.load(), spec);
+      const scene = evaluateView(store.load(), spec, {
+        depth: o.depth !== undefined ? Number(o.depth) : undefined,
+        expanded: o.expand?.split(',').filter(Boolean),
+      });
       say(scene, () => {
         const top = [...scene.nodes].sort((a, b) => b.r - a.r).slice(0, 8);
         const modes = scene.edges.reduce<Record<string, number>>((m, e) => ((m[e.mode] = (m[e.mode] ?? 0) + 1), m), {});
+        const lifted = scene.edges.filter((e) => e.lifted);
+        const folded = scene.nodes.filter((n) => n.container && !n.expanded);
         return [`${args[0]}: ${scene.nodes.length} 节点 · ${scene.edges.length} 边 ${JSON.stringify(modes)}`,
-          ...top.map((n) => `  ${n.r.toFixed(1).padStart(5)}  ${n.shape.padEnd(6)} ${n.color}  ${n.id}${n.value !== undefined ? `  (值 ${n.value})` : ''}`)].join('\n');
+          `  收起的容器 ${folded.length} 个;提升(汇总)的边 ${lifted.length} 条`,
+          ...top.map((n) => `  ${n.r.toFixed(1).padStart(5)}  ${n.shape.padEnd(6)} ${n.color}  ${n.id}${n.container ? (n.expanded ? '  [展开]' : `  [收起 ×${n.descendants}]`) : ''}${n.value !== undefined ? `  (值 ${n.value})` : ''}`),
+          ...lifted.slice(0, 6).map((e) => `  ↑ ${e.from} -${e.type}-> ${e.to}  ×${e.count}`)].join('\n');
       });
       return;
     }

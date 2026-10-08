@@ -57,9 +57,11 @@
   <div id="status">连接中…</div>
 </div>
 <div class="panel" id="side"></div>
-<div id="hint"><kbd>/</kbd> 过滤 · <kbd>Esc</kbd> 取消 · 点击节点聚焦 · 滚轮缩放 · 拖动平移/拖节点 · <kbd>F</kbd> 适应窗口 · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 切换视图</div>
+<div id="hint"><kbd>/</kbd> 过滤 · <kbd>Esc</kbd> 取消 · 点击节点聚焦 · 滚轮缩放 · 拖动平移/拖节点 · <kbd>F</kbd> 适应窗口 · 双击/<kbd>E</kbd> 展开收起 · <kbd>0</kbd> 重置 · <kbd>1</kbd>–<kbd>5</kbd> 切换视图 · 放大自动展开</div>
 <script src="/d3.js"></script>
-<script>
+<script type="module">
+import { evaluateView, listViews } from '/core/view.js';
+import { edgeKey } from '/core/model.js';
 (() => {
   const TAU = Math.PI * 2;
   const canvas = document.getElementById('c');
@@ -67,7 +69,14 @@
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-  let data = { nodes: [], edges: [], issues: [], log: [], scene: { look: 'galaxy', nodes: [], edges: [] }, views: [] };
+  let data = { nodes: [], edges: [], issues: [], log: [] };
+  let uni = null;                    // 内核里的 Universe(Map 结构)
+  let specs = {}, viewErrors = [], viewNames = [];
+  let scene = { look: 'galaxy', nodes: [], edges: [], expand: { relation: 'contains' } };
+  const manual = new Map();          // id -> true/false:用户手动展开/收起,优先级最高
+  const auto = new Map();            // id -> true/false:语义缩放自动决定
+  let regions = [];                  // 展开的容器及其可见后代
+  let known = new Set();             // 已知的宇宙节点 id(用来区分"新生"和"只是展开了")
   let look = 'galaxy';
   let currentView = (location.hash.match(/view=([\w-]+)/) || [])[1] || 'galaxy';
   let es = null;
@@ -78,6 +87,7 @@
   let selected = null, hovered = null, query = '';
   let transform = d3.zoomIdentity;
   let userMoved = false;
+  let lastUserZoom = -1e9;         // 语义缩放只响应用户自己的缩放/平移,不响应自动适应窗口
   let fresh = true;                 // 第一次收到某个视图的数据:不播放出生动画,并自动适应窗口
   let issueByNode = new Map();
   let edgeColors = new Map();
@@ -100,66 +110,114 @@
   // 轨道关系:给"子"一个切向速度,像行星绕恒星转。转速随轨道半径衰减。
   simulation.force('swirl', () => {
     for (const l of links) {
-      if (l.mode !== 'orbit') continue;
+      const spin = l.spin ?? (l.mode === 'orbit' ? 1 : 0);
+      if (!spin || (l.mode !== 'orbit' && l.mode !== 'region')) continue;
       const s = l.source, t = l.target;
       if (t.fx != null) continue;
       const dx = t.x - s.x, dy = t.y - s.y, d = Math.hypot(dx, dy) || 1;
-      const w = 0.07 * Math.sqrt(40 / d) * (l.dir || 1);
+      const w = 0.07 * spin * Math.sqrt(40 / d);
       t.vx += (-dy / d) * w; t.vy += (dx / d) * w;
+    }
+  });
+
+  // 域与域之间互相推开(祖孙除外),让每个域保持独立的疆界
+  simulation.force('regions', () => {
+    for (const r of regions) {
+      let cx = 0, cy = 0;
+      for (const m of r.members) { cx += m.x; cy += m.y; }
+      r.cx = cx / r.members.length; r.cy = cy / r.members.length;
+      r.rad = Math.max(...r.members.map((m) => Math.hypot(m.x - r.cx, m.y - r.cy) + m.r * 1.6)) + 14;
+    }
+    for (let i = 0; i < regions.length; i++) for (let j = i + 1; j < regions.length; j++) {
+      const a = regions[i], b = regions[j];
+      if (a.ancestors.has(b.id) || b.ancestors.has(a.id)) continue;
+      const dx = b.cx - a.cx, dy = b.cy - a.cy, d = Math.hypot(dx, dy) || 1, gap = a.rad + b.rad + 24 - d;
+      if (gap <= 0) continue;
+      const f = Math.min(gap * 0.012, 2.5), ux = dx / d, uy = dy / d;
+      for (const m of a.members) { m.vx -= ux * f; m.vy -= uy * f; }
+      for (const m of b.members) { m.vx += ux * f; m.vy += uy * f; }
     }
   });
 
   // ---------- 数据接入 ----------
   function connect() {
     if (es) es.close();
-    es = new EventSource('/events?view=' + encodeURIComponent(currentView));
+    es = new EventSource('/events');
     es.onmessage = (ev) => ingest(JSON.parse(ev.data));
     es.onerror = () => { $('status').textContent = '连接断开,重连中…'; };
   }
 
+  function buildUniverse(snap) {
+    const u = { nodes: new Map(), edges: new Map() };
+    for (const n of snap.nodes) u.nodes.set(n.id, n);
+    for (const e of snap.edges) u.edges.set(edgeKey(e.from, e.type, e.to), e);
+    return u;
+  }
+
   function ingest(snap) {
     if (snap.error) { banner(snap.error); return; }
-    banner(snap.viewErrors && snap.viewErrors.length ? snap.viewErrors.join(';') : null);
     data = snap;
-    look = snap.scene.look;
-    currentView = snap.view;
+    uni = buildUniverse(snap);
     raw.clear();
     for (const n of snap.nodes) raw.set(n.id, n);
+    const lv = listViews(uni);
+    specs = lv.specs; viewErrors = Object.values(lv.errors); viewNames = Object.keys(specs);
+    if (!specs[currentView]) currentView = viewNames[0];
 
     issueByNode = new Map();
     for (const i of snap.issues) for (const id of i.nodes) {
       const cur = issueByNode.get(id);
       if (!cur || i.severity === 'error' || (i.severity === 'warn' && cur !== 'error')) issueByNode.set(id, i.severity);
     }
-    edgeColors = new Map(snap.scene.edges.map((e) => [`${e.from}|${e.type}|${e.to}`, e.color]));
+    recompute();
+    known = new Set(snap.nodes.map((n) => n.id));
+    if (fresh) { fresh = false; userMoved = false; setTimeout(fit, 900); setTimeout(() => { if (!userMoved) fit(); }, 3600); }
+  }
+
+  /** 视图 = f(宇宙, 规格, 展开状态)。展开/收起/切换视图都走这里。 */
+  function recompute() {
+    if (!uni) return;
+    banner(viewErrors.length ? viewErrors.join(';') : null);
+    const opened = [], shut = [];
+    const ids = new Set([...auto.keys(), ...manual.keys()]);
+    for (const id of ids) { const v = manual.has(id) ? manual.get(id) : auto.get(id); (v ? opened : shut).push(id); }
+    scene = evaluateView(uni, specs[currentView], { expanded: opened, collapsed: shut });
+    look = scene.look;
+    edgeColors = new Map(scene.edges.map((e) => [`${e.from}|${e.type}|${e.to}`, e.color]));
 
     const seen = new Set();
-    for (const sn of snap.scene.nodes) {
+    for (const sn of scene.nodes) {
       seen.add(sn.id);
       let n = sim.get(sn.id);
-      if (!n) { n = { id: sn.id, x: undefined, y: undefined, born: fresh ? 0 : performance.now(), phase: Math.random() * TAU }; sim.set(sn.id, n); }
+      if (!n) { n = { id: sn.id, x: undefined, y: undefined, born: (fresh || known.has(sn.id) || !known.size) ? 0 : performance.now(), phase: Math.random() * TAU }; sim.set(sn.id, n); }
+      for (const k of ['parent', 'container', 'expanded', 'descendants', 'children', 'kids', 'value']) n[k] = undefined;
       Object.assign(n, sn);
       n.rgb = hex2rgb(sn.color);
       n.core = mix(n.rgb, [255, 255, 255], 0.65);
+      n.kidRgb = sn.kids ? sn.kids.map(([c, r]) => [hex2rgb(c), r]) : null;
+      n.tilt = (n.phase - 3) * 0.3;
     }
     for (const id of [...sim.keys()]) if (!seen.has(id)) sim.delete(id);
-    // 新节点出生在已有邻居旁边
+    // 新出现的节点:出生在父容器/邻居旁边(展开时像从容器里涌出)
     for (const n of sim.values()) {
       if (n.x !== undefined) continue;
-      const e = snap.scene.edges.find((e) => (e.from === n.id && sim.get(e.to)?.x !== undefined) || (e.to === n.id && sim.get(e.from)?.x !== undefined));
-      const nb = e ? sim.get(e.from === n.id ? e.to : e.from) : null;
-      const a = Math.random() * TAU, d = 20 + Math.random() * 25;
+      const p = n.parent && sim.get(n.parent);
+      const e = scene.edges.find((e) => (e.from === n.id && sim.get(e.to)?.x !== undefined) || (e.to === n.id && sim.get(e.from)?.x !== undefined));
+      const nb = p && p.x !== undefined ? p : e ? sim.get(e.from === n.id ? e.to : e.from) : null;
+      const a = Math.random() * TAU, d = (nb ? nb.r * 1.2 : 10) + 12 + Math.random() * 20;
       n.x = (nb ? nb.x : 0) + Math.cos(a) * d; n.y = (nb ? nb.y : 0) + Math.sin(a) * d;
+      if (nb) { n.vx = 0; n.vy = 0; }
     }
     if (selected && !sim.has(selected)) selected = null;
 
     rebuildGraph();
     renderViews(); renderChips(); renderSide();
-    const nn = snap.nodes.filter((n) => !n.id.startsWith('~')).length;
-    $('status').innerHTML = `视图 <b>${snap.scene.nodes.length}</b>/${nn} 节点 · <b>${snap.scene.edges.length}</b> 边 · `
-      + `<span class="sev-error">${snap.issues.filter((i) => i.severity === 'error').length} 错误</span> · `
-      + `<span class="sev-warn">${snap.issues.filter((i) => i.severity === 'warn').length} 警告</span>`;
-    if (fresh) { fresh = false; userMoved = false; setTimeout(fit, 900); setTimeout(() => { if (!userMoved) fit(); }, 3600); }
+    const nn = data.nodes.filter((n) => !n.id.startsWith('~')).length;
+    const folded = scene.nodes.filter((n) => n.container && !n.expanded).length;
+    $('status').innerHTML = `视图 <b>${scene.nodes.length}</b>/${nn} 节点 · <b>${scene.edges.length}</b> 边`
+      + (folded ? ` · <b>${folded}</b> 个收起` : '') + ` · `
+      + `<span class="sev-error">${data.issues.filter((i) => i.severity === 'error').length} 错误</span> · `
+      + `<span class="sev-warn">${data.issues.filter((i) => i.severity === 'warn').length} 警告</span>`;
   }
 
   const typeOf = (id) => (raw.get(id)?.attrs.type) || '(无类型)';
@@ -169,10 +227,21 @@
     const vis = [...sim.values()].filter(visible);
     const ids = new Set(vis.map((n) => n.id));
     const deg = new Map();
-    links = data.scene.edges.filter((e) => ids.has(e.from) && ids.has(e.to)).map((e) => {
-      deg.set(e.from, (deg.get(e.from) || 0) + 1);
-      return { ...e, source: e.from, target: e.to };
-    });
+    links = scene.edges.filter((e) => ids.has(e.from) && ids.has(e.to)).map((e) => ({ ...e, source: e.from, target: e.to }));
+    // 域:每个展开的容器 + 它所有可见的后代
+    const kidsOf = new Map();
+    for (const n of vis) if (n.parent && ids.has(n.parent)) kidsOf.set(n.parent, [...(kidsOf.get(n.parent) || []), n]);
+    const byId = new Map(vis.map((n) => [n.id, n]));
+    regions = [];
+    for (const n of vis) {
+      if (!n.container || !n.expanded || !kidsOf.has(n.id)) continue;
+      const members = [], stack = [...kidsOf.get(n.id)];
+      while (stack.length) { const m = stack.pop(); members.push(m); stack.push(...(kidsOf.get(m.id) || [])); }
+      const ancestors = new Set();
+      for (let p = n.parent; p && byId.has(p); p = byId.get(p).parent) ancestors.add(p);
+      regions.push({ id: n.id, node: n, members: [n, ...members], ancestors, cx: n.x, cy: n.y, rad: 40 });
+    }
+    regions.sort((a, b) => b.members.length - a.members.length);
     simulation.nodes(vis);
     simulation.force('link').links(links);
     simulation.alpha(0.5).restart();
@@ -186,11 +255,14 @@
 
   // ---------- 面板 ----------
   function renderViews() {
-    $('views').innerHTML = data.views.map((v, i) => `<span class="vbtn ${v === data.view ? 'on' : ''}" data-v="${esc(v)}" title="按 ${i + 1}">${esc(v)}</span>`).join('');
+    $('views').innerHTML = viewNames.map((v, i) => `<span class="vbtn ${v === currentView ? 'on' : ''}" data-v="${esc(v)}" title="按 ${i + 1}">${esc(v)}</span>`).join('');
   }
   function setView(v) {
     if (!v || v === currentView) return;
-    currentView = v; location.hash = 'view=' + v; fresh = true; selected = null; hiddenTypes.clear(); connect();
+    currentView = v; location.hash = 'view=' + v; fresh = true; selected = null; hiddenTypes.clear(); manual.clear(); auto.clear();
+    for (const n of sim.values()) n.born = 0;
+    recompute();
+    fresh = false; userMoved = false; setTimeout(fit, 900); setTimeout(() => { if (!userMoved) fit(); }, 3600);
   }
   $('views').addEventListener('click', (ev) => { const el = ev.target.closest('.vbtn'); if (el) setView(el.dataset.v); });
 
@@ -249,12 +321,23 @@
     el.innerHTML = `<h3 style="color:${sn ? sn.color : '#fff'}">${esc(n.label)}</h3>
       <div class="sub">${esc(n.id)}${n.attrs.type ? ' · ' + esc(n.attrs.type) : ''}${sn && sn.value !== undefined ? ' · 视图值 ' + esc(sn.value) : ''}</div>
       ${n.attrs.summary ? `<p>${esc(n.attrs.summary)}</p>` : ''}
+      ${sn && sn.container ? `<div class="sec"><div class="row"><span class="tag">容器</span><span>${sn.expanded ? '已展开' : '已收起'} · ${sn.children} 个直接子节点 · ${sn.descendants} 个后代</span></div><div class="row"><span class="tag">操作</span><span>双击 或 <kbd>E</kbd> ${sn.expanded ? '收起' : '展开'}</span></div></div>` : ''}
       ${attrs ? `<div class="sec">${attrs}</div>` : ''}
       <div class="sec"><div class="t">出边 ${out.length}</div>${out.map((e) => edgeRow(e, e.to, '→')).join('') || '<span class="tag">无</span>'}</div>
       <div class="sec"><div class="t">入边 ${inn.length}</div>${inn.map((e) => edgeRow(e, e.from, '←')).join('') || '<span class="tag">无</span>'}</div>
+      ${sn && sn.container && !sn.expanded ? liftedSection(n.id) : ''}
       ${myIssues.length ? `<div class="sec"><div class="t">问题</div>${myIssues.map((i) => `<div class="row sev-${i.severity}">${esc(i.message)}</div>`).join('')}</div>` : ''}`;
   }
   $('side').addEventListener('click', (ev) => { const el = ev.target.closest('.row.link'); if (el) select(el.dataset.id, true); });
+
+  function liftedSection(id) {
+    const rel = scene.expand.relation;
+    const rows = scene.edges.filter((e) => e.type !== rel && (e.from === id || e.to === id)).map((e) => {
+      const other = e.from === id ? e.to : e.from;
+      return `<div class="row link" data-id="${esc(other)}"><span class="tag">${e.from === id ? '→' : '←'}</span><span style="color:${e.color}">${esc(e.type)}</span><span>${esc(raw.get(other)?.label || other)}</span><span class="tag">×${e.count}${e.lifted ? ' · 汇总' : ''}</span></div>`;
+    });
+    return rows.length ? `<div class="sec"><div class="t">收起后的对外关系(含内部汇总)</div>${rows.join('')}</div>` : '';
+  }
 
   function select(id, center) {
     selected = id;
@@ -274,7 +357,7 @@
   };
   const zoom = d3.zoom().scaleExtent([0.08, 10])
     .filter((ev) => !(ev.type === 'mousedown' && find(ev.offsetX, ev.offsetY)) && !ev.button)
-    .on('zoom', (ev) => { transform = ev.transform; if (ev.sourceEvent) userMoved = true; });
+    .on('zoom', (ev) => { transform = ev.transform; if (ev.sourceEvent) { userMoved = true; lastUserZoom = performance.now(); } });
   d3.select(canvas).call(zoom).on('dblclick.zoom', null);
   d3.select(canvas).call(d3.drag()
     .subject((ev) => find(ev.x, ev.y))
@@ -289,8 +372,40 @@
     if (ev.key === '/' && !typing) { ev.preventDefault(); $('q').focus(); }
     else if (ev.key === 'Escape') { $('q').blur(); $('q').value = ''; query = ''; select(null); }
     else if (!typing && (ev.key === 'f' || ev.key === 'F')) fit();
-    else if (!typing && /^[1-9]$/.test(ev.key) && data.views[+ev.key - 1]) setView(data.views[+ev.key - 1]);
+    else if (!typing && (ev.key === 'e' || ev.key === 'E') && selected) toggleExpand(selected);
+    else if (!typing && ev.key === '0') { manual.clear(); auto.clear(); recompute(); }
+    else if (!typing && /^[1-9]$/.test(ev.key) && viewNames[+ev.key - 1]) setView(viewNames[+ev.key - 1]);
   });
+
+  function toggleExpand(id) {
+    const n = sim.get(id);
+    if (!n || !n.container) return;
+    manual.set(id, !n.expanded);
+    recompute();
+  }
+  canvas.addEventListener('dblclick', (ev) => { const n = find(ev.offsetX, ev.offsetY); if (n) toggleExpand(n.id); });
+
+  // 语义缩放:放大到容器的视觉半径超过阈值就展开,缩小到它的内容变得很小就收起(带滞后,避免来回闪)
+  setInterval(() => {
+    const T = scene.expand && scene.expand.auto && scene.expand.auto.radiusPx;
+    if (!T || performance.now() - lastUserZoom > 1500) return;
+    const k = transform.k, W = innerWidth, H = innerHeight;
+    let changed = false;
+    for (const n of simulation.nodes()) {
+      if (!n.container || manual.has(n.id) || n.x === undefined) continue;
+      const sx = n.x * k + transform.x, sy = n.y * k + transform.y;
+      if (!n.expanded) {
+        const on = sx > -120 && sx < W + 120 && sy > -120 && sy < H + 120;
+        if (on && n.r * k * 3 > T && auto.get(n.id) !== true) { auto.set(n.id, true); changed = true; }
+      } else {
+        const reg = regions.find((r) => r.id === n.id);
+        if (!reg) continue;
+        const ext = Math.max(...reg.members.map((m) => Math.hypot(m.x - n.x, m.y - n.y) + m.r)) * k;
+        if (ext < T * 0.55 && auto.get(n.id) !== false) { auto.set(n.id, false); changed = true; }
+      }
+    }
+    if (changed) recompute();
+  }, 220);
 
   function fit() {
     const vis = simulation.nodes().filter((n) => n.x !== undefined);
@@ -340,15 +455,58 @@
       ctx.fillStyle = s.hue > 0.8 ? `rgba(255,214,170,${0.55 * tw})` : s.hue < 0.2 ? `rgba(170,200,255,${0.6 * tw})` : `rgba(235,235,255,${0.5 * tw})`;
       ctx.beginPath(); ctx.arc(x, y, s.s * (0.7 + s.layer * 0.25), 0, TAU); ctx.fill();
     }
+    drawFarGalaxies(now);
     ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // 收起的容器 = 一个小星系:粒子是它里面的东西(颜色、大小取自内容),缓缓旋转
+  function drawGalaxyArms(n, now, a) {
+    const len = n.kidRgb.length, ct = Math.cos(n.tilt), st = Math.sin(n.tilt);
+    for (let i = 0; i < len; i++) {
+      const [col, kr] = n.kidRgb[i];
+      const t = (i + 1) / len, arm = i % 3;
+      const rad = n.r * (1.15 + 2.9 * t);
+      const ang = arm * 2.0944 + t * 5.5 + now * 0.00028 / Math.sqrt(t + 0.25) + n.phase;
+      const px = Math.cos(ang) * rad, py = Math.sin(ang) * rad * 0.62;
+      ctx.fillStyle = rgba(col, 0.9 * a);
+      ctx.beginPath(); ctx.arc(n.x + ct * px - st * py, n.y + st * px + ct * py, Math.max(0.7, Math.min(2.2, kr * 0.34)), 0, TAU); ctx.fill();
+    }
+  }
+
+  // 背景里的远方星系:纯装饰,程序化生成(固定种子),不可交互
+  const farGalaxies = Array.from({ length: 9 }, (_, i) => {
+    const h = (i + 1) * 2654435761 % 4294967296 / 4294967296;
+    return { x: (h * 7.31) % 1, y: (h * 13.17 + i * 0.11) % 1, size: 16 + (h * 97) % 26, squash: 0.35 + (h * 31) % 0.45, rot: (h * 29) % 3.14,
+      layer: 1 + (i % 2), tint: [[170, 200, 255], [255, 205, 165], [205, 170, 255]][i % 3], n: 56 };
+  });
+  function drawFarGalaxies(now) {
+    const W = innerWidth, H = innerHeight, kk = 1 + (transform.k - 1) * 0.08;
+    for (const g of farGalaxies) {
+      const par = 0.02 + g.layer * 0.03;
+      const gx = (((g.x * W + transform.x * par) % W) + W) % W, gy = (((g.y * H + transform.y * par) % H) + H) % H;
+      const sz = g.size * kk;
+      glow(gx, gy, sz * 1.1, g.tint, 0.16); glow(gx, gy, sz * 0.28, [255, 255, 255], 0.35);
+      const ct = Math.cos(g.rot), st = Math.sin(g.rot);
+      for (let i = 0; i < g.n; i++) {
+        const t = (i + 1) / g.n, arm = i % 2;
+        const rad = sz * (0.2 + 0.8 * t);
+        const ang = arm * Math.PI + t * 6 + now * 0.00006 / Math.sqrt(t + 0.3);
+        const px = Math.cos(ang) * rad, py = Math.sin(ang) * rad * g.squash;
+        ctx.fillStyle = rgba(g.tint, 0.55 * (1 - t * 0.5));
+        ctx.beginPath(); ctx.arc(gx + ct * px - st * py, gy + st * px + ct * py, 0.55 + (1 - t) * 0.5, 0, TAU); ctx.fill();
+      }
+    }
   }
 
   function drawNode(n, now, a) {
     const r = n.r, x = n.x, y = n.y, c = n.rgb;
     switch (n.shape) {
       case 'nebula': {
+        const open = n.container && n.expanded;
         const br = 1 + 0.05 * Math.sin(now / 1400 + n.phase);
-        glow(x, y, r * 6.5 * br, c, 0.32 * a); glow(x, y, r * 3, c, 0.38 * a); glow(x, y, r * 1, n.core, 0.7 * a);
+        const rr = open ? r * 0.6 : r;
+        glow(x, y, rr * 6.5 * br, c, (open ? 0.18 : 0.32) * a); glow(x, y, rr * 3, c, 0.38 * a); glow(x, y, rr * 1, n.core, 0.7 * a);
+        if (n.kidRgb && n.kidRgb.length) drawGalaxyArms(n, now, a);
         break;
       }
       case 'ringed': {
@@ -362,7 +520,7 @@
         const p = 0.5 + 0.5 * Math.sin(now / 520 + n.phase);
         glow(x, y, r * (3.6 + p * 1.6), c, 0.6 * a);
         ctx.strokeStyle = rgba(n.core, (0.35 + 0.3 * p) * a); ctx.lineWidth = Math.max(0.6, r * 0.09);
-        const L = r * (3.2 + p * 3.2);
+        const L = Math.min(r * (3.2 + p * 3.2), 90 / transform.k);
         ctx.beginPath(); ctx.moveTo(x - L, y); ctx.lineTo(x + L, y); ctx.moveTo(x, y - L); ctx.lineTo(x, y + L); ctx.stroke();
         ctx.fillStyle = rgba(n.core, a); ctx.beginPath(); ctx.arc(x, y, r * 0.7, 0, TAU); ctx.fill();
         break;
@@ -375,7 +533,7 @@
         glow(x, y, r * 5 * tw, c, 0.75 * a);
         if (r >= 5) {
           ctx.strokeStyle = rgba(n.core, 0.3 * a); ctx.lineWidth = 0.7;
-          const L = r * 3.4; ctx.beginPath(); ctx.moveTo(x - L, y); ctx.lineTo(x + L, y); ctx.moveTo(x, y - L); ctx.lineTo(x, y + L); ctx.stroke();
+          const L = Math.min(r * 3.4, 70 / transform.k); ctx.beginPath(); ctx.moveTo(x - L, y); ctx.lineTo(x + L, y); ctx.moveTo(x, y - L); ctx.lineTo(x, y + L); ctx.stroke();
         }
         ctx.fillStyle = rgba(n.core, a); ctx.beginPath(); ctx.arc(x, y, Math.max(0.9, r * 0.62), 0, TAU); ctx.fill();
       }
@@ -398,6 +556,21 @@
     const alphaOf = (n) => (query && !matches(n.id) ? 0.1 : focus && !focus.has(n.id) ? 0.2 : 1);
 
     ctx.globalCompositeOperation = galaxy ? 'lighter' : 'source-over';
+    // 域:展开的容器与它的后代之间,一片柔和的疆界
+    for (const reg of regions) {
+      const mem = reg.members.filter((m) => m.x !== undefined && visible(m));
+      if (mem.length < 2) continue;
+      const pts = [];
+      for (const m of mem) { const rr = m.r * 1.7 + 12; for (let i = 0; i < 7; i++) pts.push([m.x + Math.cos(i * 0.8976) * rr, m.y + Math.sin(i * 0.8976) * rr]); }
+      const hull = d3.polygonHull(pts);
+      if (!hull) continue;
+      const a = Math.min(alphaOf(reg.node), 1), c = reg.node.rgb, hot = reg.id === selected;
+      ctx.beginPath(); d3.line().curve(d3.curveCatmullRomClosed.alpha(0.6)).context(ctx)(hull);
+      ctx.fillStyle = rgba(c, (hot ? 0.11 : 0.06) * a); ctx.fill();
+      ctx.strokeStyle = rgba(c, (hot ? 0.55 : 0.22) * a); ctx.lineWidth = (hot ? 1.6 : 1) / k;
+      ctx.setLineDash([6 / k, 5 / k]); ctx.stroke(); ctx.setLineDash([]);
+    }
+    const edgeLabels = [];
     // 边
     for (const l of links) {
       const a = l.source, b = l.target;
@@ -406,6 +579,7 @@
       const hot = focus && (a.id === selected || b.id === selected);
       const col = l.proposed ? [255, 210, 74] : hex2rgb(l.color);
       const d = Math.hypot(b.x - a.x, b.y - a.y);
+      if (l.mode === 'region') continue;
       if (l.mode === 'orbit') {
         ctx.strokeStyle = rgba(mix(col, a.rgb, 0.5), (hot ? 0.28 : 0.07) * alpha); ctx.lineWidth = (hot ? 1.2 : 0.7) / k;
         ctx.beginPath(); ctx.arc(a.x, a.y, d, 0, TAU); ctx.stroke();
@@ -414,8 +588,9 @@
       }
       const base = l.mode === 'faint' ? 0.14 : 0.4;
       ctx.strokeStyle = rgba(col, (hot ? 0.9 : base) * alpha);
-      ctx.lineWidth = (l.width || 1) * (hot ? 1.8 : 1) / k * (galaxy ? 1 : 1.2);
-      ctx.setLineDash(l.proposed ? [5 / k, 4 / k] : []);
+      ctx.lineWidth = (l.width || 1) * (hot ? 1.8 : 1) / k * (galaxy ? 1 : 1.2) * (l.lifted ? 0.8 + Math.min(Math.log2(l.count + 1), 3) * 0.5 : 1);
+      ctx.setLineDash(l.proposed ? [5 / k, 4 / k] : l.lifted ? [2 / k, 4 / k] : []);
+      if (l.count > 1 || l.lifted) edgeLabels.push([l, (a.x + b.x) / 2, (a.y + b.y) / 2, alpha]);
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
       ctx.setLineDash([]);
       if (l.arrow && d > 1) {
@@ -458,14 +633,27 @@
     ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.lineJoin = 'round';
     const fs = 11 / Math.max(k, 0.55);
     ctx.font = `${fs}px -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif`;
-    for (const n of nodes) {
-      const show = n === hovered || n.id === selected || (focus && focus.has(n.id)) || (query && matches(n.id))
-        || k > 1.7 || n.r >= 8 || nodes.length <= 40;
-      if (!show) continue;
+    // 标签避让:按重要性排序,和已放置的标签重叠就不画(选中/悬停/聚焦邻居/搜索命中优先)
+    const must = (n) => n === hovered || n.id === selected || (focus && focus.has(n.id)) || (query && matches(n.id));
+    const cands = nodes.filter((n) => must(n) || k > 1.7 || n.r >= 6 || nodes.length <= 14)
+      .sort((a, b) => (must(b) - must(a)) || (b.r - a.r));
+    const placed = [];
+    for (const n of cands) {
+      const w = ctx.measureText(n.label).width, y = n.y + n.r * 1.3 + 3, h = fs * 1.25;
+      const box = [n.x - w / 2 - 2, y - 1, n.x + w / 2 + 2, y + h];
+      if (!must(n) && placed.some((q) => box[0] < q[2] && box[2] > q[0] && box[1] < q[3] && box[3] > q[1])) continue;
+      placed.push(box);
       ctx.globalAlpha = Math.max(alphaOf(n), 0.45);
-      const y = n.y + n.r * 1.3 + 3;
       ctx.strokeStyle = 'rgba(2,2,10,0.9)'; ctx.lineWidth = 3 / Math.max(k, 0.55); ctx.strokeText(n.label, n.x, y);
       ctx.fillStyle = '#e8e8f6'; ctx.fillText(n.label, n.x, y);
+    }
+    if (k > 0.5) {
+      ctx.font = `${10 / Math.max(k, 0.55)}px -apple-system, "Segoe UI", sans-serif`;
+      for (const [l, mx, my, al] of edgeLabels) {
+        ctx.globalAlpha = Math.max(al, 0.3) * 0.85;
+        ctx.fillStyle = l.lifted ? '#b9c4ff' : '#9aa';
+        ctx.fillText('×' + l.count, mx, my - 5 / k);
+      }
     }
     ctx.globalAlpha = 1;
     ctx.restore();
@@ -473,6 +661,7 @@
   }
   requestAnimationFrame(draw);
 
+  window.__stars = { nodes: () => simulation.nodes(), transform: () => transform, scene: () => scene, regions: () => regions }; // 调试/自动化用
   connect();
 })();
 </script>
