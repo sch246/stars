@@ -97,3 +97,34 @@ test('监听:启动时的全量对账能追上"没开着的时候"发生的变�
     assert.ok(u.nodes.has('while-away.ts') && !u.nodes.has('src/a.ts'));
   } finally { w.stop(); }
 });
+
+test('监听:不是 git 仓库时,宇宙自己的存储文件(.stars/.log/.tmp/.sig)不会被当成居民', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'stars-nogit-'));
+  writeFileSync(join(dir, 'note.md'), '# n\n');
+  const store = new Store(join(dir, 'universe.stars'));
+  store.create(genesis);
+  const u = store.load();
+  apply(u, planScan(u, listFiles(dir), 'repo', 'proj', statMeta(dir)));
+  store.save(u);
+  let syncs = 0;
+  const w = new FsWatcher({ root: dir, mountId: 'repo', store, debounceMs: 30, pollSec: 0, onSync: () => { syncs++; } });
+  w.start();
+  try {
+    const ids = () => [...new Store(store.file).load().nodes.keys()];
+    assert.ok(ids().includes('note.md'));
+    assert.ok(!ids().some((id) => id.startsWith('universe.stars')), '启动对账不收录宇宙文件');
+    const before = syncs;
+    for (let i = 0; i < 5; i++) store.commit({ op: 'addNode', id: `k${i}`, label: 'k' }, { author: 'human' }); // 写日志、原子替换宇宙文件
+    await sleep(300);
+    assert.equal(syncs, before, '宇宙自己的写入不触发对账');
+    writeFileSync(join(dir, 'other.md'), 'x\n');
+    await until(() => ids().includes('other.md'));
+    assert.ok(!ids().some((id) => id.startsWith('universe.stars')));
+  } finally { w.stop(); }
+});
+
+test('扫描:跳过宇宙文件本身与各种附属文件,别的 .stars 文件照常收录', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'stars-self-'));
+  for (const f of ['universe.stars', 'universe.stars.log', 'universe.stars.tmp', 'universe.stars.sig', 'genesis.stars', 'a.md']) writeFileSync(join(dir, f), 'x\n');
+  assert.deepEqual(listFiles(dir, 'universe.stars').sort(), ['a.md', 'genesis.stars']);
+});

@@ -3,13 +3,26 @@
 
 import { execFileSync } from 'node:child_process';
 import { readdirSync, statSync } from 'node:fs';
-import { extname, join, posix } from 'node:path';
+import { extname, join, posix, relative, sep } from 'node:path';
 import { type Universe, edgeKey } from './model.ts';
 import { type Op } from './ops.ts';
 
-export function listFiles(dir: string): string[] {
+/**
+ * 宇宙自己的存储不是宇宙里的居民,扫描与同步都跳过:操作日志、原子写的临时文件、签名一律跳过;
+ * 宇宙文件本身由调用方指明(self,相对路径)—— 别的 .stars 文件(比如 genesis.stars)照常收录。
+ */
+const STORE_AUX = /\.stars\.(log|tmp|sig)$/;
+export const isStorage = (rel: string, self?: string): boolean => STORE_AUX.test(rel) || rel === self;
+/** 宇宙文件相对于被扫描目录的路径(统一用 /) */
+export const selfRel = (dir: string, file: string): string => relative(dir, file).split(sep).join('/');
+
+export function listFiles(dir: string, self?: string): string[] {
+  return listAll(dir).filter((f) => !isStorage(f, self));
+}
+
+function listAll(dir: string): string[] {
   try {
-    const out = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: dir, encoding: 'utf8', maxBuffer: 64 << 20 });
+    const out = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: dir, encoding: 'utf8', maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'ignore'] });
     return out.split('\0').filter(Boolean);
   } catch {
     const files: string[] = [];

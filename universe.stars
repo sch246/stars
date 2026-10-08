@@ -1,4 +1,4 @@
-stars 1
+stars 1 rev=19
 
 node .gitattributes ".gitattributes" type=file file=.gitattributes size=66
 node .gitignore ".gitignore" type=file file=.gitignore size=70
@@ -17,23 +17,42 @@ node code_export.md "code_export.md" type=file file=code_export.md ext=md size=1
 node core "内核 core/" type=module file=core/ summary=节点+带类型的边、文本格式、操作日志、lint、查询、CLI、实时查看器。零依赖。
 node core/ "core" type=dir file=core/
 node core/DESIGN.md "DESIGN.md" type=file file=core/DESIGN.md ext=md size=5013
+node core/bench/ "bench" type=dir file=core/bench/
+node core/bench/view.bench.ts "view.bench.ts" type=file file=core/bench/view.bench.ts ext=ts size=2873
+node core/bench/watch.bench.ts "watch.bench.ts" type=file file=core/bench/watch.bench.ts ext=ts size=3243
 node core/demo/ "demo" type=dir file=core/demo/
+node core/demo/history.sh "history.sh" type=file file=core/demo/history.sh ext=sh size=2565
+node core/demo/live-fs.sh "live-fs.sh" type=file file=core/demo/live-fs.sh ext=sh size=2119
 node core/demo/live.sh "live.sh" type=file file=core/demo/live.sh ext=sh size=1539
 node core/genesis.stars "genesis.stars" type=file file=core/genesis.stars ext=stars size=765
 node core/package.json "package.json" type=file file=core/package.json ext=json size=392
 node core/src/ "src" type=dir file=core/src/
+node core/src/activity.ts "activity.ts" type=file file=core/src/activity.ts ext=ts size=5752
 node core/src/cli.ts "cli.ts" type=file file=core/src/cli.ts ext=ts size=11548
+node core/src/exporter.ts "exporter.ts" type=file file=core/src/exporter.ts ext=ts size=2157
+node core/src/expr.ts "expr.ts" type=file file=core/src/expr.ts ext=ts size=5214
 node core/src/format.ts "format.ts" type=file file=core/src/format.ts ext=ts size=5476
+node core/src/fssync.ts "fssync.ts" type=file file=core/src/fssync.ts ext=ts size=12191
+node core/src/history.ts "history.ts" type=file file=core/src/history.ts ext=ts size=3598
 node core/src/lint.ts "lint.ts" type=file file=core/src/lint.ts ext=ts size=5829
+node core/src/merge.ts "merge.ts" type=file file=core/src/merge.ts ext=ts size=3996
 node core/src/model.ts "model.ts" type=file file=core/src/model.ts ext=ts size=2226
+node core/src/nodefs.ts "nodefs.ts" type=file file=core/src/nodefs.ts ext=ts size=3023
 node core/src/ops.ts "ops.ts" type=file file=core/src/ops.ts ext=ts size=4397
+node core/src/proposals.ts "proposals.ts" type=file file=core/src/proposals.ts ext=ts size=1574
 node core/src/query.ts "query.ts" type=file file=core/src/query.ts ext=ts size=3509
 node core/src/scan.ts "scan.ts" type=file file=core/src/scan.ts ext=ts size=3163
 node core/src/serve.ts "serve.ts" type=file file=core/src/serve.ts ext=ts size=2948
+node core/src/snapshot.ts "snapshot.ts" type=file file=core/src/snapshot.ts ext=ts size=921
 node core/src/store.ts "store.ts" type=file file=core/src/store.ts ext=ts size=2825
 node core/src/view.ts "view.ts" type=file file=core/src/view.ts ext=ts size=10789
+node core/src/watch.ts "watch.ts" type=file file=core/src/watch.ts ext=ts size=8156
 node core/test/ "test" type=dir file=core/test/
 node core/test/core.test.ts "core.test.ts" type=file file=core/test/core.test.ts ext=ts size=7465
+node core/test/fssync.test.ts "fssync.test.ts" type=file file=core/test/fssync.test.ts ext=ts size=8688
+node core/test/merge.test.ts "merge.test.ts" type=file file=core/test/merge.test.ts ext=ts size=4852
+node core/test/server.test.ts "server.test.ts" type=file file=core/test/server.test.ts ext=ts size=13810
+node core/test/watch.test.ts "watch.test.ts" type=file file=core/test/watch.test.ts ext=ts size=5099
 node core/viewer/ "viewer" type=dir file=core/viewer/
 node core/viewer/d3.v7.min.js "d3.v7.min.js" type=file file=core/viewer/d3.v7.min.js ext=js size=279706
 node core/viewer/index.html "index.html" type=file file=core/viewer/index.html ext=html size=26127
@@ -69,8 +88,6 @@ node stars.png "stars.png" type=file file=stars.png ext=png size=1193546
 node stars_v4.json "stars_v4.json" type=file file=stars_v4.json ext=json size=21388
 node tsconfig.json "tsconfig.json" type=file file=tsconfig.json ext=json size=673
 node universe "宇宙" kind=root summary=一切的起点。类型、规则、视图都将从这里长出来。
-node universe.stars "universe.stars" type=file file=universe.stars ext=stars size=13710
-node universe.stars.log "universe.stars.log" type=file file=universe.stars.log ext=log size=37098
 node webapp/ "webapp" type=dir file=webapp/
 node webapp/index.html "index.html" type=file file=webapp/index.html ext=html size=275
 node webapp/package.json "package.json" type=file file=webapp/package.json ext=json size=534
@@ -126,24 +143,43 @@ node 知识网络-域聚合力导向图.html "知识网络-域聚合力导向图
 .vscode/ -contains-> .vscode/tasks.json
 core -describes-> core/src/model.ts
 core/ -contains-> core/DESIGN.md
+core/ -contains-> core/bench/
 core/ -contains-> core/demo/
 core/ -contains-> core/genesis.stars
 core/ -contains-> core/package.json
 core/ -contains-> core/src/
 core/ -contains-> core/test/
 core/ -contains-> core/viewer/
+core/bench/ -contains-> core/bench/view.bench.ts
+core/bench/ -contains-> core/bench/watch.bench.ts
+core/demo/ -contains-> core/demo/history.sh
+core/demo/ -contains-> core/demo/live-fs.sh
 core/demo/ -contains-> core/demo/live.sh
+core/src/ -contains-> core/src/activity.ts
 core/src/ -contains-> core/src/cli.ts
+core/src/ -contains-> core/src/exporter.ts
+core/src/ -contains-> core/src/expr.ts
 core/src/ -contains-> core/src/format.ts
+core/src/ -contains-> core/src/fssync.ts
+core/src/ -contains-> core/src/history.ts
 core/src/ -contains-> core/src/lint.ts
+core/src/ -contains-> core/src/merge.ts
 core/src/ -contains-> core/src/model.ts
+core/src/ -contains-> core/src/nodefs.ts
 core/src/ -contains-> core/src/ops.ts
+core/src/ -contains-> core/src/proposals.ts
 core/src/ -contains-> core/src/query.ts
 core/src/ -contains-> core/src/scan.ts
 core/src/ -contains-> core/src/serve.ts
+core/src/ -contains-> core/src/snapshot.ts
 core/src/ -contains-> core/src/store.ts
 core/src/ -contains-> core/src/view.ts
+core/src/ -contains-> core/src/watch.ts
 core/test/ -contains-> core/test/core.test.ts
+core/test/ -contains-> core/test/fssync.test.ts
+core/test/ -contains-> core/test/merge.test.ts
+core/test/ -contains-> core/test/server.test.ts
+core/test/ -contains-> core/test/watch.test.ts
 core/viewer/ -contains-> core/viewer/d3.v7.min.js
 core/viewer/ -contains-> core/viewer/index.html
 goal -dependsOn-> core
@@ -184,8 +220,6 @@ repo -contains-> src/
 repo -contains-> stars.png
 repo -contains-> stars_v4.json
 repo -contains-> tsconfig.json
-repo -contains-> universe.stars
-repo -contains-> universe.stars.log
 repo -contains-> webapp/
 repo -contains-> 知识网络-域聚合力导向图.html
 src/ -contains-> src/extension.ts

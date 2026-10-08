@@ -11,6 +11,7 @@ import { type FSWatcher, watch } from 'node:fs';
 import { join } from 'node:path';
 import { reconcile, type SyncResult } from './fssync.ts';
 import { liveFs, snapshotFs } from './nodefs.ts';
+import { isStorage, selfRel } from './scan.ts';
 import { type Op } from './ops.ts';
 import { type Store } from './store.ts';
 
@@ -42,12 +43,15 @@ export class FsWatcher {
   private stopped = false;
   private started = false;
   stats = { events: 0, flushes: 0, fullSyncs: 0 };
+  /** 宇宙文件相对于根目录的路径:它自己的写入不是文件系统的变化 */
+  private readonly self: string;
 
   constructor(opts: WatchOptions) {
     const given = Object.fromEntries(Object.entries(opts).filter(([, v]) => v !== undefined)); // 显式的 undefined 不覆盖默认值
     this.o = {
       author: 'fs', debounceMs: 80, maxWaitMs: 500, stormDirs: 300, pollSec: 120, log: () => {}, ...given,
     } as WatchOptions & never;
+    this.self = selfRel(this.o.root, this.o.store.file);
   }
 
   /** 启动:先做一次全量对账(追上"服务没开着的时候发生的变化"),再开始监听。 */
@@ -76,7 +80,7 @@ export class FsWatcher {
   private hit(dirRel: string, type: string, name: string | null): void {
     if (!name) { this.dirty.add(dirRel); this.schedule(); return; }
     const rel = (dirRel + name).replace(/\\/g, '/');
-    if (/(^|\/)(\.git|node_modules)(\/|$)/.test(rel)) return;
+    if (/(^|\/)(\.git|node_modules)(\/|$)/.test(rel) || isStorage(rel, this.self)) return; // 宇宙自己的写入不算文件系统的变化
     this.stats.events++;
     const parent = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/') + 1) : '';
     if (type === 'rename') this.dirty.add(parent);   // 创建/删除/改名:这个目录的内容可能变了
@@ -112,7 +116,7 @@ export class FsWatcher {
   private run(dirs: string[] | 'all', touched: string[], full: boolean): SyncResult & { full: boolean; ms: number } {
     const t0 = performance.now();
     const u = this.o.store.peek(); // 只读;提交时复用同一份内存里的宇宙,不用每次重新解析
-    const r = reconcile(u, full ? snapshotFs(this.o.root) : liveFs(this.o.root), { mountId: this.o.mountId, dirs, touched });
+    const r = reconcile(u, full ? snapshotFs(this.o.root, this.self) : liveFs(this.o.root, this.self), { mountId: this.o.mountId, dirs, touched });
     if (r.op) {
       this.o.store.commit(r.op, { author: this.o.author }, undefined, { defer: true });
       if (this.watchers.size > 0 || this.recursive === null) this.syncDirWatchers();

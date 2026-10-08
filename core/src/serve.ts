@@ -2,21 +2,27 @@
 // 视图的计算在浏览器里做(同一份 model.ts / view.ts,去掉类型后原样提供),
 // 所以展开/收起不需要和服务端往返,CLI 与查看器永远是同一套逻辑。
 //
+// 一个服务可以同时开多个项目(每个项目 = 一个目录里的 universe.stars),查看器里随时切换,
+// 也可以浏览服务器上的目录、在没有宇宙的目录里一键建立(init + scan)。
+//
 // 安全:默认只监听 127.0.0.1;所有请求校验 Host(防 DNS 重绑定);
-// 会修改宇宙的 /api/* 还要求页面里内嵌的一次性 token(随机,每次启动不同)。
-import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, watch } from 'node:fs';
+// /api/* 要求页面里内嵌的一次性 token(随机,每次启动不同),并拒绝跨源请求。
+import { createHash, randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch, writeFileSync, type FSWatcher } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { stripTypeScriptTypes } from 'node:module';
-import { basename, dirname, resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { diffUniverses, gitHistory, gitSnapshot } from './history.ts';
-import { StarsError } from './model.ts';
-import { type Op } from './ops.ts';
-import { buildSnapshot } from './snapshot.ts';
 import { invalidateSignals, loadSignals, type LiveSignals } from './activity.ts';
+import { diffUniverses, gitHistory, gitSnapshot } from './history.ts';
 import { lint } from './lint.ts';
-import { fileSig, type Store } from './store.ts';
+import { StarsError } from './model.ts';
+import { apply, type Op } from './ops.ts';
+import { listFiles, planScan, statMeta } from './scan.ts';
+import { buildSnapshot } from './snapshot.ts';
+import { fileSig, Store } from './store.ts';
+import { FsWatcher } from './watch.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const viewerDir = resolve(here, '..', 'viewer');
@@ -29,7 +35,7 @@ function sharedModule(name: string): string {
   return stripTypeScriptTypes(ts).replace(/from '\.\/(\w+)\.ts'/g, "from './$1.js'");
 }
 
-const OPS = new Set(['addNode', 'setNode', 'removeNode', 'addEdge', 'setEdge', 'removeEdge', 'batch']);
+const OPS = new Set(['addNode', 'setNode', 'removeNode', 'addEdge', 'setEdge', 'removeEdge', 'renameNodes', 'batch']);
 
 function readBody(req: IncomingMessage, limit = 1 << 20): Promise<string> {
   return new Promise((ok, fail) => {
@@ -45,34 +51,206 @@ function readBody(req: IncomingMessage, limit = 1 << 20): Promise<string> {
   });
 }
 
+/** 浏览器里输入的路径:支持 ~ 开头 */
+const expandHome = (d: string) => (d === '~' || d.startsWith('~/') || d.startsWith('~\\') ? join(homedir(), d.slice(1)) : d);
+const projectId = (file: string) => createHash('sha1').update(resolve(file)).digest('hex').slice(0, 10);
+
+/** 一个打开着的项目:一个宇宙文件、它的查看器连接、实时信号、增量推送的状态。 */
+class Project {
+  readonly id: string;
+  readonly name: string;
+  readonly clients = new Set<ServerResponse>();
+  readonly live: LiveSignals = { size: {}, changed: {} };
+  watching = false;
+  fsw: FsWatcher | null = null;
+  private logOffset: number;
+  private lastSig: string;
+  private delivered: number;
+  private timer: NodeJS.Timeout | undefined;
+  private issueTimer: NodeJS.Timeout | undefined;
+  private liveTimer: NodeJS.Timeout | undefined;
+  private gitTimer: NodeJS.Timeout | undefined;
+  private pending: LiveSignals | null = null;
+  private readonly dirWatcher: FSWatcher;
+  readonly store: Store;
+  readonly baseDir: string;
+
+  constructor(store: Store, baseDir: string) {
+    this.store = store;
+    this.baseDir = baseDir;
+    this.id = projectId(store.file);
+    this.name = basename(baseDir) || baseDir;
+    this.logOffset = store.exists() ? store.readLogSince(0).offset : 0;
+    this.lastSig = fileSig(store.file);
+    this.delivered = store.logCount();
+    const target = basename(store.file);
+    // 监听目录而不是文件:原子保存(写临时文件再 rename)会让文件级监听失效
+    this.dirWatcher = watch(dirname(store.file), (_event, name) => {
+      if (name !== target && name !== basename(store.logFile)) return;
+      clearTimeout(this.timer);
+      this.timer = setTimeout(() => this.onFiles(), 40); // 提交是"先追加日志、再写文件",合并到同一次处理
+    });
+  }
+
+  /** 启动时指定的那个项目(查看器不带 ?p= 时连到它) */
+  primary = false;
+
+  info() { return { id: this.id, name: this.name, dir: this.baseDir, file: this.store.file, watching: this.watching, primary: this.primary }; }
+
+  snapshotLine(): string {
+    try { return JSON.stringify({ ...buildSnapshot(this.store, this.baseDir, this.live, { skipFileStat: this.watching }), project: this.info() }); }
+    catch (err) { return JSON.stringify({ type: 'snapshot', t: Date.now(), error: (err as Error).message, project: this.info() }); }
+  }
+
+  send(obj: unknown): void {
+    const line = `data: ${JSON.stringify(obj)}\n\n`;
+    for (const c of this.clients) c.write(line);
+  }
+
+  // 宇宙文件或日志变了:优先把"新追加的日志条目"推给查看器(浏览器本地 apply),
+  // 只有日志没动、宇宙文件却变了(git 切分支、手改文件),才推整份快照。
+  private onFiles(): void {
+    try {
+      const r = this.store.readLogSince(this.logOffset);
+      this.logOffset = r.offset;
+      const sig = fileSig(this.store.file);
+      if (r.reset) { this.lastSig = sig; this.delivered = this.store.logCount(); this.send(JSON.parse(this.snapshotLine())); return; }
+      if (r.entries.length > 0) {
+        this.lastSig = sig;
+        this.delivered = r.entries[r.entries.length - 1]!.n;
+        this.send({ type: 'ops', entries: r.entries, n: this.delivered });
+        this.scheduleIssues();
+        return;
+      }
+      if (sig !== this.lastSig) {
+        this.lastSig = sig;
+        if (this.store.readWrittenSig() === sig) return; // 是 Store 自己写的(延迟落盘),内容查看器早就通过日志拿到了
+        this.delivered = this.store.logCount();
+        this.send(JSON.parse(this.snapshotLine()));
+      }
+    } catch { this.send(JSON.parse(this.snapshotLine())); }
+  }
+
+  private scheduleIssues(): void {
+    if (this.issueTimer) return;
+    this.issueTimer = setTimeout(() => {
+      this.issueTimer = undefined;
+      try { this.send({ type: 'issues', issues: lint(this.store.peek(), { baseDir: this.baseDir, skipFileStat: this.watching }) }); } catch { /* 文件正被写 */ }
+    }, 1500);
+  }
+
+  /** 监听器报告的文件实时状态(大小/修改时间):合并后单独推送(100ms 合并一次) */
+  pushLive(l: LiveSignals): void {
+    if (Object.keys(l.size).length + Object.keys(l.changed).length === 0) return;
+    Object.assign(this.live.size, l.size); Object.assign(this.live.changed, l.changed);
+    this.pending ??= { size: {}, changed: {} };
+    Object.assign(this.pending.size, l.size); Object.assign(this.pending.changed, l.changed);
+    this.liveTimer ??= setTimeout(() => {
+      this.liveTimer = undefined;
+      if (this.pending) { this.send({ type: 'signals', ...this.pending }); this.pending = null; }
+    }, 100);
+  }
+
+  /** git 提交/切分支之后:取一次完整的 fileChanged,让查看器整体替换 */
+  gitChanged(): void {
+    invalidateSignals(this.baseDir);
+    clearTimeout(this.gitTimer);
+    this.gitTimer = setTimeout(() => {
+      try { this.send({ type: 'signals', replace: true, ...loadSignals(this.store.readLog(), this.store.peek(), this.baseDir, 0, this.live) }); } catch { /* ignore */ }
+    }, 300);
+  }
+
+  /** 实时同步文件系统(serve --watch 时,每个打开的项目都会开) */
+  startWatch(mountId: string, log: (m: string) => void, opts: { debounceMs?: number; pollSec?: number } = {}): void {
+    if (this.fsw || !this.store.load().nodes.has(mountId)) return;
+    this.watching = true;
+    this.fsw = new FsWatcher({
+      root: this.baseDir, mountId, store: this.store, log, ...opts,
+      onSync: (r) => { this.pushLive(r.live); if (r.op) log(`[${this.name}] ${r.full ? '全量' : '增量'}对账 ${r.ms.toFixed(0)}ms`); },
+      onGit: () => this.gitChanged(),
+    });
+    const first = this.fsw.start();
+    log(`[${this.name}] 实时同步已开启:启动对账 ${first.ms.toFixed(0)}ms`);
+  }
+
+  close(): void {
+    for (const t of [this.timer, this.issueTimer, this.liveTimer, this.gitTimer]) clearTimeout(t);
+    this.dirWatcher.close();
+    this.fsw?.stop();
+    for (const c of this.clients) c.end();
+  }
+}
+
+// ---------- 最近打开的目录(尽力而为地记在 ~/.config/stars) ----------
+const recentFile = () => join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'stars', 'recent.json');
+function readRecent(): string[] {
+  try { return (JSON.parse(readFileSync(recentFile(), 'utf8')) as string[]).filter((d) => typeof d === 'string'); } catch { return []; }
+}
+function rememberRecent(dir: string): void {
+  try {
+    const list = [dir, ...readRecent().filter((d) => d !== dir)].slice(0, 20);
+    mkdirSync(dirname(recentFile()), { recursive: true });
+    writeFileSync(recentFile(), JSON.stringify(list, null, 2));
+  } catch { /* 只读的家目录等 */ }
+}
+
+export interface ServerOptions {
+  /** 每个打开的项目都实时同步文件系统(serve --watch) */
+  watch?: boolean;
+  mountId?: string;
+  debounceMs?: number;
+  pollSec?: number;
+}
+
 export interface ServerHandle {
   token: string;
   close: () => void;
-  /** 监听器报告了文件的实时状态(大小/修改时间):合并并推给所有查看器 */
+  /** 下面三个作用于启动时的主项目(其它项目在服务内部各自管理) */
   pushLive: (live: LiveSignals) => void;
-  /** git 提交/切分支:git 派生的"最近修改"信号需要刷新 */
   gitChanged: () => void;
-  /** 有监听器在维护 missing 标记,issues 不必再逐个 stat 文件 */
   setWatching: (on: boolean) => void;
+  /** 打开(或在 create 时建立)一个目录里的宇宙,返回项目 id */
+  open: (dir: string, create?: boolean) => string;
 }
 
 export function startServer(
   store: Store, port: number, baseDir: string, host = '127.0.0.1', log: (message: string) => void = console.log,
-  extraHosts: string[] = [],
+  extraHosts: string[] = [], options: ServerOptions = {},
 ): ServerHandle {
   const token = randomBytes(16).toString('hex');
-  const clients = new Set<ServerResponse>();
-  const live: LiveSignals = { size: {}, changed: {} };
-  let watching = false;
-  let logOffset = store.exists() ? store.readLogSince(0).offset : 0;
-  let lastSig = fileSig(store.file);
-  let delivered = store.logCount();   // 已经投递给查看器的最后一条日志序号
-  const send = (obj: unknown) => { const line = `data: ${JSON.stringify(obj)}\n\n`; for (const c of clients) c.write(line); };
-  const snapshotLine = (): string => {
-    try { return JSON.stringify(buildSnapshot(store, baseDir, live, { skipFileStat: watching })); }
-    catch (err) { return JSON.stringify({ type: 'snapshot', t: Date.now(), error: (err as Error).message }); }
-  };
   process.removeAllListeners('warning'); // stripTypeScriptTypes 的实验性提示对用户是噪音
+  const genesis = readFileSync(resolve(here, '..', 'genesis.stars'), 'utf8');
+
+  const projects = new Map<string, Project>();
+  const main = new Project(store, baseDir);
+  main.primary = true;
+  projects.set(main.id, main);
+  const mountId = options.mountId ?? 'repo';
+  if (options.watch) main.startWatch(mountId, log, options);
+
+  const openProject = (dir: string, create = false): Project => {
+    const abs = resolve(expandHome(dir));
+    if (!existsSync(abs) || !statSync(abs).isDirectory()) throw new StarsError(`不是目录: ${abs}`);
+    const file = join(abs, 'universe.stars');
+    const id = projectId(file);
+    const existing = projects.get(id);
+    if (existing) return existing;
+    if (!existsSync(file)) {
+      if (!create) throw new StarsError('这个目录里还没有 universe.stars(可以选择"在这里建立宇宙")');
+      const st = new Store(file);
+      st.create(genesis);
+      const u = st.load();
+      apply(u, planScan(u, listFiles(abs, 'universe.stars'), mountId, basename(abs), statMeta(abs)));
+      st.save(u);
+      log(`在 ${abs} 建立了宇宙(扫描 ${u.nodes.size} 个节点)`);
+    }
+    const p = new Project(new Store(file), abs);
+    projects.set(p.id, p);
+    if (options.watch) p.startWatch(mountId, log, options);
+    rememberRecent(abs);
+    return p;
+  };
+  rememberRecent(baseDir);
 
   const allowedHosts = new Set(['localhost', '127.0.0.1', '[::1]']);
   if (host !== '0.0.0.0' && host !== '::') allowedHosts.add(host);
@@ -87,6 +265,7 @@ export function startServer(
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
     res.end(JSON.stringify(body));
   };
+  const projectOf = (url: URL): Project => projects.get(url.searchParams.get('p') ?? '') ?? main;
 
   const api = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
     if (req.headers['x-stars-token'] !== token) return json(res, 403, { error: '缺少或错误的 token' });
@@ -96,28 +275,47 @@ export function startServer(
       if (o.host !== req.headers.host && !allowedHosts.has(o.hostname)) return json(res, 403, { error: '跨源请求被拒绝' });
     }
     try {
-      if (req.method === 'GET' && url.pathname === '/api/history') {
-        const h = gitHistory(store.file);
-        return json(res, 200, h);
+      const proj = projectOf(url);
+      if (req.method === 'GET' && url.pathname === '/api/projects') {
+        const open = [...projects.values()].map((p) => p.info());
+        const openDirs = new Set(open.map((p) => p.dir));
+        const recent = readRecent().filter((d) => !openDirs.has(d)).map((d) => ({ dir: d, name: basename(d), hasUniverse: existsSync(join(d, 'universe.stars')) }));
+        return json(res, 200, { open, recent, main: main.id });
       }
+      if (req.method === 'GET' && url.pathname === '/api/ls') {
+        const dir = resolve(expandHome(url.searchParams.get('dir') || dirname(main.baseDir)));
+        const entries = readdirSync(dir, { withFileTypes: true })
+          .filter((d) => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules')
+          .slice(0, 500)
+          .map((d) => ({ name: d.name, path: join(dir, d.name), hasUniverse: existsSync(join(dir, d.name, 'universe.stars')), isGit: existsSync(join(dir, d.name, '.git')) }))
+          .sort((a, b) => Number(b.hasUniverse) - Number(a.hasUniverse) || a.name.localeCompare(b.name));
+        return json(res, 200, { dir, parent: dirname(dir) === dir ? null : dirname(dir), hasUniverse: existsSync(join(dir, 'universe.stars')), entries });
+      }
+      if (req.method === 'GET' && url.pathname === '/api/history') return json(res, 200, gitHistory(proj.store.file));
       if (req.method === 'GET' && url.pathname === '/api/state') {
         const hash = url.searchParams.get('commit') ?? '';
-        const snap = gitSnapshot(store.file, hash);
-        const parent = gitHistory(store.file).commits.find((c) => c.hash === hash)?.parents[0];
-        const diff = diffUniverses(parent ? gitSnapshot(store.file, parent) : null, snap);
+        const snap = gitSnapshot(proj.store.file, hash);
+        const parent = gitHistory(proj.store.file).commits.find((c) => c.hash === hash)?.parents[0];
+        const diff = diffUniverses(parent ? gitSnapshot(proj.store.file, parent) : null, snap);
         return json(res, 200, { nodes: [...snap.nodes.values()], edges: [...snap.edges.values()], diff });
       }
-      if (req.method === 'POST' && (url.pathname === '/api/op' || url.pathname === '/api/undo')) {
+      if (req.method === 'POST') {
         if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return json(res, 415, { error: '需要 application/json' });
-        const body = JSON.parse(await readBody(req) || '{}') as { op?: Op; author?: string };
+        const body = JSON.parse(await readBody(req) || '{}') as { op?: Op; author?: string; dir?: string; create?: boolean };
+        if (url.pathname === '/api/open') {
+          if (typeof body.dir !== 'string' || !body.dir) return json(res, 400, { error: '需要 dir' });
+          return json(res, 200, openProject(body.dir, !!body.create).info());
+        }
         const author = typeof body.author === 'string' && body.author.trim() ? body.author.trim().slice(0, 40) : 'viewer';
-        if (url.pathname === '/api/undo') return json(res, 200, { ok: true, n: store.undo({ author }).n });
-        if (!body.op || typeof body.op !== 'object' || !OPS.has((body.op as { op: string }).op)) return json(res, 400, { error: '无效的操作' });
-        return json(res, 200, { ok: true, n: store.commit(body.op, { author }).entry.n });
+        if (url.pathname === '/api/undo') return json(res, 200, { ok: true, n: proj.store.undo({ author }).n });
+        if (url.pathname === '/api/op') {
+          if (!body.op || typeof body.op !== 'object' || !OPS.has((body.op as { op: string }).op)) return json(res, 400, { error: '无效的操作' });
+          return json(res, 200, { ok: true, n: proj.store.commit(body.op, { author }).entry.n });
+        }
       }
       return json(res, 404, { error: 'not found' });
     } catch (err) {
-      const known = err instanceof StarsError || err instanceof SyntaxError;
+      const known = err instanceof StarsError || err instanceof SyntaxError || ['ENOENT', 'ENOTDIR', 'EACCES', 'EPERM'].includes((err as NodeJS.ErrnoException).code ?? '');
       return json(res, known ? 400 : 500, { error: (err as Error).message });
     }
   };
@@ -128,10 +326,11 @@ export function startServer(
     const path = url.pathname;
     if (path.startsWith('/api/')) { void api(req, res, url); return; }
     if (path === '/events') {
+      const proj = projectOf(url);
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' }); // 最后一项让 nginx 不要缓冲事件流
-      res.write(`data: ${snapshotLine()}\n\n`);
-      clients.add(res);
-      req.on('close', () => clients.delete(res));
+      res.write(`data: ${proj.snapshotLine()}\n\n`);
+      proj.clients.add(res);
+      req.on('close', () => proj.clients.delete(res));
       return;
     }
     const mod = /^\/core\/(\w+)\.js$/.exec(path);
@@ -155,68 +354,8 @@ export function startServer(
     res.writeHead(404).end('not found');
   });
 
-  // ---------- 增量推送 ----------
-  // 宇宙文件或日志变了:优先把"新追加的日志条目"推给查看器(浏览器本地 apply),
-  // 只有日志没动、宇宙文件却变了(git 切分支、手改文件),才推整份快照。
-  let issueTimer: NodeJS.Timeout | undefined;
-  const scheduleIssues = () => {
-    if (issueTimer) return;
-    issueTimer = setTimeout(() => {
-      issueTimer = undefined;
-      try { send({ type: 'issues', issues: lint(store.peek(), { baseDir, skipFileStat: watching }) }); } catch { /* 文件正被写 */ }
-    }, 1500);
-  };
-  const onFiles = () => {
-    try {
-      const r = store.readLogSince(logOffset);
-      logOffset = r.offset;
-      const sig = fileSig(store.file);
-      if (r.reset) { lastSig = sig; delivered = store.logCount(); send(JSON.parse(snapshotLine())); return; }
-      if (r.entries.length > 0) {
-        lastSig = sig;
-        delivered = r.entries[r.entries.length - 1]!.n;
-        send({ type: 'ops', entries: r.entries, n: delivered });
-        scheduleIssues();
-        return;
-      }
-      if (sig !== lastSig) {
-        lastSig = sig;
-        if (store.readWrittenSig() === sig) return; // 是 Store 自己写的(延迟落盘),内容查看器早就通过日志拿到了
-        delivered = store.logCount();
-        send(JSON.parse(snapshotLine()));
-      }
-    } catch { send(JSON.parse(snapshotLine())); }
-  };
-
-  let timer: NodeJS.Timeout | undefined;
-  const target = basename(store.file);
-  const watcher = watch(dirname(store.file), (_event, name) => {
-    if (name !== target && name !== basename(store.logFile)) return; // .sig 旁路文件的变化不关心
-    clearTimeout(timer);
-    timer = setTimeout(onFiles, 40); // 提交是"先写文件、再追加日志",合并到同一次处理
-  });
-
-  // ---------- 实时信号(文件大小/修改时间)----------
-  let pending: LiveSignals | null = null, liveTimer: NodeJS.Timeout | undefined;
-  const flushLive = () => { liveTimer = undefined; if (pending) { send({ type: 'signals', ...pending }); pending = null; } };
-  const pushLive = (l: LiveSignals) => {
-    if (Object.keys(l.size).length + Object.keys(l.changed).length === 0) return;
-    Object.assign(live.size, l.size); Object.assign(live.changed, l.changed);
-    pending ??= { size: {}, changed: {} };
-    Object.assign(pending.size, l.size); Object.assign(pending.changed, l.changed);
-    liveTimer ??= setTimeout(flushLive, 100);
-  };
-  let gitTimer: NodeJS.Timeout | undefined;
-  const gitChanged = () => {
-    invalidateSignals(baseDir);
-    clearTimeout(gitTimer);
-    gitTimer = setTimeout(() => { // 取一次完整的 fileChanged,让查看器整体替换
-      try { send({ type: 'signals', replace: true, ...loadSignals(store.readLog(), store.peek(), baseDir, 0, live) }); } catch { /* ignore */ }
-    }, 300);
-  };
-
   // 反向代理/负载均衡常在连接空闲 30~60 秒后断开,定期发一条注释行保活
-  const keepalive = setInterval(() => { for (const c of clients) c.write(': ping\n\n'); }, 20_000);
+  const keepalive = setInterval(() => { for (const p of projects.values()) for (const c of p.clients) c.write(': ping\n\n'); }, 20_000);
   keepalive.unref();
 
   server.listen(port, host, () => {
@@ -225,7 +364,10 @@ export function startServer(
   });
   return {
     token,
-    close: () => { clearInterval(keepalive); clearTimeout(timer); clearTimeout(issueTimer); clearTimeout(liveTimer); clearTimeout(gitTimer); watcher.close(); for (const c of clients) c.end(); server.close(); },
-    pushLive, gitChanged, setWatching: (on) => { watching = on; },
+    close: () => { clearInterval(keepalive); for (const p of projects.values()) p.close(); server.close(); },
+    pushLive: (l) => main.pushLive(l),
+    gitChanged: () => main.gitChanged(),
+    setWatching: (on) => { main.watching = on; },
+    open: (dir, create) => openProject(dir, create).id,
   };
 }
