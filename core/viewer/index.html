@@ -76,7 +76,7 @@
   #timeline { left: 50%; transform: translateX(-50%); bottom: 34px; width: min(900px, calc(100vw - 700px)); min-width: 420px; }
   #tl-head { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
   #tl-head .info { color: var(--muted); font-size: 12px; margin-left: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1; }
-  #tl-wrap { overflow-x: auto; overflow-y: hidden; }
+  #tl-wrap { overflow: auto; max-height: 34vh; }
   #tl-svg text { fill: #9aa0c8; font-size: 10px; }
   #tl-svg .c { cursor: pointer; } #tl-svg .c:hover circle { stroke: #fff; }
   #legend { right: 12px; bottom: 34px; width: 230px; }
@@ -105,6 +105,32 @@
   #pj-list { overflow: auto; display: flex; flex-direction: column; gap: 3px; min-height: 60px; max-height: 38vh; }
   #pj-path { flex: 1; width: auto !important; }
   #pj-msg { font-size: 12px; color: var(--muted); min-height: 16px; } #pj-msg.bad { color: var(--warn); }
+  #physics { left: 12px; top: 270px; width: 330px; max-height: calc(100vh - 300px); overflow: auto; display: flex; flex-direction: column; gap: 4px; }
+  #physics[hidden] { display: none; }
+  .ph-row { display: grid; grid-template-columns: 70px 1fr 58px; gap: 8px; align-items: center; }
+  .ph-row label { color: var(--text); cursor: help; } .ph-row output { color: var(--muted); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+  .ph-row input[type=range] { width: 100%; accent-color: var(--accent); }
+  .ph-row.off { opacity: .4; }
+  .ph-toggle { display: flex; gap: 8px; align-items: center; padding: 4px 0 6px; border-bottom: 1px solid var(--line); margin-bottom: 4px; cursor: pointer; user-select: none; }
+  .ph-toggle .sw { width: 30px; height: 16px; border-radius: 9px; background: #2a2a40; position: relative; transition: background .15s; flex: none; }
+  .ph-toggle .sw::after { content: ''; position: absolute; left: 2px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: #ccd; transition: left .15s; }
+  .ph-toggle.on .sw { background: #4a6fd0; } .ph-toggle.on .sw::after { left: 16px; background: #fff; }
+  .ph-toggle span:last-child { color: var(--muted); font-size: 12px; }
+  #filepane { right: 12px; top: 12px; bottom: 34px; width: min(820px, calc(100vw - 340px)); display: flex; flex-direction: column; gap: 6px; padding: 10px; }
+  #filepane[hidden] { display: none; }
+  #fp-head { display: flex; gap: 8px; align-items: center; min-width: 0; }
+  #fp-head b { color: #fff; white-space: nowrap; } #fp-path { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; flex: 1; }
+  #fp-state { font-size: 12px; color: var(--muted); white-space: nowrap; } #fp-state .dirty { color: var(--warn); }
+  #fp-bar { font-size: 12px; padding: 5px 8px; border-radius: 7px; background: #3a2a10; border: 1px solid #7a5a20; color: #ffd9a0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #fp-bar[hidden] { display: none; } #fp-bar.info { background: #10223a; border-color: #2a4a7a; color: #b8d4ff; }
+  #fp-body { flex: 1; min-height: 0; display: flex; border: 1px solid var(--line); border-radius: 8px; background: #06060d; overflow: hidden; }
+  #fp-gutter { margin: 0; padding: 8px 6px 8px 10px; color: #4a4a68; text-align: right; user-select: none; overflow: hidden; font: 12.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; min-width: 38px; }
+  #fp-text { flex: 1; resize: none; border: 0; outline: none; background: transparent; color: #d6dcff; padding: 8px 10px; white-space: pre; overflow: auto; tab-size: 2;
+    font: 12.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  #fp-media { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; padding: 16px; color: var(--muted);
+    background: repeating-conic-gradient(#0d0d18 0 25%, #121220 0 50%) 0 0 / 20px 20px; }
+  #fp-media img { max-width: 100%; max-height: 100%; image-rendering: auto; }
+  body.file-open #side { display: none; }
   #replaybar { left: 50%; top: 58px; transform: translateX(-50%); border-color: #4a6fd0; background: #101a3acc; display: flex; gap: 10px; align-items: center; }
 </style>
 </head>
@@ -117,7 +143,7 @@
   <input id="q" placeholder="过滤节点… ( / )" autocomplete="off">
   <div id="chips"></div>
   <div id="status">连接中…</div>
-  <div id="modes"><span class="vbtn" id="btn-edit">✎ 视图规则</span><span class="vbtn" id="btn-time">⏱ 时间线</span><span class="vbtn" id="btn-bg" title="背景:星系 / 星点 / 无(B)">✦ 背景</span><span class="vbtn" id="btn-review">✓ 审阅<span class="badge" id="rv-badge" hidden>0</span></span></div>
+  <div id="modes"><span class="vbtn" id="btn-edit">✎ 视图规则</span><span class="vbtn" id="btn-time">⏱ 时间线</span><span class="vbtn" id="btn-bg" title="背景:星系 / 星点 / 无(B)">✦ 背景</span><span class="vbtn" id="btn-review" title="AI(或别人)以「提议」写入的关系,等你接受或拒绝">✓ 审阅<span class="badge" id="rv-badge" hidden>0</span></span><span class="vbtn" id="btn-phys" title="宇宙参数:热量、公转、斥力、引力……">⚙ 参数</span></div>
 </div>
 <div class="panel" id="editor" hidden>
   <div id="ed-head"><b id="ed-name"></b><span>JSON · 改动即时预览,保存后写入宇宙</span></div>
@@ -130,7 +156,7 @@
     <span class="btn" id="ed-del" title="删除宇宙里的这个自定义视图">删除</span>
   </div>
   <details id="ed-ref"><summary>字段速查</summary>
-    <div><code>select</code> onlyTypes / hideTypes / withRelations · <code>expand</code> depth, auto.radiusPx</div>
+    <div><code>select</code> onlyTypes / hideTypes / withRelations · <code>expand</code> depth, maxNodes(平面布局的节点预算,默认 1500)· <code>tags</code> relation, depth</div>
     <div><code>size[]</code> when, attr | signal(+recency.halfLifeDays) | by:"degree", rollup, scale(sqrt/log/linear), range</div>
     <div><code>color[]</code> when, by: type | attr:x | group | recency(signal, halfLifeDays, from, to, rollup), value</div>
     <div><code>style[]</code> when, shape: dot/star/nebula/ringed/pulsar</div>
@@ -156,11 +182,16 @@
   <div class="btns"><span class="btn pri" id="pj-here"></span></div>
   <div id="pj-msg"></div>
 </div>
+<div class="panel" id="physics" hidden>
+  <div id="ed-head"><b>宇宙参数</b><span>存在这个浏览器里 · 即时生效</span></div>
+  <div id="ph-body"></div>
+  <div class="btns" style="margin-top:6px"><span class="btn" id="ph-reset">恢复默认</span></div>
+</div>
 <div class="panel" id="timeline" hidden>
   <div id="tl-head">
     <span class="btn" id="tl-first" title="最早">⏮</span><span class="btn" id="tl-prev" title="上一步 ←">◀</span>
     <span class="btn pri" id="tl-play" title="播放">▶</span><span class="btn" id="tl-next" title="下一步 →">▶</span>
-    <span class="btn" id="tl-now" title="回到现在 Esc">现在</span><span class="info" id="tl-info"></span>
+    <span class="btn" id="tl-now" title="回到现在 Esc">现在</span><span class="info" id="tl-info"></span><span class="btn" id="tl-more" hidden title="再往前载入一批提交">更早 …</span>
   </div>
   <div id="tl-wrap"><svg id="tl-svg"></svg></div>
 </div>
@@ -169,6 +200,12 @@
 <div class="panel" id="crumbs" hidden></div>
 <div class="panel" id="tagbar" hidden></div>
 <div class="panel" id="side"></div>
+<div class="panel" id="filepane" hidden>
+  <div id="fp-head"><b id="fp-name"></b><span id="fp-path"></span><span id="fp-state"></span>
+    <span class="btn pri" id="fp-save" title="Ctrl/⌘ + S">保存</span><a class="btn" id="fp-code" title="用本机的 VS Code 打开(查看器和文件在同一台机器上时)" style="text-decoration:none">VS Code ↗</a><span class="btn" id="fp-close" title="Esc">✕</span></div>
+  <div id="fp-bar" hidden></div>
+  <div id="fp-body"></div>
+</div>
 <div id="hint"><kbd>/</kbd> 过滤 · <kbd>Esc</kbd> 取消 · 点击节点聚焦 · 滚轮缩放 · 拖动平移/拖节点 · <kbd>F</kbd> 适应窗口 · 放大进入空间 / 缩小或 <kbd>⌫</kbd> 返回 · 双击/<kbd>E</kbd> 就地展开 · <kbd>⏎</kbd> 进入选中的 · <kbd>B</kbd> 背景 · <kbd>P</kbd> 切换文件夹 · <kbd>1</kbd>–<kbd>6</kbd> 视图</div>
 <script src="/d3.js"></script>
 <script type="module">
@@ -226,15 +263,43 @@ import { trackProposals } from '/core/proposals.js';
   const mix = (a, b, t) => a.map((x, i) => Math.round(x + (b[i] - x) * t));
   const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 
+  // ---------- 宇宙参数(⚙ 面板;存在浏览器里,所有项目共用)----------
+  // 都是"倍率"或直接的物理量;默认值就是调好的手感。热量:模拟始终保持一点温度(和拖动时一样),
+  // 所以布局一直是"活的"—— 会慢慢公转、对变化立刻有反应,但温度低,不会抖。
+  const PHYS = {
+    heat:      { def: 1, toggle: true, label: '保持热量', hint: '模拟始终保持一点温度:一直在缓慢运动,对拖动和变化立刻有反应;关掉则静止后停算(省电)' },
+    heatLevel: { def: 0.03, min: 0.005, max: 0.12, step: 0.005, label: '热量', hint: '温度越高越活跃;太高会抖' },
+    spin:      { def: 1, min: 0, max: 4, step: 0.05, label: '公转', hint: '子节点绕所在空间/父节点公转的速度(视图里 contains 的 spin 再乘这个倍率)' },
+    charge:    { def: 1, min: 0.2, max: 4, step: 0.05, label: '斥力', hint: '节点之间互相推开的力' },
+    link:      { def: 1, min: 0.3, max: 3, step: 0.05, label: '连线长度', hint: '有关系的节点之间的距离' },
+    gravity:   { def: 1, min: 0, max: 4, step: 0.05, label: '引力', hint: '把节点拉向空间中心' },
+    gap:       { def: 3, min: 0, max: 24, step: 1, label: '间隙 px', hint: '碰撞时节点之间至少留的空隙' },
+    friction:  { def: 0.42, min: 0.1, max: 0.8, step: 0.01, label: '阻尼', hint: '越大停得越快、越不飘' },
+    enterAt:   { def: 0, min: 0, max: 0.6, step: 0.01, label: '进入空间', hint: '放大到容器占屏幕短边的多少比例时进入它;0 = 跟随视图的设置(默认 0.2)' },
+  };
+  const P = Object.fromEntries(Object.entries(PHYS).map(([k, d]) => [k, d.def]));
+  try { const saved = JSON.parse(localStorage.getItem('stars.phys') || '{}'); for (const k in P) if (typeof saved[k] === 'number') P[k] = saved[k]; } catch { /* 隐私模式 */ }
+  const heatOn = () => P.heat > 0;
+  const heatLevel = () => (heatOn() ? P.heatLevel : 0);
+
   // ---------- 力导向 ----------
   const simulation = d3.forceSimulation()
-    .force('link', d3.forceLink().id((d) => d.id)
-      .distance((l) => (l.distance ?? 90) + l.source.r + l.target.r)
-      .strength((l) => l.strength ?? 0.3))
-    .force('charge', d3.forceManyBody().strength((d) => -(18 + d.r * d.r * 1.1)).distanceMax(500))
+    .force('link', d3.forceLink().id((d) => d.id))
+    .force('charge', d3.forceManyBody().distanceMax(500))
     .force('center', d3.forceCenter(0, 0).strength(0.05))
-    .force('collide', d3.forceCollide().radius((d) => d.r * 1.3 + 2))
-    .alphaDecay(0.012).alphaTarget(0.035).velocityDecay(0.42);
+    .force('gx', d3.forceX(0)).force('gy', d3.forceY(0))
+    .force('collide', d3.forceCollide())
+    .alphaDecay(0.012);
+  /** 把参数套到平面模拟上(d3 在 initialize 时缓存每个节点的值,所以参数变了要重新设一遍) */
+  function applyFlatForces() {
+    simulation.force('link').distance((l) => (l.distance ?? 90) * P.link + l.source.r + l.target.r).strength((l) => l.strength ?? 0.3);
+    simulation.force('charge').strength((d) => (d.tx !== undefined ? 0 : -(18 + d.r * d.r * 1.1) * P.charge)); // 有 tag 锚点的节点不互斥:位置由锚点给,碰撞防重叠
+    simulation.force('gx').strength((d) => (d.tx !== undefined ? 0 : 0.012 * P.gravity));
+    simulation.force('gy').strength((d) => (d.tx !== undefined ? 0 : 0.012 * P.gravity));
+    simulation.force('collide').radius((d) => d.r * 1.3 + P.gap - 1);
+    simulation.velocityDecay(P.friction).alphaTarget(heatLevel());
+  }
+  applyFlatForces();
 
   // 轨道关系:给"子"一个切向速度,像行星绕恒星转。转速随轨道半径衰减。
   simulation.force('swirl', () => {
@@ -244,26 +309,44 @@ import { trackProposals } from '/core/proposals.js';
       const s = l.source, t = l.target;
       if (t.fx != null) continue;
       const dx = t.x - s.x, dy = t.y - s.y, d = Math.hypot(dx, dy) || 1;
-      const w = 0.07 * spin * Math.sqrt(40 / d);
+      const w = 0.07 * spin * P.spin * Math.sqrt(40 / d);
       t.vx += (-dy / d) * w; t.vy += (dx / d) * w;
     }
   });
 
+  // tag 视图:每个节点被拉向自己的锚点(见 layoutTags)。只拉向"组心"是不行的 —— 初始位置随机时所有组心都在中间,
+  // 各组永远分不开,结果是一个均匀的圆盘。
   simulation.force('tags', (alpha) => {
-    const groups = new Map();
-    for (const n of simulation.nodes()) {
-      if (!n.tags || !n.tags.length || n.x === undefined) continue;
-      for (const [key, w] of [[n.tags[0], 0.02], [n.tags.join('/'), 0.05]]) {
-        let g = groups.get(key); if (!g) { g = { x: 0, y: 0, n: 0, w, m: [] }; groups.set(key, g); }
-        g.x += n.x; g.y += n.y; g.n++; g.m.push(n);
-      }
-    }
-    for (const g of groups.values()) {
-      if (g.n < 2) continue;
-      const cx = g.x / g.n, cy = g.y / g.n;
-      for (const n of g.m) { n.vx += (cx - n.x) * g.w * alpha; n.vy += (cy - n.y) * g.w * alpha; }
-    }
+    const k = 0.3 * alpha;
+    for (const n of simulation.nodes()) if (n.tx !== undefined) { n.vx += (n.tx - n.x) * k; n.vy += (n.ty - n.y) * k; }
   });
+  /**
+   * 按 tag 的层级做圆堆积(d3.pack):顶层 tag 一团,团里按第二层 tag 再分小团,节点是最里面的圆。
+   * 结果作为每个节点的锚点;新节点直接出生在锚点上,所以上万个节点也不会"爆炸"。只在节点集合变化时重算。
+   */
+  let tagKey = '';
+  let tagGroups = [];                // tag 团的位置(第 1、2 层),用来在团上写名字
+  function layoutTags(nodes) {
+    const tagged = nodes.some((n) => n.tags && n.tags.length);
+    const key = tagged ? nodes.length + '|' + nodes.map((n) => n.id).join('\n').length : '';
+    if (key === tagKey && (!tagged || nodes.every((n) => n.tx !== undefined))) return; // 节点对象换过(切项目)就得重算
+    tagKey = key;
+    if (!tagged) { for (const n of nodes) { n.tx = undefined; n.ty = undefined; } tagGroups = []; return; }
+    const root = { kids: new Map(), leaves: [] };
+    for (const n of nodes) {
+      let g = root;
+      for (const t of n.tags || []) { let c = g.kids.get(t); if (!c) { c = { kids: new Map(), leaves: [] }; g.kids.set(t, c); } g = c; }
+      g.leaves.push(n);
+    }
+    const toH = (g, id) => ({ id, children: [...[...g.kids].map(([t, c]) => toH(c, t)), ...g.leaves.map((n) => ({ n }))] });
+    const h = d3.hierarchy(toH(root, null), (d) => d.children);
+    d3.pack().radius((d) => d.data.n.r * 1.5 + 3).padding((d) => (d.depth === 0 ? 40 : d.depth === 1 ? 14 : 4))(h);
+    const leaves = h.leaves().filter((l) => l.data.n);
+    const mx = leaves.reduce((a, l) => a + l.x, 0) / leaves.length, my = leaves.reduce((a, l) => a + l.y, 0) / leaves.length;
+    for (const l of leaves) { l.data.n.tx = l.x - mx; l.data.n.ty = l.y - my; } // 锚点的重心放在原点,和 forceCenter 不打架
+    tagGroups = h.descendants().filter((d) => d.depth >= 1 && d.depth <= 2 && !d.data.n && d.data.id)
+      .map((d) => ({ id: d.data.id, x: d.x - mx, y: d.y - my, r: d.r, depth: d.depth }));
+  }
 
   // 域与域之间互相推开(祖孙除外),让每个域保持独立的疆界
   simulation.force('regions', () => {
@@ -335,6 +418,7 @@ import { trackProposals } from '/core/proposals.js';
     renderStatus();
   }
   function applySignals(m) {
+    if (fp && ((m.changed && m.changed[fp.id] !== undefined) || (m.size && m.size[fp.id] !== undefined) || m.replace)) checkDisk();
     const sg = (data.signals = data.signals || {});
     if (m.replace) { sg.fileChanged = m.fileChanged; sg.touched = m.touched; if (m.size) sg.size = m.size; }
     else { sg.size = Object.assign(sg.size || {}, m.size); sg.fileChanged = Object.assign(sg.fileChanged || {}, m.changed); }
@@ -441,13 +525,16 @@ import { trackProposals } from '/core/proposals.js';
       Object.assign(n, sn);
       n.rgb = hex2rgb(sn.color);
       n.core = mix(n.rgb, [255, 255, 255], 0.65);
+      n.dot = mix(n.rgb, [255, 255, 255], 0.25);
       n.kidRgb = sn.kids ? sn.kids.map(([c, r]) => [hex2rgb(c), r]) : null;
       n.tilt = (n.phase - 3) * 0.3;
     }
     for (const id of [...sim.keys()]) if (!seen.has(id)) sim.delete(id);
-    // 新出现的节点:出生在父容器/邻居旁边(展开时像从容器里涌出)
+    layoutTags([...sim.values()]);
+    // 新出现的节点:出生在父容器/邻居旁边(展开时像从容器里涌出);有 tag 锚点的直接出生在锚点上
     for (const n of sim.values()) {
       if (n.x !== undefined) continue;
+      if (n.tx !== undefined) { n.x = n.tx; n.y = n.ty; n.vx = 0; n.vy = 0; continue; }
       const p = n.parent && sim.get(n.parent);
       const e = scene.edges.find((e) => (e.from === n.id && sim.get(e.to)?.x !== undefined) || (e.to === n.id && sim.get(e.from)?.x !== undefined));
       const nb = p && p.x !== undefined ? p : e ? sim.get(e.from === n.id ? e.to : e.from) : null;
@@ -609,6 +696,7 @@ import { trackProposals } from '/core/proposals.js';
     el.innerHTML = `<h3 style="color:${sn ? sn.color : '#fff'}">${esc(n.label)}</h3>
       <div class="sub">${esc(n.id)}${n.attrs.type ? ' · ' + esc(n.attrs.type) : ''}${sn && sn.value !== undefined ? ' · 视图值 ' + esc(sn.value) : ''}</div>
       ${n.attrs.summary ? `<p>${esc(n.attrs.summary)}</p>` : ''}
+      ${fileOf(n) && !window.__STARS_STATIC__ ? `<div class="btns" style="margin-top:8px"><span class="btn pri" data-act="openfile" data-id="${esc(n.id)}">打开文件(双击 / ⏎)</span></div>` : ''}
       ${sn && sn.container ? (isSpaces()
         ? `<div class="sec"><div class="row"><span class="tag">空间</span><span>${sn.children} 个直接子项 · ${sn.descendants} 个后代${expandedSet.has(sn.id) ? ' · 已就地展开' : ''}${curSpaceId === sn.id ? ' · 你在这里' : ''}</span></div>`
           + `<div class="btns" style="margin-top:6px"><span class="btn pri" data-act="enter" data-id="${esc(sn.id)}">进入 ⏎</span><span class="btn" data-act="inplace" data-id="${esc(sn.id)}">${expandedSet.has(sn.id) ? '收起' : '就地展开'}(双击 / E)</span></div></div>`
@@ -681,19 +769,20 @@ import { trackProposals } from '/core/proposals.js';
     .on('start', (ev) => {
       if (ev.subject.h) { const n = ev.subject.h.n; n.fx = n.x; n.fy = n.y; ev.subject.moved = false; return; }
       ev.subject.fx = ev.subject.x; ev.subject.fy = ev.subject.y; ev.subject.moved = false;
+      simulation.alphaTarget(Math.max(heatLevel(), 0.25)).restart();
     })
     .on('drag', (ev) => {
       if (ev.subject.h) { // 拖动只影响这个节点所在的空间(物理独立)
         const { h } = ev.subject, n = h.n;
         n.fx = (ev.sourceEvent.offsetX - h.tx) / h.s; n.fy = (ev.sourceEvent.offsetY - h.ty) / h.s;
-        if (!ev.subject.moved) h.sp.sim.alphaTarget(0.25).restart();
+        if (!ev.subject.moved) { h.sp.dragging = true; h.sp.sim.alphaTarget(0.25).restart(); }
         ev.subject.moved = true; return;
       }
       const [x, y] = transform.invert([ev.sourceEvent.offsetX, ev.sourceEvent.offsetY]); ev.subject.fx = x; ev.subject.fy = y; ev.subject.moved = true;
     })
     .on('end', (ev) => {
-      if (ev.subject.h) { const { h } = ev.subject; h.n.fx = null; h.n.fy = null; h.sp.sim.alphaTarget(0); if (!ev.subject.moved) select(h.n.id, false); return; }
-      ev.subject.fx = null; ev.subject.fy = null; if (!ev.subject.moved) select(ev.subject.id, false);
+      if (ev.subject.h) { const { h } = ev.subject; h.n.fx = null; h.n.fy = null; h.sp.dragging = false; h.sp.sim.alphaTarget(heated.has(h.sp) ? heatLevel() : 0); if (!ev.subject.moved) select(h.n.id, false); return; }
+      ev.subject.fx = null; ev.subject.fy = null; simulation.alphaTarget(heatLevel()); if (!ev.subject.moved) select(ev.subject.id, false);
     }));
   canvas.addEventListener('mousemove', (ev) => { hovered = find(ev.offsetX, ev.offsetY) || null; canvas.style.cursor = hovered ? 'pointer' : 'default'; });
   canvas.addEventListener('click', (ev) => {
@@ -707,13 +796,16 @@ import { trackProposals } from '/core/proposals.js';
     else if (ev.key === 'Escape') {
       if (typing) { document.activeElement.blur(); return; }
       if (replay) { exitReplay(); return; }
+      if (!$('filepane').hidden) { closeFile(); return; }
       if (!$('projects').hidden) { toggleProjects(false); return; }
+      if (!$('physics').hidden) { togglePhysics(false); return; }
       $('q').value = ''; query = ''; select(null);
     }
     else if (!typing && !$('timeline').hidden && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')) { ev.preventDefault(); stepCommit(ev.key === 'ArrowLeft' ? -1 : 1); }
     else if (!typing && (ev.key === 'f' || ev.key === 'F')) fit();
     else if (!typing && (ev.key === 'e' || ev.key === 'E') && selected) { if (isSpaces()) toggleExpandSpace(selected); else toggleExpand(selected); }
     else if (!typing && isSpaces() && ev.key === 'Enter' && selected && compiled.node(selected)?.container) { if (!enterSpace(selected)) jumpTo(selected); }
+    else if (!typing && ev.key === 'Enter' && selected && fileOf(raw.get(selected))) openFile(selected);
     else if (!typing && isSpaces() && (ev.key === 'Backspace' || ev.key === 'u' || ev.key === 'U')) { ev.preventDefault(); exitSpace(); }
     else if (!typing && (ev.key === 'b' || ev.key === 'B')) setBg(bgMode + 1);
     else if (!typing && (ev.key === 'p' || ev.key === 'P')) toggleProjects($('projects').hidden);
@@ -754,11 +846,11 @@ import { trackProposals } from '/core/proposals.js';
     $('ed-name').textContent = currentView + (isCustom(currentView) ? '' : '(内置)');
     draftSpec = null; editorDirty = false; if (clearMsg) msg.innerHTML = '';
   }
-  function layoutPanels() { const b = $('tools').getBoundingClientRect().bottom + 10; for (const id of ['editor', 'review', 'projects']) { $(id).style.top = b + 'px'; $(id).style.maxHeight = `calc(100vh - ${b + 30}px)`; } }
+  function layoutPanels() { const b = $('tools').getBoundingClientRect().bottom + 10; for (const id of ['editor', 'review', 'projects', 'physics']) { $(id).style.top = b + 'px'; $(id).style.maxHeight = `calc(100vh - ${b + 30}px)`; } }
   addEventListener('resize', layoutPanels);
   function toggleEditor(on) {
     if (on && typeof toggleReview === 'function' && !$('review').hidden) { $('review').hidden = true; $('btn-review').classList.remove('on'); }
-    if (on) $('projects').hidden = true;
+    if (on) { $('projects').hidden = true; togglePhysics(false); }
     layoutPanels();
     $('editor').hidden = !on; $('btn-edit').classList.toggle('on', on);
     if (on) loadEditor(); else if (draftSpec) { draftSpec = null; editorDirty = false; recompute(); }
@@ -805,6 +897,7 @@ import { trackProposals } from '/core/proposals.js';
   function renderReview() {
     const list = proposed(), props = data.proposals || {};
     $('rv-badge').hidden = list.length === 0; $('rv-badge').textContent = list.length;
+    $('btn-review').style.opacity = list.length || !$('review').hidden ? 1 : 0.55; // 没有待确认的提议时淡一点
     if ($('review').hidden) return;
     $('rv-sub').textContent = list.length ? `${list.length} 条等待确认` : '没有待确认的了';
     $('rv-list').innerHTML = list.map((e, i) => {
@@ -816,7 +909,7 @@ import { trackProposals } from '/core/proposals.js';
     $('rv-all').style.opacity = $('rv-none').style.opacity = list.length ? 1 : 0.4;
   }
   function toggleReview(on) {
-    if (on) { toggleEditor(false); $('projects').hidden = true; }
+    if (on) { toggleEditor(false); $('projects').hidden = true; togglePhysics(false); }
     $('review').hidden = !on; $('btn-review').classList.toggle('on', on);
     if (on) { layoutPanels(); renderReview(); }
   }
@@ -835,6 +928,7 @@ import { trackProposals } from '/core/proposals.js';
     const b = ev.target.closest('[data-act]'); if (!b) return;
     ev.stopPropagation();
     const e = { from: b.dataset.from, type: b.dataset.type, to: b.dataset.to };
+    if (b.dataset.act === 'openfile') { openFile(b.dataset.id); return; }
     if (b.dataset.act === 'enter' || b.dataset.act === 'inplace') { if (b.dataset.act === 'enter') { if (!enterSpace(b.dataset.id)) jumpTo(b.dataset.id); } else toggleExpandSpace(b.dataset.id); return; }
     if (b.dataset.act === 'accept') write(acceptOp(e), '已接受');
     else if (b.dataset.act === 'reject') write(rejectOp(e), '已拒绝');
@@ -869,7 +963,9 @@ import { trackProposals } from '/core/proposals.js';
     rememberDir(info.id, info.dir);
     toggleProjects(false);
     if (project && info.id === project.id) return;
-    stopPlay(); replay = null; liveSnap = null; staleLive = false; hist = null; renderReplayBar();
+    if (fp && fp.dirty && !confirm(`${fp.path} 有未保存的修改,切换项目会丢弃它们。继续吗?`)) return;
+    closeFile(true);
+    stopPlay(); replay = null; liveSnap = null; staleLive = false; hist = null; histLimit = 300; renderReplayBar();
     $('timeline').hidden = true; $('btn-time').classList.remove('on');
     draftSpec = null; editorDirty = false; toggleEditor(false);
     selected = null; hovered = null; hiddenTypes.clear(); manual.clear(); auto.clear(); activeTags.clear();
@@ -893,6 +989,7 @@ import { trackProposals } from '/core/proposals.js';
     if (!on) return;
     if (!$('editor').hidden) toggleEditor(false);
     if (!$('review').hidden) toggleReview(false);
+    togglePhysics(false);
     layoutPanels();
     await renderProjects();
     ls(lsCur ? lsCur.dir : project ? parentDir(project.dir) : '');
@@ -935,6 +1032,140 @@ import { trackProposals } from '/core/proposals.js';
   $('pj-path').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') ls($('pj-path').value.trim()); });
   $('pj-here').addEventListener('click', () => { if (lsCur) openDir(lsCur.dir, !lsCur.hasUniverse); });
 
+  // ---------- 文件:不依赖 VS Code,直接在查看器里看和改 ----------
+  // 打开时记下修改时间;磁盘上变了(实时信号 / 每 3 秒查一次):没改过就直接载入,改过就提示冲突,由你决定。
+  const fileOf = (n) => (n && typeof n.attrs.file === 'string' && n.attrs.type !== 'dir' && !n.attrs.file.endsWith('/') ? n.attrs.file : null);
+  let fp = null;   // { id, path, info, dirty, eol }
+  let fpPoll = null;
+  let barSeq = 0;   // 每条提示一个序号:定时消失只清掉自己,不清后来的提示
+  const fpBar = (html, kind) => { barSeq++; const b = $('fp-bar'); b.hidden = !html; b.className = kind || ''; b.innerHTML = html || ''; };
+  const fpFlash = (html) => { fpBar(html, 'info'); const n = barSeq; setTimeout(() => { if (barSeq === n) fpBar(null); }, 2500); };
+  function fpState() {
+    if (!fp) return;
+    const i = fp.info;
+    $('fp-state').innerHTML = (fp.dirty ? '<span class="dirty">● 未保存</span> · ' : '') + `${fmtBytes(i.size)} · 改于 ${ago(i.mtime)}` + (i.readonly ? ' · 只读' : '');
+    $('fp-save').style.display = i.kind === 'text' && !i.readonly ? '' : 'none';
+  }
+  function gutter() {
+    const t = $('fp-text'); if (!t) return;
+    const lines = t.value.split('\n').length;
+    if (lines !== fp.lines) { fp.lines = lines; $('fp-gutter').textContent = Array.from({ length: lines }, (_, i) => i + 1).join('\n'); }
+    $('fp-gutter').scrollTop = t.scrollTop;
+  }
+  const gutterSoon = debounce(gutter, 120);
+  function renderFileBody() {
+    const i = fp.info, body = $('fp-body');
+    if (i.kind === 'text') {
+      body.innerHTML = '<pre id="fp-gutter"></pre><textarea id="fp-text" spellcheck="false" autocomplete="off"></textarea>';
+      const t = $('fp-text');
+      t.value = i.content; t.readOnly = i.readonly; fp.lines = 0; gutter();
+      t.addEventListener('scroll', () => { $('fp-gutter').scrollTop = t.scrollTop; });
+      t.addEventListener('input', () => { if (!fp.dirty) { fp.dirty = true; fpState(); } gutterSoon(); });
+      t.addEventListener('keydown', (ev) => {
+        if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') { ev.preventDefault(); saveFile(false); }
+        else if (ev.key === 'Tab' && !ev.shiftKey && !t.readOnly) { ev.preventDefault(); document.execCommand('insertText', false, fp.indent); }
+      });
+    } else if (i.kind === 'image') {
+      body.innerHTML = `<div id="fp-media"><img alt="${esc(i.path)}" src="${withP('/api/raw?path=' + encodeURIComponent(i.path) + '&t=' + token)}&v=${i.mtime}"></div>`;
+    } else {
+      body.innerHTML = `<div id="fp-media">${i.kind === 'large' ? `文件太大(${fmtBytes(i.size)}),查看器只打开 2 MB 以内的文本` : '二进制文件,无法以文本显示'}</div>`;
+    }
+  }
+  async function openFile(id) {
+    const n = raw.get(id), path = fileOf(n);
+    if (!path || window.__STARS_STATIC__) return false;
+    if (fp && fp.dirty && fp.id !== id && !confirm(`${fp.path} 有未保存的修改,丢弃并打开 ${path}?`)) return true;
+    let info;
+    try { info = await api('/api/file?path=' + encodeURIComponent(path)); }
+    catch (e) { banner('打不开文件:' + e.message); setTimeout(() => banner(null), 3000); return true; }
+    fp = { id, path, info, dirty: false, indent: info.content && /\n\t/.test(info.content) ? '\t' : '  ' };
+    $('fp-name').textContent = n.label; $('fp-path').textContent = info.path;
+    $('fp-code').href = 'vscode://file/' + info.abs.replace(/\\/g, '/');
+    $('filepane').hidden = false; document.body.classList.add('file-open');
+    fpBar(null); renderFileBody(); fpState();
+    if (selected !== id) select(id, false);
+    clearInterval(fpPoll); fpPoll = setInterval(checkDisk, 3000);
+    if (info.kind === 'text') $('fp-text').focus();
+    return true;
+  }
+  function closeFile(force) {
+    if (!fp) return;
+    if (!force && fp.dirty && !confirm(`${fp.path} 有未保存的修改,丢弃吗?`)) return;
+    fp = null; clearInterval(fpPoll);
+    $('filepane').hidden = true; document.body.classList.remove('file-open'); $('fp-body').innerHTML = '';
+    renderSide();
+  }
+  /** 磁盘上的文件变了吗?没改过就静默载入(保留光标与滚动),改过就提示 */
+  async function checkDisk() {
+    if (!fp || document.hidden) return;
+    const cur = fp;
+    let st;
+    try { st = await api('/api/file?stat=1&path=' + encodeURIComponent(cur.path)); } catch { return; }
+    if (fp !== cur || Math.abs(st.mtime - cur.info.mtime) <= 1) return;
+    if (cur.dirty) { fpBar(`磁盘上的文件在 ${ago(st.mtime)} 被改过了,和你未保存的修改冲突。<span class="btn" data-fp="load">载入磁盘版本</span><span class="btn" data-fp="force">用我的覆盖</span>`); return; }
+    await reloadFile(`已载入磁盘上的新版本(${ago(st.mtime)})`);
+  }
+  async function reloadFile(note) {
+    const cur = fp; if (!cur) return;
+    let info;
+    try { info = await api('/api/file?path=' + encodeURIComponent(cur.path)); } catch (e) { fpBar('重新载入失败:' + esc(e.message)); return; }
+    if (fp !== cur) return;
+    const t = $('fp-text'), keep = t ? [t.selectionStart, t.selectionEnd, t.scrollTop] : null;
+    cur.info = info; cur.dirty = false;
+    if (t && info.kind === 'text') { t.value = info.content; t.readOnly = info.readonly; gutter(); [t.selectionStart, t.selectionEnd, t.scrollTop] = keep; }
+    else renderFileBody();
+    fpState(); if (note) fpFlash(esc(note)); else fpBar(null);
+  }
+  async function saveFile(force) {
+    if (!fp || fp.info.kind !== 'text' || fp.info.readonly) return;
+    const cur = fp, content = $('fp-text').value;
+    try {
+      const r = await api('/api/file', { path: cur.path, content, mtime: force ? null : cur.info.mtime });
+      cur.info = { ...cur.info, mtime: r.mtime, size: r.size, content }; cur.dirty = false;
+      fpFlash('已保存');
+    } catch (e) {
+      if (/改过/.test(e.message)) fpBar(`保存被拒绝:文件在你打开之后被别处改过了。<span class="btn" data-fp="load">载入磁盘版本(丢弃我的)</span><span class="btn" data-fp="force">用我的覆盖</span>`);
+      else fpBar('保存失败:' + esc(e.message));
+    }
+    fpState();
+  }
+  $('fp-save').addEventListener('click', () => saveFile(false));
+  $('fp-close').addEventListener('click', () => closeFile());
+  $('fp-bar').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-fp]'); if (!b) return;
+    if (b.dataset.fp === 'load') reloadFile('已载入磁盘版本'); else saveFile(true);
+  });
+  addEventListener('beforeunload', (ev) => { if (fp && fp.dirty) { ev.preventDefault(); ev.returnValue = ''; } });
+
+  // ---------- 宇宙参数面板 ----------
+  const fmtP = (k, v) => (PHYS[k].toggle ? '' : k === 'enterAt' && !v ? '跟随视图' : PHYS[k].step < 0.01 ? v.toFixed(3) : PHYS[k].step < 1 ? v.toFixed(2) : String(v));
+  function renderPhysics() {
+    $('ph-body').innerHTML = Object.entries(PHYS).map(([k, d]) => d.toggle
+      ? `<div class="ph-toggle ${P[k] ? 'on' : ''}" data-k="${k}" title="${esc(d.hint)}"><span class="sw"></span><b>${esc(d.label)}</b><span>${P[k] ? '开' : '关'}</span></div>`
+      : `<div class="ph-row ${k === 'heatLevel' && !heatOn() ? 'off' : ''}"><label title="${esc(d.hint)}">${esc(d.label)}</label>`
+        + `<input type="range" data-k="${k}" min="${d.min}" max="${d.max}" step="${d.step}" value="${P[k]}"><output>${fmtP(k, P[k])}</output></div>`).join('');
+  }
+  const savePhys = () => { try { localStorage.setItem('stars.phys', JSON.stringify(P)); } catch { /* 隐私模式 */ } };
+  function togglePhysics(on) {
+    $('physics').hidden = !on; $('btn-phys').classList.toggle('on', on);
+    if (!on) return;
+    if (!$('editor').hidden) toggleEditor(false);
+    if (!$('review').hidden) toggleReview(false);
+    $('projects').hidden = true;
+    layoutPanels(); renderPhysics();
+  }
+  $('btn-phys').addEventListener('click', () => togglePhysics($('physics').hidden));
+  $('ph-body').addEventListener('input', (ev) => {
+    const k = ev.target.dataset && ev.target.dataset.k; if (!k) return;
+    P[k] = Number(ev.target.value); ev.target.nextElementSibling.textContent = fmtP(k, P[k]);
+    savePhys(); applyPhys();
+  });
+  $('ph-body').addEventListener('click', (ev) => {
+    const t = ev.target.closest('.ph-toggle'); if (!t) return;
+    P[t.dataset.k] = P[t.dataset.k] ? 0 : 1; savePhys(); applyPhys(); renderPhysics();
+  });
+  $('ph-reset').addEventListener('click', () => { for (const k in PHYS) P[k] = PHYS[k].def; savePhys(); applyPhys(); renderPhysics(); });
+
   // ---------- 图例:视图用到"新旧"时说明颜色的含义 ----------
   function renderLegend() {
     const spec = draftSpec || specs[currentView] || {};
@@ -947,63 +1178,117 @@ import { trackProposals } from '/core/proposals.js';
   }
 
   // ---------- 时间线:宇宙文件的 git 提交图(分叉、合并都画出来),点击回放 ----------
+  // 长历史:先载入最近的一批,"更早 …"再往前翻;复杂历史:连线沿着自己的泳道走,只在分出/汇入时拐弯,
+  // 泳道用完就回收,不会出现横跨整张图的斜线。
   const laneColor = (i) => ['#7aa7ff', '#ffb347', '#7be0a0', '#d98cff', '#ff7a90', '#5fd4e8'][i % 6];
-  let tlLayout = null, playTimer = null;
+  let playTimer = null, histLimit = 300;
+  async function loadHistory() {
+    try { hist = await api('/api/history?limit=' + histLimit); } catch (e) { $('tl-info').textContent = '读取历史失败:' + e.message; return false; }
+    $('tl-more').hidden = !hist.more;
+    return true;
+  }
   async function toggleTimeline(on) {
     $('timeline').hidden = !on; $('btn-time').classList.toggle('on', on);
     if (!on) { stopPlay(); if (replay) exitReplay(); return; }
-    try { hist = await api('/api/history'); } catch (e) { $('tl-info').textContent = '读取历史失败:' + e.message; return; }
+    if (!(await loadHistory())) return;
     renderTimeline();
     const w = $('tl-wrap'); w.scrollLeft = w.scrollWidth;
   }
   $('btn-time').addEventListener('click', () => toggleTimeline($('timeline').hidden));
+  $('tl-more').addEventListener('click', async () => {
+    const w = $('tl-wrap'), fromRight = w.scrollWidth - w.scrollLeft;
+    histLimit *= 2;
+    if (!(await loadHistory())) return;
+    renderTimeline();
+    w.scrollLeft = w.scrollWidth - fromRight; // 视野停在原来看的地方
+  });
+
+  /** 泳道布局:从新到旧扫一遍。lanes[j] = 这条泳道正在等的父提交;每条边记下它走的泳道。 */
+  function laneLayout(cs) {
+    const lanes = [], lane = new Map(), edges = [];
+    const free = () => { const j = lanes.indexOf(null); return j < 0 ? lanes.length : j; };
+    for (const c of cs) {
+      let i = lanes.indexOf(c.hash);
+      if (i < 0) i = free();                                   // 一个分支的尖端:找一条空泳道
+      lane.set(c.hash, i);
+      for (let j = 0; j < lanes.length; j++) if (j !== i && lanes[j] === c.hash) lanes[j] = null; // 别的泳道在这里汇入
+      const [p0, ...rest] = c.parents;
+      lanes[i] = p0 ?? null;
+      if (p0) edges.push({ c: c.hash, p: p0, l: i });
+      for (const p of rest) {                                  // 合并:其余父提交各占(或沿用)一条泳道
+        let j = lanes.indexOf(p);
+        if (j < 0) { j = free(); lanes[j] = p; }
+        edges.push({ c: c.hash, p, l: j });
+      }
+      while (lanes.length && lanes[lanes.length - 1] === null) lanes.pop();
+    }
+    let n = 1;
+    for (const v of lane.values()) n = Math.max(n, v + 1);
+    for (const e of edges) n = Math.max(n, e.l + 1);
+    return { lane, edges, n };
+  }
 
   function renderTimeline() {
     const svg = $('tl-svg');
     if (!hist) return;
     const cs = hist.commits;
     if (!cs.length) { svg.innerHTML = ''; $('tl-info').textContent = '这个宇宙文件还没有 git 历史(先 git commit)'; return; }
-    const lanes = [], lane = new Map();
-    for (const c of cs) {
-      let i = lanes.indexOf(c.hash);
-      if (i < 0) { i = lanes.indexOf(null); if (i < 0) i = lanes.length; }
-      lane.set(c.hash, i);
-      for (let j = 0; j < lanes.length; j++) if (j !== i && lanes[j] === c.hash) lanes[j] = null;
-      const [p0, ...rest] = c.parents;
-      lanes[i] = p0 || null;
-      for (const p of rest) if (lanes.indexOf(p) < 0) { let j = lanes.indexOf(null); if (j < 0) j = lanes.length; lanes[j] = p; }
-    }
-    const nLanes = Math.max(1, ...lane.values()) + 1;
-    const dx = 40, pad = 30, N = cs.length + (hist.dirty ? 1 : 0), lh = 26;
-    const X = (idxFromNewest) => pad + (N - 1 - idxFromNewest - (hist.dirty ? 0 : 0)) * dx;
-    const pos = new Map(cs.map((c, i) => [c.hash, { x: X(i + (hist.dirty ? 1 : 0)), y: 22 + lane.get(c.hash) * lh }]));
-    const W = pad * 2 + N * dx, H = 34 + nLanes * lh;
+    const { lane, edges, n: nLanes } = laneLayout(cs);
+    const dx = 24, pad = 26, lh = 17, top = 30, N = cs.length + (hist.dirty ? 1 : 0);
+    const X = (i) => pad + (N - 1 - i - (hist.dirty ? 1 : 0)) * dx;  // 新的在右
+    const Y = (l) => top + l * lh;
+    const idx = new Map(cs.map((c, i) => [c.hash, i]));
+    const W = pad * 2 + N * dx + 70, H = top + nLanes * lh + 6;   // 右边留出最新提交的分支名
     let out = '';
-    for (const c of cs) for (const [k, ph] of c.parents.entries()) {
-      const a = pos.get(c.hash), b = pos.get(ph);
-      if (!b) continue;
-      const col = laneColor(k === 0 ? lane.get(c.hash) : lane.get(ph));
-      out += a.y === b.y ? `<line x1="${b.x}" y1="${b.y}" x2="${a.x}" y2="${a.y}" stroke="${col}" stroke-width="2" opacity=".8"/>`
-        : `<path d="M${b.x} ${b.y} C${b.x + dx * 0.7} ${b.y},${a.x - dx * 0.7} ${a.y},${a.x} ${a.y}" stroke="${col}" stroke-width="2" fill="none" opacity=".8"/>`;
+    // 日期刻度:从旧到新,换天时标一下(太挤就跳过)
+    let lastDay = '', lastX = -1e9, lastYear = '';
+    for (let i = cs.length - 1; i >= 0; i--) {
+      const d = new Date(cs[i].time), day = d.toDateString(), x = X(i);
+      if (day === lastDay || x - lastX < 64) continue;
+      const y = String(d.getFullYear()), label = (y !== lastYear ? y + '-' : '') + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      out += `<line x1="${x}" y1="14" x2="${x}" y2="${H}" stroke="#ffffff10"/><text x="${x + 3}" y="11" style="fill:#6a6a88">${label}</text>`;
+      lastDay = day; lastX = x; lastYear = y;
     }
-    if (hist.dirty && pos.get(hist.head)) {
-      const h = pos.get(hist.head);
-      out += `<line x1="${h.x}" y1="${h.y}" x2="${h.x + dx}" y2="${h.y}" stroke="#888" stroke-dasharray="3 3"/>`
-        + `<g class="c" data-work="1"><circle cx="${h.x + dx}" cy="${h.y}" r="5" fill="none" stroke="#bbb" stroke-dasharray="2 2"/><title>工作区(未提交的修改)</title></g>`
-        + `<text x="${h.x + dx}" y="${h.y - 9}" text-anchor="middle">工作区</text>`;
+    // 连线:出发时(合并的其余父)拐进自己的泳道 → 沿泳道走 → 到父提交前拐进它的泳道
+    for (const e of edges) {
+      const ic = idx.get(e.c), ip = idx.get(e.p);
+      const xc = X(ic), yc = Y(lane.get(e.c)), yL = Y(e.l), col = laneColor(e.l);
+      if (ip === undefined) { // 父提交在更早的批次里:画到左边缘,虚线表示"还有"
+        out += `<path d="M${xc} ${yc}${yL !== yc ? ` C${xc - dx * 0.5} ${yc},${xc - dx * 0.5} ${yL},${xc - dx} ${yL}` : ''} L${pad - 14} ${yL}" stroke="${col}" stroke-width="1.6" fill="none" stroke-dasharray="3 3" opacity=".6"/>`;
+        continue;
+      }
+      const xp = X(ip), yp = Y(lane.get(e.p));
+      let d;
+      if (yc === yL && yL === yp) d = `M${xc} ${yc} L${xp} ${yp}`;
+      else if (xc - xp < dx * 1.7) d = `M${xc} ${yc} C${(xc + xp) / 2} ${yc},${(xc + xp) / 2} ${yp},${xp} ${yp}`;
+      else {
+        d = `M${xc} ${yc}`;
+        if (yL !== yc) d += ` C${xc - dx * 0.5} ${yc},${xc - dx * 0.5} ${yL},${xc - dx} ${yL}`;
+        d += ` L${yL !== yp ? xp + dx : xp} ${yL}`;
+        if (yL !== yp) d += ` C${xp + dx * 0.5} ${yL},${xp + dx * 0.5} ${yp},${xp} ${yp}`;
+      }
+      out += `<path d="${d}" stroke="${col}" stroke-width="1.6" fill="none" opacity=".85"/>`;
+    }
+    const headPos = hist.head && idx.has(hist.head) ? { x: X(idx.get(hist.head)), y: Y(lane.get(hist.head)) } : null;
+    if (hist.dirty && headPos) {
+      const wx = pad + (N - 1) * dx;
+      out += `<line x1="${headPos.x}" y1="${headPos.y}" x2="${wx}" y2="${headPos.y}" stroke="#888" stroke-dasharray="3 3"/>`
+        + `<g class="c" data-work="1"><circle cx="${wx}" cy="${headPos.y}" r="5" fill="none" stroke="#bbb" stroke-dasharray="2 2"/><title>工作区(未提交的修改)</title></g>`;
     }
     for (const c of cs) {
-      const p = pos.get(c.hash), col = laneColor(lane.get(c.hash));
+      const x = X(idx.get(c.hash)), y = Y(lane.get(c.hash)), col = laneColor(lane.get(c.hash));
       const cur = replay && replay.hash === c.hash, merge = c.parents.length > 1;
-      out += `<g class="c" data-h="${c.hash}"><circle cx="${p.x}" cy="${p.y}" r="${cur ? 7 : 5}" fill="${merge ? '#0b0b14' : col}" stroke="${cur ? '#fff' : col}" stroke-width="${merge || cur ? 2 : 1}"/>`
-        + (merge ? `<circle cx="${p.x}" cy="${p.y}" r="2" fill="${col}"/>` : '')
-        + `<title>${esc(c.subject)}\n${esc(c.author)} · ${new Date(c.time).toLocaleString()}\n${c.hash.slice(0, 7)}${c.parents.length > 1 ? ' · 合并' : ''}</title></g>`;
-      if (c.refs.length) out += `<text x="${p.x}" y="${lane.get(c.hash) === 0 ? p.y - 10 : p.y + 17}" text-anchor="middle" style="fill:${col}">${esc(c.refs.join(' '))}</text>`;
+      out += `<g class="c" data-h="${c.hash}"><circle cx="${x}" cy="${y}" r="${cur ? 6.5 : 4.5}" fill="${merge ? '#0b0b14' : col}" stroke="${cur ? '#fff' : col}" stroke-width="${merge || cur ? 2 : 1}"/>`
+        + `<title>${esc(c.subject)}\n${esc(c.author)} · ${new Date(c.time).toLocaleString()}\n${c.hash.slice(0, 7)}${merge ? ' · 合并' : ''}${c.refs.length ? '\n' + esc(c.refs.join(', ')) : ''}</title></g>`;
+      if (c.refs.length) {
+        const r = c.refs[0] + (c.refs.length > 1 ? ` +${c.refs.length - 1}` : '');
+        out += `<text x="${x + 7}" y="${y - 6}" style="fill:${col}">${esc(r)}</text>`;
+      }
     }
     svg.setAttribute('width', W); svg.setAttribute('height', H);
     svg.innerHTML = out;
     $('tl-info').textContent = replay ? `${replay.commit.subject} · ${replay.commit.author} · ${new Date(replay.commit.time).toLocaleString()}`
-      : `${cs.length} 个提交 · ${nLanes} 条分支线 · 点击任一提交回放那一刻的宇宙`;
+      : `${cs.length}${hist.more ? '+' : ''} 个提交 · ${nLanes} 条泳道 · 点击任一提交回放那一刻的宇宙`;
   }
   $('tl-svg').addEventListener('click', (ev) => {
     const g = ev.target.closest('.c'); if (!g) return;
@@ -1065,8 +1350,8 @@ import { trackProposals } from '/core/proposals.js';
     recompute(false);
   }
   canvas.addEventListener('dblclick', (ev) => {
-    if (isSpaces()) { const h = pickHit(ev.offsetX, ev.offsetY); if (h && h.n.container) toggleExpandSpace(h.n.id); return; }
-    const n = find(ev.offsetX, ev.offsetY); if (n) toggleExpand(n.id);
+    if (isSpaces()) { const h = pickHit(ev.offsetX, ev.offsetY); if (h && h.n.container) toggleExpandSpace(h.n.id); else if (h) openFile(h.n.id); return; }
+    const n = find(ev.offsetX, ev.offsetY); if (n && n.container) toggleExpand(n.id); else if (n) openFile(n.id);
   });
 
   // ======================= 嵌套空间 =======================
@@ -1083,6 +1368,7 @@ import { trackProposals } from '/core/proposals.js';
   let lastSwitchAt = 0;
   let matchSet = new Set(), matchAnc = new Map();
   const BODY = 4.2;                  // 收起的容器在父空间里的"盘"半径 = r × BODY
+  const PAD = 16;                    // 就地展开的疆域外留的空隙(兄弟节点和它们的标签不贴着疆界)
   const keyOf = (id) => id ?? '';
 
   function decorate(n, old) {
@@ -1098,13 +1384,21 @@ import { trackProposals } from '/core/proposals.js';
     sp.E = E;
   }
   function updateFootprints(sp) {
-    for (const n of sp.nodes) n.fp = n.container ? (expandedSet.has(n.id) ? getSpace(n.id).E + 8 : n.D) : n.r * 1.6 + 2;
+    for (const n of sp.nodes) n.fp = n.container ? (expandedSet.has(n.id) ? getSpace(n.id).E + PAD : n.D) : n.r * 1.6 + 2;
   }
-  function applyForces(sp) { // d3 的力在 initialize 时缓存每个节点的半径/强度,改了 fp 要重新设置
-    sp.sim.force('link').distance((l) => (l.distance ?? 60) * 0.5 + l.source.fp + l.target.fp);
-    sp.sim.force('collide').radius((d) => d.fp + 3);
-    sp.sim.force('charge').strength((d) => -(12 + d.fp * d.fp * 0.8));
+  // 斥力只负责"把节点匀开",按节点自己的体(收起的盘 / 叶子)线性给;不能按 fp(就地展开后的整个疆域)给,
+  // 更不能按平方给:疆域越大斥力越大 → 兄弟被推得越远 → 父疆域更大 → 在上一层斥力更大,层层放大。
+  // 不重叠交给碰撞(半径 = fp),它只在真的挨上时起作用。
+  const bodyOf = (d) => (d.container ? d.D : d.r * 1.6 + 2);
+  function applyForces(sp) { // d3 的力在 initialize 时缓存每个节点的半径/强度,改了 fp 或参数要重新设置
+    sp.sim.force('link').distance((l) => (l.distance ?? 60) * 0.5 * P.link + l.source.fp + l.target.fp);
+    sp.sim.force('collide').radius((d) => d.fp + P.gap);
+    sp.sim.force('charge').strength((d) => -(20 + bodyOf(d) * 4) * P.charge);
+    sp.sim.force('x').strength(0.05 * P.gravity); sp.sim.force('y').strength(0.05 * P.gravity);
+    sp.sim.velocityDecay(P.friction);
   }
+  /** 视图里 contains 关系的 spin:空间里的成员绕空间中心公转(像星系自转),只在保持热量时生效 */
+  const spaceSpin = () => { const sp = draftSpec ?? specs[currentView] ?? {}; return (sp.relations && sp.relations[(sp.expand && sp.expand.relation) || 'contains'] || {}).spin ?? 0; };
 
   function getSpace(id) {
     const key = keyOf(id);
@@ -1126,9 +1420,20 @@ import { trackProposals } from '/core/proposals.js';
       .force('link', d3.forceLink(links).id((d) => d.id).strength((l) => Math.min(0.5, (l.strength ?? 0.15) * (1 + Math.log2(l.count || 1) * 0.3))))
       .force('charge', d3.forceManyBody().distanceMax(900))
       .force('x', d3.forceX(0).strength(0.05)).force('y', d3.forceY(0).strength(0.05))
-      .force('collide', d3.forceCollide().strength(0.9))
+      .force('collide', d3.forceCollide().strength(0.9).iterations(2)) // 半径差很大(展开的疆域 vs 叶子)时一次迭代推不干净
       .stop();
-    const sp = { key, id, ver: spaceVer, nodes, byId, links, external: sd.external, sim, E: 24 };
+    if (old) old.sim.stop();
+    const sp = { key, id, ver: spaceVer, nodes, byId, links, external: sd.external, sim, E: 24, warm: false };
+    sim.force('swirl', () => {
+      if (!sp.warm || !heatOn()) return;
+      const w0 = 0.07 * spaceSpin() * P.spin;
+      if (!w0) return;
+      for (const n of nodes) {
+        if (n.fx != null) continue;
+        const d = Math.hypot(n.x, n.y) || 1, w = w0 * Math.sqrt(40 / Math.max(d, 20));
+        n.vx += (-n.y / d) * w; n.vy += (n.x / d) * w;
+      }
+    });
     spaces.set(key, sp);
     updateFootprints(sp);
     applyForces(sp);
@@ -1137,6 +1442,7 @@ import { trackProposals } from '/core/proposals.js';
     if (old) sim.alpha(0.2);
     for (let i = 0; i < ticks; i++) sim.tick();
     measure(sp);
+    sp.warm = true;
     sim.on('tick', () => onSpaceTick(sp));
     return sp;
   }
@@ -1149,11 +1455,38 @@ import { trackProposals } from '/core/proposals.js';
   function onSpaceTick(sp) { // 就地展开的空间在调整时,父空间要跟着给它让位
     measure(sp);
     if (sp.id === null || !expandedSet.has(sp.id)) return;
+    // 保持热量时子空间每帧都在动:疆域半径变化够大才通知父空间,否则父空间会被不停地重新加热、抖个不停
+    if (sp.sentE !== undefined && Math.abs(sp.E - sp.sentE) < 2) return;
+    sp.sentE = sp.E;
     const ps = holderOf(sp.id), n = ps.byId.get(sp.id);
     if (!n) return;
-    n.fp = sp.E + 8;
+    n.fp = sp.E + PAD;
     applyForces(ps);
-    if (ps.sim.alpha() < 0.08) ps.sim.alpha(0.25).restart();
+    if (!heated.has(ps) && ps.sim.alpha() < 0.08) ps.sim.alpha(0.25).restart();
+  }
+
+  // 热量:这一帧画到的空间(当前空间 + 就地展开的)保持一点温度,其余的冷却后停算
+  const heated = new Set(), drawnSpaces = new Set();
+  function heatSpaces() {
+    const lvl = heatLevel();
+    for (const sp of heated) if (!drawnSpaces.has(sp) || !lvl) { if (!sp.dragging) sp.sim.alphaTarget(0); heated.delete(sp); }
+    if (!lvl) return;
+    for (const sp of drawnSpaces) {
+      if (heated.has(sp)) continue;
+      if (!sp.dragging) sp.sim.alphaTarget(lvl);
+      if (sp.sim.alpha() < lvl) sp.sim.alpha(lvl);
+      sp.sim.restart(); heated.add(sp);
+    }
+  }
+  /** 参数变了:平面模拟和所有空间都重新套一遍,再稍微加热让变化看得见 */
+  function applyPhys() {
+    applyFlatForces();
+    if (!isSpaces()) simulation.alpha(Math.max(simulation.alpha(), 0.3)).restart();
+    for (const sp of spaces.values()) {
+      applyForces(sp);
+      if (heated.has(sp) || drawnSpaces.has(sp)) { if (!sp.dragging) sp.sim.alphaTarget(heatLevel()); sp.sim.alpha(Math.max(sp.sim.alpha(), 0.3)).restart(); }
+    }
+    for (const sp of heated) if (!heatOn()) { sp.sim.alphaTarget(0); heated.delete(sp); }
   }
 
   function toggleExpandSpace(id) {
@@ -1224,6 +1557,7 @@ import { trackProposals } from '/core/proposals.js';
   }
 
   function drawSpace(sp, tx, ty, s, alpha, depth, now, skipId) {
+    drawnSpaces.add(sp);
     if (alpha <= 0.01 || depth > 8) return;
     const dpr = devicePixelRatio || 1, W = innerWidth, H = innerHeight;
     const setT = () => { ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * tx, dpr * ty); curK = s; };
@@ -1400,7 +1734,7 @@ import { trackProposals } from '/core/proposals.js';
   /** 缩放手势触发的空间切换:放大且指针落在一个已经占据小半屏幕的容器上 → 进入;当前空间缩到很小 → 退出 */
   function maybeSwitch(se, dir) {
     if (!dir || fade || performance.now() - lastSwitchAt < 450) return;
-    const T = compiled.enterAt * Math.min(innerWidth, innerHeight);
+    const T = (P.enterAt > 0 ? P.enterAt : compiled.enterAt) * Math.min(innerWidth, innerHeight);
     if (dir > 0) {
       let px = innerWidth / 2, py = innerHeight / 2;
       try { [px, py] = d3.pointer(se, canvas); } catch { /* 触摸等 */ }
@@ -1435,6 +1769,7 @@ import { trackProposals } from '/core/proposals.js';
 
   function drawSpacesFrame(now) {
     frameHits = []; frameLabels = [];
+    drawnSpaces.clear();
     if (!compiled) return;
     const { x, y, k } = transform;
     const p = fade ? Math.min(1, (now - fade.t0) / 420) : 1, ease = p * p * (3 - 2 * p);
@@ -1450,6 +1785,7 @@ import { trackProposals } from '/core/proposals.js';
     drawSpace(cur, x, y, k, fade ? Math.max(0.05, ease) : 1, 0, now, null);
     drawStubs(cur, x, y, k, fade ? ease : 1);
     if (fade && p >= 1) fade = null;
+    heatSpaces();
 
     // 屏幕空间:选中 / 问题 / 回放差异的环,标签
     const dpr = devicePixelRatio || 1;
@@ -1490,8 +1826,10 @@ import { trackProposals } from '/core/proposals.js';
     if (!vis.length) return;
     const xs = vis.map((n) => n.x), ys = vis.map((n) => n.y);
     const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-    const k = Math.min(2.2, 0.82 * Math.min((innerWidth - 340) / Math.max(80, x1 - x0), innerHeight / Math.max(80, y1 - y0)));
-    const t = d3.zoomIdentity.translate(innerWidth / 2 - 20, innerHeight / 2).scale(k).translate(-(x0 + x1) / 2, -(y0 + y1) / 2);
+    const bar = $('tagbar').hidden ? 0 : $('tagbar').getBoundingClientRect().height + 16; // 底部的 tag 栏会挡住一块
+    const H = innerHeight - bar;
+    const k = Math.min(2.2, 0.82 * Math.min((innerWidth - 340) / Math.max(80, x1 - x0), H / Math.max(80, y1 - y0)));
+    const t = d3.zoomIdentity.translate(innerWidth / 2 - 20, H / 2).scale(k).translate(-(x0 + x1) / 2, -(y0 + y1) / 2);
     d3.select(canvas).transition().duration(700).call(zoom.transform, t);
   }
 
@@ -1688,6 +2026,27 @@ import { trackProposals } from '/core/proposals.js';
     }
   }
 
+  /** tag 视图:在每个团上写 tag 名。第 1 层写在团的上沿;第 2 层团在屏幕上够大时写在团中间。放大到团里面就不写了。 */
+  function drawTagGroups(k, TX, TY, VW, VH) {
+    if (!tagGroups.length) return;
+    const big = Math.min(VW, VH);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const g of tagGroups) {
+      const R = g.r * k, sx = g.x * k + TX, sy = g.y * k + TY;
+      if ((g.depth === 2 && R < 36) || R > big * 0.8) continue;
+      if (sx + R < 0 || sx - R > VW || sy + R < 0 || sy - R > VH) continue;
+      const name = raw.get(g.id)?.label || g.id, px = g.depth === 1 ? 15 : 11.5;
+      ctx.font = `600 ${px / k}px -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif`;
+      if (g.depth === 2 && ctx.measureText(name).width * k > R * 1.9) continue;
+      const on = activeTags.has(g.id), col = hex2rgb(tagColor.get(g.id) || '#c8c8e0');
+      const y = g.depth === 1 ? g.y - g.r - 10 / k : g.y;
+      ctx.globalAlpha = activeTags.size && !on ? 0.25 : g.depth === 1 ? 0.95 : 0.7;
+      ctx.strokeStyle = 'rgba(2,2,10,0.85)'; ctx.lineWidth = 4 / k; ctx.strokeText(name, g.x, y);
+      ctx.fillStyle = rgba(on ? [255, 255, 255] : mix(col, [255, 255, 255], 0.45), 1); ctx.fillText(name, g.x, y);
+    }
+    ctx.globalAlpha = 1;
+  }
+
   function draw(now) {
     const frameStart = performance.now();
     const dpr = devicePixelRatio || 1;
@@ -1791,8 +2150,8 @@ import { trackProposals } from '/core/proposals.js';
     for (const n of nodes) {
       if (!onScreen(n, 6.5)) continue;
       if (n.r * k < 2.4 && n !== hovered && n.id !== selected) { // 小到看不清发光细节的节点:一个点就够了
-        const q = Math.max(1.2, n.r * 0.9);
-        ctx.fillStyle = rgba(n.core, 0.9 * alphaOf(n)); ctx.fillRect(n.x - q / 2, n.y - q / 2, q, q);
+        const q = Math.max(1.6 / k, n.r * 0.9);   // 屏幕上至少 1.6px,否则上万个点糊成一片灰
+        ctx.fillStyle = rgba(n.dot, 0.9 * alphaOf(n)); ctx.fillRect(n.x - q / 2, n.y - q / 2, q, q);
         continue;
       }
       drawNode(n, now, alphaOf(n) * (n === hovered ? 1.25 : 1));
@@ -1824,8 +2183,11 @@ import { trackProposals } from '/core/proposals.js';
         ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 1.5 + 6, 0, TAU); ctx.stroke();
       }
     }
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.lineJoin = 'round';
-    const fs = 11 / Math.max(k, 0.55);
+    ctx.lineJoin = 'round';
+    drawTagGroups(k, TX, TY, VW, VH);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    const tiny = k < 0.35;                 // 缩得太小:普通标签读不出来,只留"必须"的,按屏幕上的固定字号画
+    const fs = tiny ? 11 / k : 11 / Math.max(k, 0.55);
     ctx.font = `${fs}px -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif`;
     // 标签避让:按重要性排序,和已放置的标签重叠就不画(选中/悬停/聚焦邻居/搜索命中优先)。
     // 规划(排序+重叠检测)较贵,节流到约每 160ms 或交互状态变化时才重做,每帧只按最新位置画。
@@ -1833,7 +2195,7 @@ import { trackProposals } from '/core/proposals.js';
     const planKey = `${selected}|${query}|${hovered && hovered.id}|${Math.round(k * 20)}|${shown.length}`;
     if (planKey !== labelKey || now - labelAt > 160) {
       labelKey = planKey; labelAt = now;
-      const cands = shown.filter((n) => must(n) || k > 1.7 || n.r >= 6 || shown.length <= 14)
+      const cands = shown.filter((n) => must(n) || (!tiny && (k > 1.7 || n.r >= 6 || shown.length <= 14)))
         .sort((a, b) => (must(b) - must(a)) || (b.r - a.r)).slice(0, 160);
       const placed = [];
       labelNodes = [];
@@ -1868,7 +2230,7 @@ import { trackProposals } from '/core/proposals.js';
   }
   requestAnimationFrame(draw);
 
-  window.__stars = { nodes: () => simulation.nodes(), transform: () => transform, scene: () => scene, regions: () => regions, perf, hits: () => frameHits, space: () => curSpaceId, enter: (id) => enterSpace(id), exit: () => exitSpace(), expand: (id) => toggleExpandSpace(id), expanded: () => [...expandedSet], getSpace: (id) => getSpace(id ?? null), hasNode: (id) => !!uni && uni.nodes.has(id), project: () => project, nodeCount: () => uni.nodes.size, lastN: () => lastN, recompute, manual, auto, compiled: () => compiled }; // 调试/自动化用
+  window.__stars = { nodes: () => simulation.nodes(), transform: () => transform, scene: () => scene, regions: () => regions, perf, hits: () => frameHits, space: () => curSpaceId, enter: (id) => enterSpace(id), exit: () => exitSpace(), expand: (id) => toggleExpandSpace(id), expanded: () => [...expandedSet], getSpace: (id) => getSpace(id ?? null), hasNode: (id) => !!uni && uni.nodes.has(id), project: () => project, P, heated: () => [...heated].map((sp) => sp.key), flatTarget: () => simulation.alphaTarget(), openFile: (id) => openFile(id), select: (id) => select(id, false), nodeCount: () => uni.nodes.size, lastN: () => lastN, recompute, manual, auto, compiled: () => compiled }; // 调试/自动化用
   connect();
 })();
 </script>

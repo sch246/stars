@@ -42,7 +42,7 @@ const HELP = `stars —— 关系编辑器(内核 CLI)
   lint                               体检(有 error 时退出码为 1)
   log                                操作日志   [-n 20]
   views                              列出视图(内置 + 宇宙里 kind=view 的节点)
-  view <name>                        计算一个视图并输出场景摘要   [--depth N 展开层数] [--expand id,id 强制展开] [--json 完整场景]
+  view <name>                        计算一个视图并输出场景摘要   [--depth N 展开层数] [--max-nodes N 节点预算] [--expand id,id 强制展开] [--json 完整场景]
   view-set <name>                    新建/覆盖一个视图(规格会先校验)   --spec '<JSON>' 或 --from <文件>   [--label 显示名]
   fn-set <name>                      新建/覆盖一个函数节点,供视图表达式里 fn.<name>(...) 调用   --code '<函数表达式>' 或 --from <文件>
   merge <base> <ours> <theirs>       按事实三方合并宇宙文件(git 合并驱动;结果写入 <ours>,有冲突退出码 1)
@@ -75,6 +75,7 @@ const { values: o, positionals: pos } = parseArgs({
     edges: { type: 'boolean' },
     q: { type: 'string', short: 'q' },
     depth: { type: 'string' },
+    'max-nodes': { type: 'string' },
     expand: { type: 'string' },
     dir: { type: 'string' },
     under: { type: 'string' },
@@ -272,6 +273,7 @@ function run(): void {
       const scene = evaluateView(u0, spec, {
         signals: signals ? { touched: signals.touched, fileChanged: signals.fileChanged } : undefined,
         depth: o.depth !== undefined ? Number(o.depth) : undefined,
+        maxNodes: o['max-nodes'] !== undefined ? Number(o['max-nodes']) : undefined,
         expanded: o.expand?.split(',').filter(Boolean),
       });
       say(scene, () => {
@@ -333,10 +335,12 @@ function run(): void {
       const git = (...a: string[]) => execFileSync('git', ['-C', root, ...a], { encoding: 'utf8' });
       git('config', 'merge.stars.name', '星罗宇宙文件:按事实三方合并');
       git('config', 'merge.stars.driver', `node ${JSON.stringify(cli)} merge %O %A %B`);
+      // 宇宙文件按事实合并;操作日志只追加,两边各自追加的行取并集即可(否则每次合并都会在日志上冲突)
       const attrs = resolve(root, '.gitattributes');
-      const has = existsSync(attrs) && readFileSync(attrs, 'utf8').split('\n').some((l) => l.trim() === '*.stars merge=stars');
-      if (!has) appendFileSync(attrs, '*.stars merge=stars\n');
-      console.log(`已启用:merge.stars.driver 写入 ${root}/.git/config(本机配置),${has ? '' : '.gitattributes 新增了一行 *.stars merge=stars(请提交)'}`);
+      const lines = existsSync(attrs) ? readFileSync(attrs, 'utf8').split('\n').map((l) => l.trim()) : [];
+      const want = ['*.stars merge=stars', '*.stars.log merge=union'].filter((l) => !lines.includes(l));
+      if (want.length) appendFileSync(attrs, (lines.length && lines[lines.length - 1] !== '' ? '\n' : '') + want.join('\n') + '\n');
+      console.log(`已启用:merge.stars.driver 写入 ${root}/.git/config(本机配置)${want.length ? `;.gitattributes 新增 ${want.join('、')}(请提交)` : ''}`);
       return;
     }
     case 'export': {

@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { parse } from '../src/format.ts';
-import { diffUniverses, gitHistory, gitSnapshot } from '../src/history.ts';
+import { diffUniverses, gitHistory, gitParentSnapshot, gitSnapshot } from '../src/history.ts';
 import { startServer } from '../src/serve.ts';
 import { Store } from '../src/store.ts';
 
@@ -92,6 +92,21 @@ test('历史:提交图是 DAG(分叉与合并),能还原任意提交时的宇宙
   assert.deepEqual(d.addedNodes, ['exp-node']);
   assert.deepEqual(d.removedNodes, []);
   assert.throws(() => gitSnapshot(file, '../etc/passwd'), /非法/);
+
+  // 差异以"真实的第一父提交"为准(不依赖历史窗口);根提交没有父
+  assert.ok(!gitParentSnapshot(file, expCommit.hash)!.nodes.has('exp-node'));
+  assert.equal(gitParentSnapshot(file, genesisCommit.hash), null);
+  // 窗口:最多 limit 个,more 表示更早的还有
+  const two = gitHistory(file, 2);
+  assert.deepEqual([two.commits.length, two.more], [2, true]);
+  assert.equal(gitHistory(file).more, false);
+  // 没动过宇宙文件的分支与合并不出现在图里(否则真实仓库里会被无关的合并线淹没)
+  sh(dir, 'checkout', '-qb', 'docs');
+  writeFileSync(join(dir, 'README.md'), 'x\n'); sh(dir, 'add', '.'); sh(dir, 'commit', '-qm', 'docs only');
+  sh(dir, 'checkout', '-q', 'main'); sh(dir, 'merge', '-q', '--no-ff', '-m', 'merge docs', 'docs');
+  const after = gitHistory(file);
+  assert.equal(after.commits.length, 4, '无关的提交与合并被简化掉');
+  assert.equal(after.head, commits[0]!.hash, 'head = HEAD 上最近一次改动宇宙文件的提交');
 });
 
 test('反向代理:--allow-host 放行代理的域名(Host 与 Origin),其他主机仍被拒绝', async () => {
@@ -212,5 +227,50 @@ test('多项目:列目录、打开已有宇宙、在空目录建立宇宙;事件
     const projects = (await get('/api/projects')).body;
     assert.equal(projects.open.length, 3);
     assert.equal(projects.main, snapA.project.id);
+  } finally { srv.close(); }
+});
+
+test('文件:在查看器里读写项目文件 —— 出不了项目目录、存储只读、并发修改报 409、CRLF 保持、图片走 raw', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'stars-file-'));
+  mkdirSync(join(dir, 'src'));
+  writeFileSync(join(dir, 'src/a.ts'), 'export const a = 1;\n');
+  writeFileSync(join(dir, 'win.txt'), 'l1\r\nl2\r\n');
+  writeFileSync(join(dir, 'pic.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2]));
+  writeFileSync(join(dir, 'blob.bin'), Buffer.from([1, 2, 0, 3]));
+  const store = new Store(join(dir, 'universe.stars')); store.create(genesis);
+  const port = await freePort();
+  const srv = startServer(store, port, dir, '127.0.0.1', () => {});
+  const base = `http://127.0.0.1:${port}`;
+  const h = { 'x-stars-token': srv.token, 'content-type': 'application/json' };
+  const get = async (path: string) => { const r = await fetch(base + path, { headers: h }); return { status: r.status, body: await r.json() as any }; };
+  const save = async (body: unknown) => { const r = await fetch(base + '/api/file', { method: 'POST', headers: h, body: JSON.stringify(body) }); return { status: r.status, body: await r.json() as any }; };
+  try {
+    const a = await get('/api/file?path=src/a.ts');
+    assert.deepEqual([a.status, a.body.kind, a.body.content, a.body.readonly], [200, 'text', 'export const a = 1;\n', false]);
+    assert.equal((await get('/api/file?path=../etc/passwd')).status, 400, '出不了项目目录');
+    assert.equal((await get('/api/file?path=blob.bin')).body.kind, 'binary');
+    assert.equal((await get('/api/file?path=pic.png')).body.kind, 'image');
+    assert.equal((await get('/api/file?path=universe.stars')).body.readonly, true, '宇宙文件可以看,不能在这里改');
+    assert.equal((await save({ path: 'universe.stars', content: 'x', mtime: null })).status, 400);
+
+    const ok = await save({ path: 'src/a.ts', content: 'export const a = 2;\n', mtime: a.body.mtime });
+    assert.equal(ok.status, 200);
+    assert.equal(readFileSync(join(dir, 'src/a.ts'), 'utf8'), 'export const a = 2;\n');
+    // 别处改了文件 → 用旧的修改时间保存会被拒绝;带 mtime: null 表示"用我的覆盖"
+    await new Promise((r) => setTimeout(r, 20));
+    writeFileSync(join(dir, 'src/a.ts'), 'export const a = 3; // 别处改的\n');
+    const conflict = await save({ path: 'src/a.ts', content: 'export const a = 4;\n', mtime: ok.body.mtime });
+    assert.equal(conflict.status, 409);
+    assert.equal(readFileSync(join(dir, 'src/a.ts'), 'utf8'), 'export const a = 3; // 别处改的\n', '冲突时不写');
+    assert.equal((await save({ path: 'src/a.ts', content: 'export const a = 4;\n', mtime: null })).status, 200);
+
+    const w = await get('/api/file?path=win.txt');
+    await save({ path: 'win.txt', content: w.body.content.replace(/\r\n/g, '\n').replace('l2', 'L2'), mtime: w.body.mtime });
+    assert.equal(readFileSync(join(dir, 'win.txt'), 'utf8'), 'l1\r\nL2\r\n', 'CRLF 文件保存后仍是 CRLF');
+
+    assert.equal((await fetch(`${base}/api/raw?path=pic.png`)).status, 403, 'raw 也要 token');
+    const img = await fetch(`${base}/api/raw?path=pic.png&t=${srv.token}`);
+    assert.equal(img.headers.get('content-type'), 'image/png');
+    assert.equal((await fetch(`${base}/api/raw?path=src/a.ts&t=${srv.token}`)).status, 415, 'raw 只给图片');
   } finally { srv.close(); }
 });

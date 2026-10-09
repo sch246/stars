@@ -64,20 +64,22 @@ test('合并:作为 git 合并驱动 —— 相邻位置的并发插入,纯文�
   sh('add', '.'); sh('commit', '-qm', 'genesis');
   sh('checkout', '-qb', 'exp');
   store.commit({ op: 'addNode', id: 'alpha', label: 'α' }, { author: 'x' });
-  sh('commit', '-qam', 'exp');
+  sh('add', '-A'); sh('commit', '-qm', 'exp');   // 连同操作日志一起提交:两边的日志也各自追加了
   sh('checkout', '-q', 'main');
   store.commit({ op: 'addNode', id: 'beta', label: 'β' }, { author: 'y' });
-  sh('commit', '-qam', 'main');
+  sh('add', '-A'); sh('commit', '-qm', 'main');
 
   // 没有驱动:同一位置相邻插入 → 文本冲突
   assert.throws(() => sh('merge', '--no-edit', 'exp'));
   sh('merge', '--abort');
 
-  // 启用驱动
-  sh('config', 'merge.stars.driver', `node ${JSON.stringify(cli)} merge %O %A %B`);
-  writeFileSync(join(dir, '.gitattributes'), '*.stars merge=stars\n');
+  // 启用驱动(就用 install-merge 本身):宇宙文件按事实合并,操作日志按行取并集
+  execFileSync('node', [cli, 'install-merge'], { cwd: dir, stdio: 'ignore' });
+  assert.deepEqual(readFileSync(join(dir, '.gitattributes'), 'utf8').trim().split('\n'), ['*.stars merge=stars', '*.stars.log merge=union']);
   sh('add', '.gitattributes'); sh('commit', '-qm', 'attrs');
   sh('merge', '--no-edit', 'exp');
+  const log = readFileSync(file + '.log', 'utf8');
+  assert.ok(log.includes('"alpha"') && log.includes('"beta"') && !log.includes('<<<<<<<'), '两边的操作日志都在,没有冲突标记');
   const merged = parse(readFileSync(file, 'utf8'));
   assert.ok(merged.nodes.has('alpha') && merged.nodes.has('beta'));
   assert.equal(serialize(merged), readFileSync(file, 'utf8'), '合并结果仍是规范格式');
