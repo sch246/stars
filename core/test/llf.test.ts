@@ -90,6 +90,15 @@ test('LLF 向量:标签表达式(EXTENSIONS §4)—— 合法的拆成 { name, t
   }
 });
 
+test('LLF 文档模型:空注释行(只有 #)是分隔 —— 它上面的注释不算下面条目的,删条目时也不删', () => {
+  const t = '# 文件说明\n#\n# 名字\n# 提示\na - 1\nb - 2\n--LLF-END\n';
+  const doc = llfParseDoc(t);
+  assert.deepStrictEqual(llfFind(doc, ['a'])!.comments, ['名字', '提示']);
+  assert.equal(llfDelete(t, ['a']), '# 文件说明\n#\nb - 2\n--LLF-END\n');
+  assert.equal(llfSetString('# 说明\n#\n--LLF-END\n', ['m', 'k'], 'v'), '# 说明\n#\nm {}\n  k - v\n--LLF-END\n');
+  assert.equal(llfParseDoc(llfSetString('# 说明\n#\n--LLF-END\n', ['m', 'k'], 'v')).root.entries![0]!.comments, undefined);
+});
+
 test('LLF 规范澄清:文本块紧跟 - 行、头后任意行尾空白、引号键控制字符必须转义', () => {
   assert.equal(codeOf(() => llfParse('a -\n  # c\n  |x\n--LLF-END\n')), 'E11');
   assert.equal(codeOf(() => llfParseDoc('a -\n  # c\n  |x\n--LLF-END\n')), 'E11');
@@ -693,7 +702,9 @@ test('LLF 写回 fuzz:随机文档 × 随机路径的改 / 加 / 删,重新解�
       assertOnlyChanged(text, out, from, node.end, what);
       assert.ok(from <= node.start, what);
       assert.ok(text.slice(from, node.start).split('\n').slice(0, -1).every((l) => /^ *#/.test(l)), `只多删了注释 ${what}`);
-      if (from > 0) assert.doesNotMatch(text.slice(text.lastIndexOf('\n', from - 2) + 1, from), /^ *#/, `紧贴的注释都删掉了 ${what}`);
+      // 紧贴的注释都删掉了;停下的地方要么不是注释,要么是空注释行(只有 #,是分隔)
+      if (from > 0) assert.doesNotMatch(text.slice(text.lastIndexOf('\n', from - 2) + 1, from), /^ *#.*\S/, `紧贴的注释都删掉了 ${what}`);
+      assert.ok(text.slice(from, node.start).split('\n').slice(0, -1).every((l) => /^ *#.*\S/.test(l)), `空注释行(分隔)不删 ${what}`);
       expected = deletePath(clone(value), path);
       counts.del++;
     } else {

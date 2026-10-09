@@ -80,6 +80,7 @@
   .mini { cursor: pointer; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line); background: #12121f; user-select: none; }
   .mini.ok { color: #7be0a0; } .mini.no { color: #ff7a90; } .mini:hover { border-color: currentColor; }
   .badge { display: inline-block; min-width: 16px; padding: 0 5px; margin-left: 4px; border-radius: 999px; background: #ffd24a; color: #111; font-size: 11px; text-align: center; }
+  .badge[hidden] { display: none; }
   #editor { left: 12px; top: 270px; width: 430px; max-height: calc(100vh - 300px); display: flex; flex-direction: column; gap: 6px; }
   #editor[hidden], #timeline[hidden], #legend[hidden], #replaybar[hidden] { display: none; }
   #ed-head { display: flex; justify-content: space-between; align-items: baseline; }
@@ -148,8 +149,26 @@
   .seg { grid-column: 2 / span 2; justify-self: end; display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
   .seg span { padding: 0 9px; cursor: pointer; color: var(--muted); user-select: none; } .seg span + span { border-left: 1px solid var(--line); }
   .seg span:hover { color: var(--text); } .seg span.on { background: #7aa7ff33; color: #fff; }
-  #ph-foot { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 8px; justify-content: space-between; }
-  #ph-foot code { color: #b8c4ff; }
+  #ph-foot { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 8px; justify-content: space-between; flex-wrap: nowrap; }
+  #ph-reset { flex: none; white-space: nowrap; }
+  #set-path { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; min-width: 0; }
+  #set-head { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; }
+  .st-tab { cursor: pointer; user-select: none; padding: 2px 10px; border-radius: 7px; color: var(--muted); font-weight: 600; }
+  .st-tab:hover { color: var(--text); } .st-tab.on { color: #fff; background: #7aa7ff22; }
+  #set-mode { grid-column: auto; font-size: 12px; }
+  #set-raw { width: 100%; min-height: 260px; height: 46vh; resize: vertical; background: #06060d; color: #cfd6ff; border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px; font: 12px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; outline: none; white-space: pre; tab-size: 2; }
+  #set-raw:focus { border-color: var(--accent); }
+  #set-raw-msg { font-size: 12px; display: flex; flex-direction: column; gap: 2px; margin: 4px 0; }
+  #set-raw-msg .bad { color: var(--err); } #set-raw-msg .warn { color: var(--warn); } #set-raw-msg .ok { color: #7be0a0; }
+  #set-defaults summary { cursor: pointer; color: var(--muted); font-size: 12px; } #set-defaults pre { margin: 4px 0 0; max-height: 30vh; overflow: auto; font-size: 11px; color: #9aa0c8; white-space: pre-wrap; }
+  .st-in { background: #07070f; border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 1px 6px; font: inherit; outline: none; }
+  .kb-list { display: flex; flex-direction: column; gap: 2px; }
+  .kb-row { display: grid; grid-template-columns: 64px 1fr 40px 20px 20px; gap: 6px; align-items: center; }
+  .kb-row kbd { text-align: center; white-space: nowrap; overflow: hidden; } .kb-row.off kbd { text-decoration: line-through; opacity: .5; }
+  .kb-cmd { background: transparent; border: 1px solid transparent; color: var(--text); border-radius: 6px; padding: 1px 6px; font: 12px ui-monospace, Menlo, Consolas, monospace; outline: none; min-width: 0; }
+  .kb-cmd:hover { border-color: var(--line); } .kb-cmd:focus { border-color: var(--accent); background: #07070f; }
+  .kb-st { font-size: 11px; color: var(--accent); white-space: nowrap; } .kb-row .mini { padding: 0 4px; text-align: center; }
   #fp-head { display: flex; gap: 8px; align-items: center; min-width: 0; }
   #fp-state { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; } #fp-state .dirty { color: var(--warn); }
   #fp-bar { font-size: 12px; padding: 5px 8px; border-radius: 7px; background: #3a2a10; border: 1px solid #7a5a20; color: #ffd9a0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -171,6 +190,7 @@
   #con-out { overflow: auto; min-height: 0; flex: 1; white-space: pre-wrap; word-break: break-word; }
   #con-out > div { padding: 0 2px; } #con-out .in { color: #fff; } #con-out .in::before { content: '› '; color: var(--accent); }
   #con-out .echo { color: #5c5c7c; } #con-out .echo::before { content: '· '; }
+  #con-out .remote { color: #ffcf8a; } #con-out .remote::before { content: '⇢ '; color: var(--warn); }
   #con-out .err { color: var(--warn); } #con-out .dim { color: var(--muted); }
   #con-sug { color: var(--muted); min-height: 0; display: flex; flex-wrap: wrap; gap: 2px 10px; }
   #con-sug:empty { display: none; } #con-sug .s { cursor: pointer; color: #b8c4ff; } #con-sug .s:hover { color: #fff; } #con-sug .u { color: var(--muted); }
@@ -250,9 +270,9 @@
   <div id="pj-msg"></div>
 </div>
 <div class="panel" id="physics" hidden>
-  <div id="ed-head"><b>设置</b><span>存在这个浏览器里 · 即时生效 · 双击名字恢复单项</span></div>
+  <div id="set-head"><span class="st-tab" data-tab="settings">设置</span><span class="st-tab" data-tab="keys">快捷键</span><span style="flex:1"></span><span class="seg" id="set-mode"><span data-raw="0" title="由默认文件的类型标签生成的表单">表单</span><span data-raw="1" title="你的个人文件(LLF),可以直接改">原文</span></span></div>
   <div id="ph-body"></div>
-  <div class="btns" id="ph-foot"><span class="btn" id="ph-reset" data-cmd="param reset">全部恢复默认</span><span class="tag" style="font-size:11px">也可以在控制台里 <code>param 名字 值</code></span></div>
+  <div class="btns" id="ph-foot"><span class="tag" id="set-path" title="个人文件:只记改过的项"></span><span class="btn" id="ph-reset">全部恢复默认</span></div>
 </div>
 <div class="panel" id="timeline" hidden>
   <div id="tl-head">
@@ -280,6 +300,7 @@
 <div id="palette" hidden><div class="panel" id="pal-box"><input id="pal-in" autocomplete="off" spellcheck="false" placeholder="搜索命令…(视图、面板、参数、时间线、写入宇宙……)"><div id="pal-list"></div></div></div>
 <div class="panel" id="keys" hidden></div>
 <div id="hint"><span data-cmd="panel keys"><kbd>?</kbd> 快捷键</span> · <span data-cmd="panel console"><kbd>`</kbd> 控制台</span> · <span data-cmd="palette"><kbd>Ctrl</kbd> <kbd>K</kbd> 命令</span> · 滚轮缩放 · 拖动平移 · 双击就地展开</div>
+<script type="application/json" id="stars-config">__STARS_CONFIG__</script>
 <script src="/d3.js"></script>
 <script type="module">
 import { compileView, listViews, validateSpec } from '/core/view.js';
@@ -287,6 +308,7 @@ import { edgeKey } from '/core/model.js';
 import { apply } from '/core/ops.js';
 import { trackProposals } from '/core/proposals.js';
 import { filterNodes, neighborhood, shortestPath } from '/core/query.js';
+import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '/core/llf.js';
 (() => {
   const TAU = Math.PI * 2;
   const canvas = document.getElementById('c');
@@ -337,32 +359,93 @@ import { filterNodes, neighborhood, shortestPath } from '/core/query.js';
   const mix = (a, b, t) => a.map((x, i) => Math.round(x + (b[i] - x) * t));
   const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 
-  // ---------- 宇宙参数(⚙ 面板;存在浏览器里,所有项目共用)----------
-  // 都是"倍率"或直接的物理量;默认值就是调好的手感。热量:模拟始终保持一点温度(和拖动时一样),
-  // 所以布局一直是"活的"—— 会慢慢公转、对变化立刻有反应,但温度低,不会抖。
-  const PHYS = {
-    heat:      { def: 1, toggle: true, label: '保持热量', hint: '模拟始终保持一点温度:一直在缓慢运动,对拖动和变化立刻有反应;关掉则静止后停算(省电)' },
-    heatLevel: { def: 0.03, min: 0.005, max: 0.12, step: 0.005, label: '热量', hint: '温度越高越活跃;太高会抖' },
-    spin:      { def: 1, min: 0, max: 4, step: 0.05, label: '公转', hint: '子节点绕所在空间/父节点公转的速度(视图里 contains 的 spin 再乘这个倍率)' },
-    charge:    { def: 1, min: 0.2, max: 4, step: 0.05, label: '斥力', hint: '节点之间互相推开的力' },
-    link:      { def: 1, min: 0.3, max: 3, step: 0.05, label: '连线长度', hint: '有关系的节点之间的距离' },
-    gravity:   { def: 1, min: 0, max: 4, step: 0.05, label: '引力', hint: '把节点拉向空间中心' },
-    gap:       { def: 3, min: 0, max: 24, step: 1, label: '间隙 px', hint: '碰撞时节点之间至少留的空隙' },
-    friction:  { def: 0.42, min: 0.1, max: 0.8, step: 0.01, label: '阻尼', hint: '越大停得越快、越不飘' },
-    dragForce: { def: 0.2, min: 0, max: 2, step: 0.05, label: '拖动力', hint: '拖动时把节点拉向指针的力度(1 = 原来的手感,默认 0.2);锁定拖动会持续施力,太大就会一直加速飞走' },
-    tether:    { def: 0.8, min: 0, max: 3, step: 0.05, label: '疆域张力', hint: '就地展开的空间的一圈软边界:成员超出自然疆域 E0 越多,被拉回的力越大。它同时决定:①软边界有多硬 ②拖成员时整组能分到多少拖动力(越大越早跟着指针走) ③松手后回弹多快。0 = 关闭(拖动会把疆域撑大,松手也不还原)' },
-    shrink:    { def: 3, min: 0, max: 6, step: 0.05, label: '收缩余量', hint: '整组最多能收缩多少(上限):成员在自己的空间里最多伸到 E0×(1+余量),其余成员最多缩到 ≈ 1/(1+余量)。余量越大,整组跟着指针走之前能收缩得越深;实际深度还受「疆域张力」影响(张力越小缩得越深)。0 = 不收缩' },
-    enterAt:   { def: 0, min: 0, max: 2, step: 0.01, label: '进入空间', hint: '放大到容器占屏幕短边的多少比例时进入它;0 = 跟随视图的设置(默认 0.42)' },
-    follow:    { def: 1, toggle: true, label: '跟随选中', hint: '选中节点后镜头跟住它:它钉在屏幕中央,外面的世界绕着它转;关掉则自由平移缩放' },
-    highlight: { def: 1, toggle: true, label: '高亮选中', hint: '选中后其它节点变暗,选中的、它的邻居、以及它展开出来的内容保持明亮;关掉则一律不变暗' },
-    fade:      { def: 1, toggle: true, label: '淡入淡出', hint: '空间内外切换时的交叉淡入淡出;关掉则瞬间切换,更干脆' },
-    compact:   { def: 1, toggle: true, label: '真实体积', hint: '目录和文件用同一套体积公式;占用与展开都不撑大,内容等比缩小;要看清就滚轮放大' },
-    volMap:    { def: 'sqrt', choices: ['log', 'sqrt', 'linear'], label: '体积映射', hint: '真实体积开启时,字节数 → 半径 的缩放;sqrt 让面积 ∝ 体积,log 更紧凑' },
-    volMin:    { def: 2, min: 0, max: 40, step: 0.5, label: '体积下限', hint: '真实体积映射后最小节点的半径' },
-    volMax:    { def: 16, min: 1, max: 80, step: 0.5, label: '体积上限', hint: '真实体积映射后最大节点的半径' },
-  };
-  const P = Object.fromEntries(Object.entries(PHYS).map(([k, d]) => [k, d.def]));
-  try { const saved = JSON.parse(localStorage.getItem('stars.phys') || '{}'); for (const k in P) if (typeof saved[k] === typeof P[k]) P[k] = saved[k]; } catch { /* 隐私模式 */ }
+  // ---------- 设置(⚙,LLF 文件):默认值 core/settings.llf,你的修改 ~/.config/stars/settings.llf ----------
+  // 默认文件带类型标签,本身就是设置表单的 schema:结构与默认值来自它,控件来自标签(!bool、!range(…)、!choice(…)),
+  // 每项上方紧挨的注释第一行是名字、其余是提示。个人文件只记改过的项(结构相同),在别处改了会实时推过来。
+  // 静态导出没有服务端:个人文件存在浏览器里。都是"倍率"或直接的物理量;默认值就是调好的手感。
+  // 热量:模拟始终保持一点温度(和拖动时一样),所以布局一直是"活的"—— 会慢慢公转、对变化立刻有反应,但温度低,不会抖。
+  const CFG = (() => { try { return JSON.parse(document.getElementById('stars-config').textContent); } catch { return null; } })()
+    || { defaults: { settings: '--LLF-END\n', keys: '--LLF-END\n' }, user: null, header: {} };
+  /** 标签 → 控件。认不出的标签退回文本框(原文照样保留、照样写回) */
+  function widgetOf(tag) {
+    let e = null;
+    try { e = tag ? llfParseTagExpr(tag) : null; } catch { /* 写错的表达式 = 不认识的标签 */ }
+    const n = (x, d) => (x === undefined || x === '' || !Number.isFinite(Number(x)) ? d : Number(x));
+    if (!e) return { kind: 'text' };
+    if (e.name === 'bool') return { kind: 'bool' };
+    if (e.name === 'range') return { kind: 'range', min: n(e.args[0], 0), max: n(e.args[1], 1), step: n(e.args[2], 0.01), zero: e.args[3] };
+    if (e.name === 'number' || e.name === 'int') return { kind: 'number', min: n(e.args[0], -Infinity), max: n(e.args[1], Infinity), step: e.name === 'int' ? 1 : n(e.args[2], 'any') };
+    if (e.name === 'choice') return { kind: 'choice', choices: e.args.map((x) => x.split('=')[0]), names: e.args.map((x) => x.split('=').slice(1).join('=') || x) };
+    if (e.name === 'color') return { kind: 'color' };
+    return { kind: 'text', tag };
+  }
+  /** 文件里的字符串 → 运行时的值(开关用 1/0,和原来的代码一致);不合法返回 undefined */
+  function parseSetting(w, s) {
+    if (typeof s !== 'string') return undefined;
+    if (w.kind === 'bool') return /^(true|on|yes|1|开)$/i.test(s) ? 1 : /^(false|off|no|0|关)$/i.test(s) ? 0 : undefined;
+    if (w.kind === 'range' || w.kind === 'number') { const x = Number(s); return s.trim() === '' || !Number.isFinite(x) ? undefined : Math.min(w.max, Math.max(w.min, x)); }
+    if (w.kind === 'choice') return w.choices.includes(s) ? s : undefined;
+    return s;
+  }
+  const decimals = (step) => (typeof step === 'number' && step < 1 ? String(step).split('.')[1]?.length ?? 0 : 0);
+  function formatSetting(w, v) {
+    if (w.kind === 'bool') return v ? 'true' : 'false';
+    if (w.kind === 'range' || w.kind === 'number') return String(+Number(v).toFixed(Math.max(decimals(w.step), 0)));
+    return String(v);
+  }
+  const labelOf = (node) => (node.comments || [])[0] || node.key;
+  const hintOf = (node) => (node.comments || []).slice(1).join(' ');
+  /** 默认文件 → 分组与各项的定义。PHYS 保留原来的形状(def/label/hint/toggle/choices/min/max/step),其余代码不用改 */
+  const SET = (() => {
+    const doc = llfParseDoc(CFG.defaults.settings, { tags: true });
+    const groups = [], items = {};
+    for (const g of doc.root.entries || []) {
+      if (g.kind !== 'map') continue;
+      const group = { id: g.key, label: labelOf(g), fold: g.tag === 'folded', keys: [] };
+      for (const e of g.entries) {
+        if (e.kind !== 'str') continue;
+        const w = widgetOf(e.tag);
+        items[e.key] = { key: e.key, path: [g.key, e.key], label: labelOf(e), hint: hintOf(e), w, def: parseSetting(w, e.value) ?? e.value };
+        group.keys.push(e.key);
+      }
+      groups.push(group);
+    }
+    return { groups, items };
+  })();
+  const PHYS = Object.fromEntries(Object.values(SET.items).map((it) => [it.key, {
+    def: it.def, label: it.label, hint: it.hint, toggle: it.w.kind === 'bool', choices: it.w.choices, names: it.w.names,
+    min: it.w.min, max: it.w.max, step: it.w.step, zero: it.w.zero, kind: it.w.kind,
+  }]));
+
+  // 个人文件:{ text, mtime }。live = 有服务端(写回 ~/.config/stars);静态导出存在浏览器里
+  const CFG_LIVE = !!CFG.user && !window.__STARS_STATIC__;
+  const userCfg = {};
+  for (const name of ['settings', 'keys']) {
+    let text = CFG_LIVE ? CFG.user[name] && CFG.user[name].content : null;
+    if (!CFG_LIVE) { try { text = localStorage.getItem('stars.cfg.' + name); } catch { /* 隐私模式 */ } }
+    userCfg[name] = { text: text ?? (CFG.header[name] || '--LLF-END\n'), mtime: CFG_LIVE && CFG.user[name] ? CFG.user[name].mtime : null, exists: text != null,
+      path: CFG_LIVE && CFG.user[name] ? CFG.user[name].path : '(浏览器里)', ops: [], inflight: [], timer: null, warnings: [], error: null };
+  }
+  /** 个人设置里的值(不合法的忽略,记一条警告) */
+  function userSettings(text) {
+    const out = {}, warnings = [];
+    let doc;
+    try { doc = llfParseDoc(text, { tags: true }); } catch (e) { return { out, warnings, error: e.message }; }
+    for (const g of doc.root.entries || []) {
+      for (const e of (g.kind === 'map' ? g.entries : [g])) {
+        const it = SET.items[e.key];
+        if (!it || it.path[0] !== g.key) { warnings.push(`不认识的设置:${g.kind === 'map' ? g.key + '.' : ''}${e.key}`); continue; }
+        const v = parseSetting(it.w, e.kind === 'null' ? undefined : e.value);
+        if (v === undefined) warnings.push(`${it.label}(${e.key})的值不合法:${JSON.stringify(e.value ?? null)},用默认值`); else out[e.key] = v;
+      }
+    }
+    return { out, warnings, error: null };
+  }
+  const P = Object.fromEntries(Object.values(SET.items).map((it) => [it.key, it.def]));
+  {
+    const u = userSettings(userCfg.settings.text);
+    Object.assign(P, u.out); userCfg.settings.warnings = u.warnings; userCfg.settings.error = u.error;
+  }
   const heatOn = () => P.heat > 0;
   const heatLevel = () => (heatOn() ? P.heatLevel : 0);
   // 自定义的力(域之间互推、公转)也按温度缩放(以平时的热量为 1),这样平衡点与温度无关:
@@ -499,6 +582,13 @@ import { filterNodes, neighborhood, shortestPath } from '/core/query.js';
     es = new EventSource(withP('/events'));
     es.onmessage = (ev) => handle(JSON.parse(ev.data));
     es.onerror = () => { $('status').textContent = '连接断开,重连中…'; };
+    // 个人设置 / 快捷键在别处改了(编辑器、别的标签页、stars ui):立即生效
+    es.addEventListener('config', (ev) => { const m = JSON.parse(ev.data); adoptCfg(m.name, m); });
+    // 遥控:stars ui <命令> → 在这里执行 → 把输出回报给服务端,由它交回 CLI
+    es.addEventListener('ui', (ev) => {
+      const m = JSON.parse(ev.data);
+      exec(m.line, 'remote', (r) => { api('/api/ui-result', { id: m.id, ...r }).catch(() => { /* CLI 已经不等了 */ }); }, m.from);
+    });
   }
 
   // ---------- 增量协议:snapshot 一次,之后只收新增的日志条目(ops)与实时信号(signals) ----------
@@ -1460,79 +1550,253 @@ import { filterNodes, neighborhood, shortestPath } from '/core/query.js';
     }
   });
 
-  // ---------- 设置面板(⚙):宇宙参数 + 显示开关,按用途分组 ----------
-  // 常用的在上面,不常调的折叠在「高级」里;改过默认值的项名字后有个小点,双击名字恢复。
-  // 面板上的每个改动都是一条命令(param / bg / bounds),控制台里会回显。
-  const fmtP = (k, v) => (PHYS[k].toggle ? '' : k === 'enterAt' && !v ? '跟随视图' : PHYS[k].step < 0.01 ? v.toFixed(3) : PHYS[k].step < 1 ? v.toFixed(2) : String(v));
-  const SET_GROUPS = [
-    { id: 'display', label: '显示', keys: ['bg', 'bounds', 'follow', 'highlight', 'fade'] },
-    { id: 'motion', label: '运动', keys: ['heat', 'heatLevel', 'spin', 'charge', 'gravity', 'link'] },
-    { id: 'feel', label: '手感', keys: ['dragForce', 'tether', 'shrink', 'enterAt'] },
-    { id: 'volume', label: '体积', keys: ['compact', 'volMap', 'volMin', 'volMax'] },
-    { id: 'advanced', label: '高级', keys: ['gap', 'friction'], fold: true },
-  ];
-  // 不在 PHYS 里的两项:各自记在浏览器里,有自己的命令(bg / bounds),也能用 param bg … 设
-  const SET_EXTRA = {
-    bg: { label: '背景', hint: '远方的星系 / 只有星点 / 纯黑(B)', choices: ['galaxy', 'dots', 'none'], names: ['星系', '星点', '无'], def: 'galaxy',
-      get: () => ['galaxy', 'dots', 'none'][bgMode], cmd: (v) => 'bg ' + v },
-    bounds: { label: '文件夹边界', hint: '文件夹的虚线边界与半透明底(视图规则 space.boundary=false 也会关)', toggle: true, def: 1,
-      get: () => (showBounds ? 1 : 0), cmd: (v) => 'bounds ' + (v ? 'on' : 'off') },
-  };
-  const setDef = (k) => SET_EXTRA[k] || PHYS[k];
-  const setVal = (k) => (SET_EXTRA[k] ? SET_EXTRA[k].get() : P[k]);
-  const setMod = (k) => setVal(k) !== setDef(k).def;
+  // ---------- 个人设置 / 快捷键的写回:按路径改(llfSetString / llfDelete),只动那一段,注释和排版不变 ----------
+  // 每次改动记成一个操作;连续的改动合并成一次保存。别处同时改过(409 / 实时推来新版本)就以最新的为底,把还没存上的操作重放上去。
+  const CFG_OPTS = { tags: true };
+  function llfDeleteClean(text, path) {
+    let t = llfDelete(text, path, CFG_OPTS);
+    for (let n = path.length - 1; n > 0; n--) {   // 删空了的上层字典也删掉,个人文件保持只有改过的项
+      const node = llfFind(llfParseDoc(t, CFG_OPTS), path.slice(0, n));
+      if (!node || node.kind !== 'map' || node.entries.length) break;
+      t = llfDelete(t, path.slice(0, n), CFG_OPTS);
+    }
+    return t;
+  }
+  /** op:{ path, value }(value 是字符串;null 写成 _;undefined = 删掉这一项),或 { raw }(原文页整段替换) */
+  function applyCfgOp(text, op) {
+    if (op.raw !== undefined) return op.raw;
+    return op.value === undefined ? llfDeleteClean(text, op.path) : llfSetString(text, op.path, op.value, CFG_OPTS);
+  }
+  function cfgEdit(name, op) {
+    const u = userCfg[name];
+    u.text = applyCfgOp(u.text, op);
+    u.ops.push(op);
+    clearTimeout(u.timer); u.timer = setTimeout(() => cfgSave(name), 250);
+  }
+  async function cfgSave(name, retry = 0) {
+    const u = userCfg[name];
+    if (!u.ops.length) return;
+    if (!CFG_LIVE) { try { localStorage.setItem('stars.cfg.' + name, u.text); } catch { /* 隐私模式 */ } u.ops = []; return; }
+    const ops = u.ops; u.ops = []; u.inflight = ops;
+    try {
+      const r = await api('/api/config', { name, content: u.text, mtime: u.exists ? u.mtime : null });
+      u.mtime = r.mtime; u.exists = true; u.inflight = [];
+    } catch (e) {
+      u.ops = [...ops, ...u.ops]; u.inflight = [];
+      if (/改过/.test(e.message) && retry < 3) {   // 别处改过:取磁盘上的最新版,把我的操作重放上去再存
+        try { const cur = await api('/api/config?name=' + name); adoptCfg(name, cur); } catch { /* 下面再试 */ }
+        return cfgSave(name, retry + 1);
+      }
+      toast(`保存${name === 'settings' ? '设置' : '快捷键'}失败:${esc(e.message)}`, true);
+    }
+  }
+  /** 采用一个新版本(实时推来的,或冲突后重新读的):还没存上的操作重放上去,再按新内容生效 */
+  function adoptCfg(name, m) {
+    const u = userCfg[name]; if (!u) return;
+    const base = m.content ?? (CFG.header[name] || '--LLF-END\n');
+    u.mtime = m.mtime; u.exists = m.content != null;
+    let t = base;
+    for (const op of [...u.inflight, ...u.ops]) { try { t = applyCfgOp(t, op); } catch { /* 新版本里结构变了,这个操作作废 */ } }
+    if (t === u.text) return;
+    u.text = t;
+    cfgApply(name);
+  }
+  /** 按个人文件的当前内容生效 */
+  function cfgApply(name) {
+    if (name === 'settings') {
+      const r = userSettings(userCfg.settings.text);
+      userCfg.settings.warnings = r.warnings; userCfg.settings.error = r.error;
+      if (!r.error) {
+        const changed = Object.values(SET.items).filter((it) => (r.out[it.key] ?? it.def) !== P[it.key]).map((it) => it.key);
+        for (const k of changed) P[k] = r.out[k] ?? PHYS[k].def;
+        afterParams(changed);
+      }
+    } else rebuildKeys();
+    if (!$('physics').hidden) renderPhysics(true);
+  }
+  /** 程序里设一个参数(param 命令、面板、B 键……):生效并写回个人文件(等于默认值就从文件里删掉) */
+  function setParam(k, v) {
+    const it = SET.items[k];
+    P[k] = v;
+    cfgEdit('settings', { path: it.path, value: v === it.def ? undefined : formatSetting(it.w, v) });
+    afterParams([k]);
+  }
+  /** 参数变了之后要做的事(面板、命令、实时推来的新版本共用) */
+  function afterParams(keys) {
+    if (!keys.length) return;
+    applyPhys();
+    if (keys.some((k) => k === 'volMin' || k === 'volMax' || k === 'compact' || k === 'volMap')) recompute(); // 体积相关的改的是体积计算本身,要重新编译视图
+    if (keys.includes('follow')) scheduleFollow(selected); // 开:从当前镜头平滑锁到选中;关:就地解冻,不跳
+    if (keys.includes('bg')) bgMode = Math.max(0, BG_MODES.indexOf(P.bg));
+    if (keys.includes('bounds')) showBounds = !!P.bounds;
+    if (!$('physics').hidden && !(document.activeElement && document.activeElement.dataset && keys.includes(document.activeElement.dataset.k))) renderPhysics(true); // 正在拖的滑条不重绘
+  }
+
+  // ---------- 快捷键:默认 core/keys.llf + 个人 ~/.config/stars/keys.llf(同名覆盖,_ = 取消) ----------
+  const MOD_ORDER = ['ctrl', 'alt', 'shift'];
+  /** 键名规范化:小写,修饰键按 ctrl / alt / shift 排好(Ctrl+K、k+ctrl 都算 ctrl+k) */
+  function normKey(k) {
+    const parts = String(k).split('+').filter((x, i, a) => x !== '' || i === a.length - 1).map((x) => (x.length === 1 ? x : x.toLowerCase()));
+    if (parts.length === 1) return parts[0].length === 1 ? parts[0].toLowerCase() : parts[0];
+    const key = parts.pop(), mods = MOD_ORDER.filter((m) => parts.includes(m) || (m === 'ctrl' && (parts.includes('cmd') || parts.includes('meta'))));
+    return [...mods, key.length === 1 ? key.toLowerCase() : key].join('+');
+  }
+  function bindingsOf(text) {   // 文件里 bindings 下的键 → 命令(null = 取消)
+    const out = new Map();
+    let doc; try { doc = llfParseDoc(text, CFG_OPTS); } catch { return out; }
+    const b = llfFind(doc, ['bindings']);
+    for (const e of (b && b.kind === 'map' ? b.entries : [])) out.set(normKey(e.key), e.kind === 'null' ? null : e.kind === 'str' ? e.value.trim() : undefined);
+    return out;
+  }
+  const DEF_KEYS = [...bindingsOf(CFG.defaults.keys)].filter(([, c]) => c);
+  const DEF_KEY = new Map(DEF_KEYS);
+  let KEYMAP = [], keyMap = new Map();
+  function rebuildKeys() {
+    const user = bindingsOf(userCfg.keys.text);
+    const out = [];
+    for (const [k, c] of DEF_KEYS) { const v = user.has(k) ? user.get(k) : c; if (v) out.push([k, v]); }
+    for (const [k, v] of user) if (v && !DEF_KEY.has(k)) out.push([k, v]);
+    KEYMAP = out; keyMap = new Map(out);
+  }
+  rebuildKeys();
+  /** 绑定 / 取消 / 恢复默认一个键:cmd 是命令行;null = 取消;undefined = 恢复默认 */
+  function setBinding(key, cmd) {
+    key = normKey(key);
+    const def = DEF_KEY.get(key);
+    const value = cmd === undefined || (cmd !== null && cmd === def) ? undefined : cmd === null ? (def ? null : undefined) : cmd;
+    cfgEdit('keys', { path: ['bindings', key], value });
+    rebuildKeys();
+    if (!$('physics').hidden) renderPhysics(true);
+  }
+
+  // ---------- 设置面板(⚙):「设置」「快捷键」两页,每页可在「表单」和「原文」之间切换 ----------
+  // 表单由默认文件生成:分组 = 顶层字典,控件 = 标签;改过默认值的项名字后有个小点,双击名字恢复。
+  // 原文页就是你的个人文件(只记改过的项),可以直接改;下面能展开默认值作参考。每个改动都是一条命令,控制台里会回显。
+  let setTab = 'settings', setRaw = false, recording = false;
+  try { const v = JSON.parse(localStorage.getItem('stars.setView') || '{}'); if (v.tab === 'keys') setTab = 'keys'; setRaw = !!v.raw; } catch { /* 隐私模式 */ }
+  const saveSetView = () => { try { localStorage.setItem('stars.setView', JSON.stringify({ tab: setTab, raw: setRaw })); } catch { /* 隐私模式 */ } };
+  const fmtP = (k, v) => { const d = PHYS[k]; if (d.toggle) return ''; if (d.zero !== undefined && v === d.min) return d.zero; return typeof v === 'number' ? v.toFixed(decimals(d.step)) : String(v); };
+  const setMod = (k) => P[k] !== PHYS[k].def;
   let setFold = {};
   try { setFold = JSON.parse(localStorage.getItem('stars.setFold') || '{}'); } catch { /* 隐私模式 */ }
-  function renderPhysics() {
-    $('ph-body').innerHTML = SET_GROUPS.map((g) => {
-      const fold = setFold[g.id] ?? !!g.fold;
-      const toggles = g.keys.filter((k) => setDef(k).toggle), rest = g.keys.filter((k) => !setDef(k).toggle);
-      const anyMod = g.keys.some(setMod);
-      return `<div class="sg ${fold ? 'fold' : ''}" data-sg="${g.id}"><div class="sg-h"><span class="${anyMod ? 'mod' : ''}">${esc(g.label)}</span></div><div class="sg-b">`
-        + (toggles.length ? '<div class="sg-tg">' + toggles.map((k) => { const d = setDef(k);
-          return `<div class="st-tog ${setVal(k) ? 'on' : ''}" data-k="${k}" title="${esc(d.hint)}"><span class="sw"></span><b class="${setMod(k) ? 'mod' : ''}">${esc(d.label)}</b></div>`; }).join('') + '</div>' : '')
-        + rest.map((k) => { const d = setDef(k), lab = `<label class="${setMod(k) ? 'mod' : ''}" data-reset="${k}" title="${esc(d.hint)}">${esc(d.label)}</label>`;
-          if (d.choices) return `<div class="ph-row">${lab}<span class="seg">` + d.choices.map((c, i) => `<span class="${setVal(k) === c ? 'on' : ''}" data-k="${k}" data-v="${c}">${esc((d.names || d.choices)[i])}</span>`).join('') + '</span></div>';
-          return `<div class="ph-row ${k === 'heatLevel' && !heatOn() ? 'off' : ''}">${lab}`
-            + `<input type="range" data-k="${k}" min="${d.min}" max="${d.max}" step="${d.step}" value="${P[k]}"><output>${fmtP(k, P[k])}</output></div>`; }).join('')
-        + '</div></div>';
+  function settingsForm() {
+    return SET.groups.map((g) => {
+      const fold = setFold[g.id] ?? g.fold;
+      const toggles = g.keys.filter((k) => PHYS[k].toggle), rest = g.keys.filter((k) => !PHYS[k].toggle);
+      return `<div class="sg ${fold ? 'fold' : ''}" data-sg="${esc(g.id)}"><div class="sg-h"><span class="${g.keys.some(setMod) ? 'mod' : ''}">${esc(g.label)}</span></div><div class="sg-b">`
+        + (toggles.length ? '<div class="sg-tg">' + toggles.map((k) => `<div class="st-tog ${P[k] ? 'on' : ''}" data-k="${k}" title="${esc(PHYS[k].hint)}"><span class="sw"></span><b class="${setMod(k) ? 'mod' : ''}">${esc(PHYS[k].label)}</b></div>`).join('') + '</div>' : '')
+        + rest.map((k) => {
+          const d = PHYS[k], lab = `<label class="${setMod(k) ? 'mod' : ''}" data-reset="${k}" title="${esc(d.hint)}">${esc(d.label)}</label>`;
+          if (d.kind === 'choice') return `<div class="ph-row">${lab}<span class="seg">` + d.choices.map((c, i) => `<span class="${P[k] === c ? 'on' : ''}" data-k="${k}" data-v="${esc(c)}">${esc(d.names[i])}</span>`).join('') + '</span></div>';
+          if (d.kind === 'range') return `<div class="ph-row ${(k === 'heatLevel' && !heatOn()) || (/^vol(Map|Min|Max)$/.test(k) && !P.compact) ? 'off' : ''}">${lab}`
+            + `<input type="range" data-k="${k}" min="${d.min}" max="${d.max}" step="${d.step}" value="${P[k]}"><output>${esc(fmtP(k, P[k]))}</output></div>`;
+          if (d.kind === 'color') return `<div class="ph-row">${lab}<input type="color" data-k="${k}" value="${esc(P[k])}" style="grid-column:2 / span 2;justify-self:end"></div>`;
+          if (d.kind === 'number') return `<div class="ph-row">${lab}<input type="number" class="st-in" data-k="${k}" min="${d.min}" max="${d.max}" step="${d.step}" value="${esc(P[k])}" style="grid-column:2 / span 2"></div>`;
+          return `<div class="ph-row">${lab}<input class="st-in" data-k="${k}" value="${esc(P[k])}" style="grid-column:2 / span 2"></div>`;   // 不认识的标签:文本框,原文照样写回
+        }).join('') + '</div></div>';
     }).join('');
   }
-  const savePhys = () => { try { localStorage.setItem('stars.phys', JSON.stringify(P)); } catch { /* 隐私模式 */ } };
+  function keysForm() {
+    const user = bindingsOf(userCfg.keys.text);
+    const rows = [...DEF_KEYS.map(([k]) => k), ...[...user.keys()].filter((k) => !DEF_KEY.has(k))];
+    const cmdNames = [...CMDS.keys()];
+    return `<datalist id="cmd-names">${cmdNames.map((n) => `<option value="${esc(n)}">`).join('')}</datalist><div class="kb-list">`
+      + rows.map((k) => {
+        const def = DEF_KEY.get(k), cur = keyMap.get(k), off = !cur, st = !def ? '新增' : off ? '已取消' : cur !== def ? '已改' : '';
+        return `<div class="kb-row ${off ? 'off' : ''} ${st ? 'mod' : ''}" data-key="${esc(k)}"><kbd>${esc(keyLabel(k))}</kbd>`
+          + `<input class="kb-cmd" data-key="${esc(k)}" list="cmd-names" value="${esc(cur || '')}" placeholder="${esc(def ? '(已取消)默认:' + def : '命令')}" spellcheck="false">`
+          + `<span class="kb-st">${st}</span>`
+          + (st && def ? `<span class="mini" data-kb="reset" title="恢复默认:${esc(def)}">↺</span>` : '<span></span>')
+          + (off ? '<span></span>' : `<span class="mini no" data-kb="unbind" title="${def ? '取消这个键' : '删掉这个绑定'}">✗</span>`) + '</div>';
+      }).join('') + '</div>'
+      + `<div class="btns" style="margin-top:6px"><span class="btn" id="kb-add">${recording ? '请按下要绑的键…(Esc 取消)' : '+ 添加快捷键'}</span></div>`;
+  }
+  function rawView(name) {
+    const u = userCfg[name];
+    const notes = (u.error ? [`<span class="bad">${esc(u.error)}(这一版没有生效)</span>`] : []).concat((u.warnings || []).map((w) => `<span class="warn">${esc(w)}</span>`));
+    return `<textarea id="set-raw" data-name="${name}" spellcheck="false">${esc(u.text)}</textarea>`
+      + `<div id="set-raw-msg">${notes.join('') || '<span class="ok">✓ 有效</span>'}</div>`
+      + `<details id="set-defaults"><summary>默认值(只读,core/${name}.llf)</summary><pre>${esc(CFG.defaults[name])}</pre></details>`;
+  }
+  /** soft:由数据变化触发(而不是切换页面)—— 原文页正在打字时不覆盖输入框 */
+  function renderPhysics(soft) {
+    for (const el of document.querySelectorAll('#set-head [data-tab]')) el.classList.toggle('on', el.dataset.tab === setTab);
+    for (const el of document.querySelectorAll('#set-mode [data-raw]')) el.classList.toggle('on', (el.dataset.raw === '1') === setRaw);
+    $('set-path').textContent = '\u200e' + userCfg[setTab].path + '\u200e';   // 从左边省略(rtl),LRM 让开头的 / 不跑到末尾
+    $('ph-reset').textContent = setTab === 'keys' ? '全部恢复默认键位' : '全部恢复默认';
+    const ta = $('set-raw');
+    if (soft && setRaw && ta && document.activeElement === ta) return;
+    $('ph-body').innerHTML = setRaw ? rawView(setTab) : setTab === 'keys' ? keysForm() : settingsForm();
+  }
   function togglePhysics(on) {
     $('physics').hidden = !on; $('btn-phys').classList.toggle('on', on);
-    if (!on) return;
+    if (!on) { recording = false; return; }
     if (!$('editor').hidden) toggleEditor(false);
     if (!$('review').hidden) toggleReview(false);
     $('projects').hidden = true;
     layoutPanels(); renderPhysics();
   }
-  /** 参数变了之后要做的事(面板和 param 命令共用) */
-  function paramChanged(k) {
-    savePhys(); applyPhys();
-    if (k === 'volMin' || k === 'volMax' || k === 'compact' || PHYS[k].choices) recompute(); // 体积相关的改的是体积计算本身,要重新编译视图
-    if (k === 'follow') scheduleFollow(selected); // 开:从当前镜头平滑锁到选中;关:就地解冻,不跳
-    if (!$('physics').hidden && !(document.activeElement && document.activeElement.dataset && document.activeElement.dataset.k === k)) renderPhysics(); // 正在拖的滑条不重绘
-  }
-  $('ph-body').addEventListener('input', (ev) => {   // 拖滑条:实时生效;松手时回显成 param 命令
-    const k = ev.target.dataset && ev.target.dataset.k; if (!k) return;
-    P[k] = Number(ev.target.value); ev.target.nextElementSibling.textContent = fmtP(k, P[k]);
-    paramChanged(k);
+  $('set-head').addEventListener('click', (ev) => {
+    const t = ev.target.closest('[data-tab]'), r = ev.target.closest('[data-raw]');
+    if (t) setTab = t.dataset.tab; else if (r) setRaw = r.dataset.raw === '1'; else return;
+    recording = false; saveSetView(); renderPhysics();
   });
-  $('ph-body').addEventListener('change', (ev) => { const k = ev.target.dataset && ev.target.dataset.k; if (k) did(`param ${k} ${P[k]}`); });
+  $('ph-reset').addEventListener('click', () => exec(setTab === 'keys' ? 'bind reset' : 'param reset', 'ui'));
+  $('ph-body').addEventListener('input', (ev) => {
+    const t = ev.target;
+    if (t.id === 'set-raw') { rawInput(t); return; }
+    if (t.type !== 'range') return;   // 拖滑条:实时生效,松手时写回并回显成 param 命令
+    const k = t.dataset.k; if (!k) return;
+    P[k] = Number(t.value); t.nextElementSibling.textContent = fmtP(k, P[k]);
+    afterParams([k]);
+  });
+  $('ph-body').addEventListener('change', (ev) => {
+    const t = ev.target, k = t.dataset && t.dataset.k;
+    if (t.classList.contains('kb-cmd')) { const v = t.value.trim(); exec(v ? `bind ${quoteArg(t.dataset.key)} ${v}` : `unbind ${quoteArg(t.dataset.key)}`, 'ui'); return; }
+    if (!k) return;
+    if (t.type === 'range') { setParam(k, P[k]); did(`param ${k} ${formatSetting(SET.items[k].w, P[k])}`); return; }
+    exec(`param ${k} ${quoteArg(t.value)}`, 'ui');
+  });
   $('ph-body').addEventListener('click', (ev) => {
     const h = ev.target.closest('.sg-h');
     if (h) { const g = h.parentElement, id = g.dataset.sg; setFold[id] = !g.classList.contains('fold'); g.classList.toggle('fold', setFold[id]); try { localStorage.setItem('stars.setFold', JSON.stringify(setFold)); } catch { /* 隐私模式 */ } return; }
     const ch = ev.target.closest('[data-v]');
-    if (ch) { const k = ch.dataset.k; exec(SET_EXTRA[k] ? SET_EXTRA[k].cmd(ch.dataset.v) : `param ${k} ${ch.dataset.v}`, 'ui'); return; }
+    if (ch) { exec(`param ${ch.dataset.k} ${quoteArg(ch.dataset.v)}`, 'ui'); return; }
     const t = ev.target.closest('.st-tog');
-    if (t) { const k = t.dataset.k; exec(SET_EXTRA[k] ? SET_EXTRA[k].cmd(!setVal(k)) : `param ${k} toggle`, 'ui'); }
+    if (t) { exec(`param ${t.dataset.k} toggle`, 'ui'); return; }
+    const kb = ev.target.closest('[data-kb]');
+    if (kb) { const key = kb.closest('[data-key]').dataset.key; exec(kb.dataset.kb === 'reset' ? `bind reset ${quoteArg(key)}` : `unbind ${quoteArg(key)}`, 'ui'); return; }
+    if (ev.target.closest('#kb-add')) { recording = !recording; renderPhysics(); }
   });
-  $('ph-body').addEventListener('dblclick', (ev) => {   // 双击名字:这一项恢复默认
-    const l = ev.target.closest('[data-reset]'); if (!l) return;   // 开关只有两态,点一下就是,不需要双击恢复
-    const k = l.dataset.reset;
-    if (setMod(k)) exec(SET_EXTRA[k] ? SET_EXTRA[k].cmd(SET_EXTRA[k].def) : `param reset ${k}`, 'ui');
+  $('ph-body').addEventListener('dblclick', (ev) => {   // 双击名字:这一项恢复默认(开关只有两态,点一下就是,不需要双击恢复)
+    const l = ev.target.closest('[data-reset]'); if (!l) return;
+    if (setMod(l.dataset.reset)) exec(`param reset ${l.dataset.reset}`, 'ui');
   });
+  // 录键:按「添加快捷键」后,下一次按键就是要绑的键(在捕获阶段截住,不触发它原来的命令)
+  addEventListener('keydown', (ev) => {
+    if (!recording || $('physics').hidden || ev.isComposing) return;
+    const name = keyName(ev); if (!name) return;
+    ev.preventDefault(); ev.stopPropagation();
+    recording = false;
+    if (name === 'escape') { renderPhysics(); return; }
+    if (!keyMap.has(name)) setBinding(name, 'help');   // 先占个位(help),再在输入框里改成要的命令
+    renderPhysics();
+    const inp = [...document.querySelectorAll('.kb-cmd')].find((i) => i.dataset.key === name);
+    if (inp) { inp.focus(); inp.select(); }
+  }, true);
+  // 原文页:停手 400ms 后检查;合法就写回并生效,不合法就只提示(不存半截的文件)
+  let rawTimer = null;
+  function rawInput(ta) {
+    clearTimeout(rawTimer);
+    rawTimer = setTimeout(() => {
+      const name = ta.dataset.name, text = ta.value.replace(/\r\n/g, '\n');
+      try { llfParseDoc(text, CFG_OPTS); } catch (e) { $('set-raw-msg').innerHTML = `<span class="bad">${esc(e.message)}(还没保存)</span>`; return; }
+      if (text === userCfg[name].text) return;
+      cfgEdit(name, { raw: text }); cfgApply(name);
+      const u = userCfg[name];
+      $('set-raw-msg').innerHTML = (u.warnings || []).map((w) => `<span class="warn">${esc(w)}</span>`).join('') || '<span class="ok">✓ 已保存并生效</span>';
+    }, 400);
+  }
 
   // ---------- 图例:视图用到"新旧"时说明颜色的含义 ----------
   function renderLegend() {
@@ -2416,27 +2680,15 @@ import { filterNodes, neighborhood, shortestPath } from '/core/query.js';
     ctx.globalAlpha = prev;
   }
 
-  // 背景:0 = 星点 + 远方星系,1 = 只有星点,2 = 无(只有暗色底)
-  let bgMode = 0;
-  try { bgMode = Number(localStorage.getItem('stars.bg') || 0) % 3; } catch { /* 隐私模式 */ }
-  const BG_NAMES = ['星系', '星点', '无'];
-  function setBg(m) {
-    bgMode = m % 3;
-    try { localStorage.setItem('stars.bg', String(bgMode)); } catch { /* ignore */ }
-    if (!$('physics').hidden) renderPhysics();
-  }
-  setBg(bgMode);
+  // 背景:0 = 星点 + 远方星系,1 = 只有星点,2 = 无(只有暗色底)。和文件夹边界一样是一项设置(display.bg / display.bounds)
+  const BG_MODES = ['galaxy', 'dots', 'none'];
+  let bgMode = Math.max(0, BG_MODES.indexOf(P.bg));
+  function setBg(m) { setParam('bg', BG_MODES[((m % 3) + 3) % 3]); }
 
   // 文件夹的边界(虚线圆)与半透明底:视图层开关(视图规则 space.boundary=false 也关)。关掉后交互与文字保留,边界和底色全透明。
-  let showBounds = true;
-  try { showBounds = (localStorage.getItem('stars.bounds') ?? '1') !== '0'; } catch { /* 隐私模式 */ }
+  let showBounds = !!P.bounds;
   const boundsOn = () => showBounds && (((draftSpec ?? specs[currentView] ?? {}).space || {}).boundary !== false);
-  function setBounds(on) {
-    showBounds = !!on;
-    try { localStorage.setItem('stars.bounds', showBounds ? '1' : '0'); } catch { /* ignore */ }
-    if (!$('physics').hidden) renderPhysics();
-  }
-  setBounds(showBounds);
+  function setBounds(on) { setParam('bounds', on ? 1 : 0); }
 
   function drawBackdrop(now) {
     const W = innerWidth, H = innerHeight;
@@ -2886,20 +3138,30 @@ import { filterNodes, neighborhood, shortestPath } from '/core/query.js';
   const nodeIds = (p) => { const r = []; for (const id of raw.keys()) if (id.startsWith(p) && !id.startsWith('~')) { r.push(id); if (r.length >= 60) break; } return r; };
   const nodeArg = (name = 'id') => ({ name, values: nodeIds });
 
-  /** 执行一行命令。src:console / palette(你敲的)、key / ui / mouse(界面操作,回显) */
-  function exec(line, src = 'console') {
+  /** 执行一行命令。src:console / palette(你敲的)、key / ui / mouse(界面操作,回显)、remote(stars ui 遥控)。
+   *  report(可选):执行完回报 { ok, out, error } —— 遥控用它把输出交回给 CLI */
+  function exec(line, src = 'console', report = null, from = '') {
     line = String(line || '').trim(); if (!line) return;
     const toks = tokenize(line), spec = CMDS.get(toks[0]);
     const typed = src === 'console' || src === 'palette';
     if (typed) conLog(line, 'in');
-    const fail = (e) => { const m = String((e && e.message) || e); conLog(m, 'err'); if (!typed && $('console').hidden) toast(esc(m), true); };
+    if (src === 'remote') { conLog(line + (from ? `   ← ${from}` : ''), 'remote'); if ($('console').hidden) toast(`遥控${from ? '(' + esc(from) + ')' : ''}:<code>${esc(line)}</code>`, false, 2500); }
+    const fail = (e) => {
+      const m = String((e && e.message) || e); conLog(m, 'err');
+      if (!typed && $('console').hidden) toast(esc(m), true);
+      if (report) report({ ok: false, error: m });
+    };
     if (!spec) { fail(`没有这个命令:${toks[0]}(help 看全部)`); return null; }
     let r;
     try { const { a, o } = parseArgs(spec, toks.slice(1)); r = spec.run(a, o, { src }); }
     catch (e) { fail(e); return null; }
-    if (r === false) { if (typed) conLog('(此时不适用)', 'dim'); return false; }
-    if (!typed) conLog(line, 'echo');
-    const show = (v) => { if (typeof v === 'string' && v) { conLog(v); if ($('console').hidden) toggleConsole(true); } };   // 有输出就把控制台拉出来
+    if (r === false) { if (typed || src === 'remote') conLog('(此时不适用)', 'dim'); if (report) report({ ok: false, error: '此时不适用' }); return false; }
+    if (!typed && src !== 'remote') conLog(line, 'echo');
+    const show = (v) => {
+      const out = typeof v === 'string' ? v : '';
+      if (out) { conLog(out); if ($('console').hidden && src !== 'remote') toggleConsole(true); }   // 有输出就把控制台拉出来(遥控的输出交回 CLI,不打扰)
+      if (report) report({ ok: true, out });
+    };
     if (r && typeof r.then === 'function') r.then(show, fail); else show(r);
     return r === undefined ? true : r;
   }
@@ -2980,9 +3242,9 @@ import { filterNodes, neighborhood, shortestPath } from '/core/query.js';
   defCmd('fit', { group: '镜头', title: '适应窗口', run: () => fit() });
   defCmd('bg', {
     group: '显示', title: '背景:星系 / 星点 / 无', usage: 'bg [galaxy|dots|none|next]', args: [{ name: '背景', values: () => ['galaxy', 'dots', 'none', 'next'] }],
-    palette: () => ['galaxy', 'dots', 'none'].map((m, i) => ({ line: 'bg ' + m, title: '背景:' + BG_NAMES[i] })),
+    palette: () => BG_MODES.map((m, i) => ({ line: 'bg ' + m, title: '背景:' + PHYS.bg.names[i] })),
     run: ([m]) => {
-      const i = m === undefined || m === 'next' ? bgMode + 1 : ['galaxy', 'dots', 'none'].indexOf(m);
+      const i = m === undefined || m === 'next' ? bgMode + 1 : BG_MODES.indexOf(m);
       if (i < 0) throw new Error('应为 galaxy / dots / none / next');
       setBg(i);
     },
@@ -3021,34 +3283,53 @@ import { filterNodes, neighborhood, shortestPath } from '/core/query.js';
   defCmd('edit', { group: '文件', title: '把光标放进侧栏的文件编辑器', run: () => { if (!$('fp-text')) return false; focusEditor(); } });
   defCmd('save', { group: '文件', title: '保存侧栏里的文件(Ctrl+S)', run: () => { if (!fp || !fp.full) return false; return saveFile(false); } });
 
-  // ---- 宇宙参数 ----
+  // ---- 设置(写回 ~/.config/stars/settings.llf)与快捷键(keys.llf)----
   const fmtParam = (k) => (PHYS[k].toggle ? (P[k] ? 'on' : 'off') : String(P[k]));
   function resetParams(k) {
-    if (!k || k === 'bg') setBg(0);
-    if (!k || k === 'bounds') setBounds(true);
-    if (k === 'bg' || k === 'bounds') return;
-    for (const key of k ? [k] : Object.keys(PHYS)) { if (!PHYS[key]) throw new Error(`没有这个参数:${key}`); P[key] = PHYS[key].def; }
-    savePhys(); applyPhys(); recompute(); scheduleFollow(selected);
-    if (!$('physics').hidden) renderPhysics();
+    if (k && !PHYS[k]) throw new Error(`没有这个设置:${k}`);
+    let doc = null; try { doc = llfParseDoc(userCfg.settings.text, CFG_OPTS); } catch { /* 坏文件:只按当前值判断 */ }
+    // 文件里写了(哪怕写的是不合法的值、或正好等于默认值)也删掉,恢复默认 = 个人文件里不再有这一项
+    for (const key of k ? [k] : Object.keys(PHYS)) if (P[key] !== PHYS[key].def || (doc && llfFind(doc, SET.items[key].path))) setParam(key, PHYS[key].def);
   }
   defCmd('param', {
-    group: '参数', title: '查看 / 设置宇宙参数;param reset [名字] 恢复默认', usage: 'param [名字] [值|on|off|toggle] · param reset [名字]',
-    args: [{ name: '名字', values: () => ['reset', ...Object.keys(SET_EXTRA), ...Object.keys(PHYS)] },
-      { name: '值', values: (p, a) => (a[0] === 'reset' ? [...Object.keys(SET_EXTRA), ...Object.keys(PHYS)] : SET_EXTRA[a[0]] ? (SET_EXTRA[a[0]].choices || ['on', 'off', 'toggle']) : PHYS[a[0]]?.choices || (PHYS[a[0]]?.toggle ? ['on', 'off', 'toggle'] : [])) }],
-    palette: () => [{ line: 'param reset', title: '宇宙参数全部恢复默认' }, ...Object.entries(PHYS).map(([k, d]) => (d.toggle
+    group: '设置', title: '查看 / 设置一项设置(写回个人设置文件);param reset [名字] 恢复默认', usage: 'param [名字] [值|on|off|toggle] · param reset [名字]',
+    args: [{ name: '名字', values: () => ['reset', ...Object.keys(PHYS)] },
+      { name: '值', values: (p, a) => (a[0] === 'reset' ? Object.keys(PHYS) : PHYS[a[0]]?.choices || (PHYS[a[0]]?.toggle ? ['on', 'off', 'toggle'] : [])) }],
+    palette: () => [{ line: 'param reset', title: '设置全部恢复默认' }, ...Object.entries(PHYS).map(([k, d]) => (d.toggle
       ? { line: `param ${k} toggle`, title: '开 / 关 ' + d.label }
+      : d.choices ? { line: `param ${k} `, title: `${d.label}:${d.choices.join(' / ')}(现在 ${P[k]})`, more: true }
       : { line: `param ${k} `, title: `设置 ${d.label}(现在 ${fmtParam(k)})`, more: true }))],
     run: ([k, v]) => {
-      if (!k) return Object.entries(PHYS).map(([key, d]) => `${key.padEnd(10)} ${fmtParam(key).padEnd(7)} ${d.label}`).join('\n');
+      if (!k) return Object.entries(PHYS).map(([key, d]) => `${key.padEnd(10)} ${fmtParam(key).padEnd(7)} ${d.label}${P[key] !== d.def ? '   (改过)' : ''}`).join('\n');
       if (k === 'reset') { resetParams(v); return; }
-      if (SET_EXTRA[k]) { if (v === undefined) return `${k} = ${SET_EXTRA[k].get()}   ${SET_EXTRA[k].label}`; return CMDS.get(k).run([v], {}); }
-      const d = PHYS[k]; if (!d) throw new Error(`没有这个参数:${k}(param 列出全部)`);
-      if (v === undefined) return `${k} = ${fmtParam(k)}   ${d.label}:${d.hint}`;
-      if (d.toggle) P[k] = onOff(v, P[k] > 0) ? 1 : 0;
-      else if (d.choices) { if (!d.choices.includes(v)) throw new Error(`应为 ${d.choices.join(' / ')}`); P[k] = v; }
-      else { const x = Number(v); if (!Number.isFinite(x)) throw new Error(`应为数字,得到 ${v}`); P[k] = Math.min(d.max, Math.max(d.min, x)); }
-      paramChanged(k);
+      const d = PHYS[k]; if (!d) throw new Error(`没有这个设置:${k}(param 列出全部)`);
+      if (v === undefined) return `${k} = ${fmtParam(k)}   ${d.label}:${d.hint}${P[k] !== d.def ? `\n  (默认 ${formatSetting(SET.items[k].w, d.def)})` : ''}`;
+      let x;
+      if (d.toggle) x = onOff(v, P[k] > 0) ? 1 : 0;
+      else { x = parseSetting(SET.items[k].w, v); if (x === undefined) throw new Error(d.choices ? `应为 ${d.choices.join(' / ')}` : `${v} 不是合法的值`); }
+      setParam(k, x);
     },
+  });
+  defCmd('bind', {
+    group: '设置', title: '把一个键绑到一条命令(写回个人快捷键文件);bind reset [键] 恢复默认;不带参数列出全部', usage: 'bind <键> <命令…> · bind reset [键] · bind',
+    args: [{ name: '键', values: () => ['reset', ...keyMap.keys()] }, { name: '命令', values: () => [...CMDS.keys()] }],
+    palette: () => [{ line: 'bind ', title: '绑定快捷键', more: true }, { line: 'bind reset', title: '快捷键全部恢复默认' }],
+    run: ([k, ...cmd]) => {
+      if (!k) return KEYMAP.map(([key, line]) => `${keyLabel(key).padEnd(8)} ${line}${DEF_KEY.get(key) !== line ? '   (改过)' : ''}`).join('\n');
+      if (k === 'reset') {
+        const keys = cmd.length ? cmd.map(normKey) : [...bindingsOf(userCfg.keys.text).keys()];
+        for (const key of keys) setBinding(key, undefined);
+        return;
+      }
+      if (!cmd.length) { const key = normKey(k); return `${keyLabel(key)} → ${keyMap.get(key) ?? '(没有绑定)'}${DEF_KEY.has(key) ? `   默认:${DEF_KEY.get(key)}` : ''}`; }
+      const line = cmd.length === 1 ? cmd[0] : cmd.map(quoteArg).join(' ');   // bind g "view tags" 与 bind g view tags 一样
+      if (!CMDS.has(tokenize(line)[0])) throw new Error(`没有这个命令:${tokenize(line)[0]}`);
+      setBinding(k, line);
+    },
+  });
+  defCmd('unbind', {
+    group: '设置', title: '取消一个键(默认的键记成 _,自己加的直接删掉)', usage: 'unbind <键>', args: [{ name: '键', values: () => [...keyMap.keys()] }],
+    run: ([k]) => { if (!k) throw new Error('用法:unbind <键>'); setBinding(k, null); },
   });
 
   // ---- 时间线 ----
@@ -3191,16 +3472,7 @@ import { filterNodes, neighborhood, shortestPath } from '/core/query.js';
   defCmd('clear', { group: '控制台', title: '清空控制台', run: () => { $('con-out').innerHTML = ''; } });
   defCmd('palette', { group: '控制台', title: '命令面板:搜索全部命令', run: () => togglePalette(true) });
 
-  // ---------- 键位表:键 → 命令行(第 4 步起可以在 keys.llf 里改)----------
-  // 键名:字母小写、符号原样('?' '/' '`');特殊键用小写的 KeyboardEvent.key(escape、enter、arrowleft…);组合键 ctrl+ alt+ shift+(shift 只用于特殊键)。
-  const KEYMAP = [
-    ['/', 'filter'], ['escape', 'cancel'], ['f', 'fit'], ['e', 'expand'], ['enter', 'enter'], ['backspace', 'exit'], ['u', 'exit'], ['0', 'collapse-all'],
-    ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => [String(i), 'view ' + i]),
-    ['b', 'bg next'], ['i', 'panel tools'], ['l', 'panel side'], ['p', 'panel projects'], ['t', 'panel timeline'], ['r', 'panel review'], [',', 'panel settings'],
-    ['arrowleft', 'timeline prev'], ['arrowright', 'timeline next'],
-    ['`', 'panel console'], ['?', 'panel keys'], ['ctrl+k', 'palette'],
-  ];
-  const keyMap = new Map(KEYMAP);
+  // ---------- 键位(KEYMAP / keyMap 由 core/keys.llf + 个人 keys.llf 合成,见「快捷键」一节)----------
   const KEY_LABEL = { escape: 'Esc', enter: '⏎', backspace: '⌫', arrowleft: '←', arrowright: '→', arrowup: '↑', arrowdown: '↓', space: '空格', ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift' };
   const keyLabel = (k) => k.split('+').map((p) => KEY_LABEL[p] || (p.length === 1 ? p.toUpperCase() : p)).join(' ');
   const keysOf = (line) => [...keyMap].filter(([, l]) => l === line || l.split(' ')[0] === line).map(([k]) => keyLabel(k));
@@ -3390,6 +3662,25 @@ import { filterNodes, neighborhood, shortestPath } from '/core/query.js';
   dismissible.push(['keys', 'hint', () => toggleKeys(false)]);
 
   window.__stars = { nodes: () => simulation.nodes(), transform: () => transform, scene: () => scene, regions: () => regions, perf, hits: () => frameHits, space: () => curSpaceId, enter: (id) => enterSpace(id, true), exit: () => exitSpace(true), rho: () => (curSpaceId === null ? null : getSpace(curSpaceId).E * transform.k / 0.92 / enterT()), expand: (id) => toggleExpandSpace(id), expanded: () => [...expandedSet], getSpace: (id) => getSpace(id ?? null), hasNode: (id) => !!uni && uni.nodes.has(id), project: () => project, P, heated: () => [...heated].map((sp) => sp.key), flatTarget: () => simulation.alphaTarget(), spaceTarget: (id) => getSpace(id ?? null).sim.alphaTarget(), select: (id) => select(id, false), offset: (id) => screenOffset(id), follow: () => ({ id: followId }), tap: () => (lastTap ? { id: lastTap.id, age: Math.round(performance.now() - lastTap.t) } : null), dragInfo: () => (drag ? { id: drag.n && drag.n.id, sp: drag.h && drag.h.sp && drag.h.sp.key, domain: !!(drag.h && drag.h.domain), g: drag.g ? { n: drag.g.n.id, sp: drag.g.sp.key } : null, push: pullDbg } : null), file: () => fp && { id: fp.id, full: fp.full, dirty: fp.dirty, kind: fp.info && fp.info.kind }, nodeCount: () => uni.nodes.size, lastN: () => lastN, recompute, manual, auto, compiled: () => compiled }; // 调试/自动化用
+  // 旧版把设置存在浏览器里(stars.phys / stars.bg / stars.bounds):个人设置文件还不存在时,搬过去一次
+  (function migrateLegacySettings() {
+    let legacy;
+    try {
+      if (localStorage.getItem('stars.cfgMigrated')) return;
+      legacy = { phys: JSON.parse(localStorage.getItem('stars.phys') || 'null'), bg: localStorage.getItem('stars.bg'), bounds: localStorage.getItem('stars.bounds') };
+      localStorage.setItem('stars.cfgMigrated', '1');
+    } catch { return; }
+    if (userCfg.settings.exists) return;
+    const want = {};
+    for (const [k, v] of Object.entries(legacy.phys || {})) if (PHYS[k] && typeof v === typeof PHYS[k].def && v !== PHYS[k].def) want[k] = v;
+    if (legacy.bg != null && BG_MODES[+legacy.bg % 3] && BG_MODES[+legacy.bg % 3] !== PHYS.bg.def) want.bg = BG_MODES[+legacy.bg % 3];
+    if (legacy.bounds === '0') want.bounds = 0;
+    const keys = Object.keys(want);
+    if (!keys.length) return;
+    for (const k of keys) setParam(k, want[k]);
+    toast(`已把浏览器里的 ${keys.length} 项设置搬进 ${esc(userCfg.settings.path)}`);
+  })();
+
   connect();
 })();
 </script>

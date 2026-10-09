@@ -428,10 +428,12 @@ class LlfParser {
     node.valueEnd = node.end = last.end;
   }
 
+  // 紧挨在上面的注释;空注释行(只有 #)是分隔:它和它上面的注释不属于这个节点(比如文件开头的说明)
   commentsBefore(line: LlfLine): string[] {
     const out: string[] = [];
     for (let k = line.k - 1; k >= 0 && this.lines[k].content.startsWith('#'); k--) {
       const c = this.lines[k].content.slice(1);
+      if (llfStrip(c) === '') break;
       out.push(c.startsWith(' ') ? c.slice(1) : c);
     }
     return out.reverse();
@@ -728,13 +730,14 @@ export function llfDelete(text: string, path: (string | number)[], opts: LlfOpti
     if (child === null) return t;
     node = child;
   }
-  // 往上吞掉紧贴的注释行(消息体里没有空行,文本块也不会以 # 开头,所以按行首 # 判断就够)
+  // 往上吞掉紧贴的注释行(消息体里没有空行,文本块也不会以 # 开头,所以按行首 # 判断就够);
+  // 遇到空注释行(只有 #)就停:那是分隔,它和上面的注释属于别处(比如文件开头的说明)
   let from = node.start;
   while (from > 0) {
     const prev = t.lastIndexOf('\n', from - 2) + 1;
     if (prev >= from) break;
     const j = prev + llfLeadingSpaces(t, prev).length;
-    if (t[j] !== '#') break;
+    if (t[j] !== '#' || llfStrip(t.slice(j + 1, from)) === '') break;
     from = prev;
   }
   return t.slice(0, from) + t.slice(node.end);

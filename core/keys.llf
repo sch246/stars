@@ -1,0 +1,36 @@
+# 星罗的快捷键 —— 默认值。键 → 命令:控制台里能敲的命令都能绑(包括带参数的,如 view tags)。
+# 你的修改写在 ~/.config/stars/keys.llf:同名的键覆盖这里的,写成 _ 表示取消这个键。
+# 键名:字母小写、符号原样(/ ? ` ,);特殊键用小写英文名(escape enter backspace arrowleft space …);
+# 组合键写 ctrl+k、alt+x、shift+enter(shift 只用于特殊键;Mac 上 ⌘ 也算 ctrl)。打字时只认 Esc 和 Ctrl 组合。
+#
+bindings !map<command> {}
+  / - filter
+  escape - cancel
+  f - fit
+  e - expand
+  enter - enter
+  backspace - exit
+  u - exit
+  0 - collapse-all
+  1 - view 1
+  2 - view 2
+  3 - view 3
+  4 - view 4
+  5 - view 5
+  6 - view 6
+  7 - view 7
+  8 - view 8
+  9 - view 9
+  b - bg next
+  i - panel tools
+  l - panel side
+  p - panel projects
+  t - panel timeline
+  r - panel review
+  , - panel settings
+  arrowleft - timeline prev
+  arrowright - timeline next
+  ` - panel console
+  ? - panel keys
+  ctrl+k - palette
+--LLF-END

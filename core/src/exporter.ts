@@ -5,6 +5,7 @@ import { stripTypeScriptTypes } from 'node:module';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildSnapshot } from './snapshot.ts';
+import { pageConfig } from './config.ts';
 import { type Store } from './store.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -30,6 +31,7 @@ export function exportHtml(store: Store, baseDir: string): string {
   html = html
     .replace('<meta name="stars-token" content="__STARS_TOKEN__">', '')
     .replace('<script src="/d3.js"></script>', () => `<script>${safe(d3)}</script>`)
+    .replace('__STARS_CONFIG__', () => pageConfig(false))   // 只带默认值;个人设置存在看的人的浏览器里
     .replace(/^import \{[^}]*\} from '\/core\/\w+\.js';\n/gm, '')
     .replace('<script type="module">', () => `<script type="module">\nwindow.__STARS_STATIC__ = ${safe(snapshot)};\n${safe(kernel)}\n`);
   return html;
