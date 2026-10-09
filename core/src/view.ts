@@ -125,7 +125,8 @@ export interface SceneNode {
   /** 作为 tag 的祖先容器 id(视图声明了 tags 时) */
   tags?: string[];
   /** 收起的容器:里面内容的缩影 [颜色, 半径],查看器据此把它画成一个小星系 */
-  kids?: Array<[string, number]>;
+  /** 收起的容器的缩影:最多 48 个后代(广度优先)的 [颜色, 半径, id] —— 画成小星系的粒子;放大展开时每颗粒子长成它对应的节点 */
+  kids?: Array<[string, number, string]>;
 }
 export interface SceneEdge {
   from: string;
@@ -822,13 +823,13 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
       if (cc > 0) {
         sn.container = true; sn.children = cc; sn.descendants = desc[i]!; sn.expanded = open[i] === 1;
         if (!sn.expanded) { // 收起的容器:取最多 48 个后代作为缩影(广度优先,够数就停)
-          const kids: Array<[string, number]> = [], queue = [i];
+          const kids: Array<[string, number, string]> = [], queue = [i];
           for (let q = 0; q < queue.length && kids.length < 48; q++) {
             const v = queue[q]!;
             for (let k = treeKids.start[v]!; k < treeKids.start[v + 1]! && kids.length < 48; k++) {
               const c = treeKids.list[k]!;
               queue.push(c);
-              if (selected[c]) kids.push([color[c]!, rad[c]!]);
+              if (selected[c]) kids.push([color[c]!, rad[c]!, ids[c]!]);
             }
           }
           sn.kids = kids;
@@ -861,13 +862,13 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     const cc = treeKids.start[i + 1]! - treeKids.start[i]!;
     if (cc > 0) {
       sn.container = true; sn.children = cc; sn.descendants = desc[i]!; sn.expanded = false;
-      const kids: Array<[string, number]> = [], queue = [i];
+      const kids: Array<[string, number, string]> = [], queue = [i];
       for (let q = 0; q < queue.length && kids.length < 48; q++) {
         const v = queue[q]!;
         for (let k = treeKids.start[v]!; k < treeKids.start[v + 1]! && kids.length < 48; k++) {
           const c = treeKids.list[k]!;
           queue.push(c);
-          if (selected[c]) kids.push([color[c]!, rad[c]!]);
+          if (selected[c]) kids.push([color[c]!, rad[c]!, ids[c]!]);
         }
       }
       sn.kids = kids;

@@ -169,6 +169,7 @@ test('折叠:默认只展开到第一层,收起的容器带"缩影",大小不因
   assert.equal(a.expanded, false);
   assert.equal(a.descendants, 2);
   assert.equal(a.kids!.length, 2);
+  assert.deepEqual(a.kids!.map((k) => k[2]).sort(), ['a/x.ts', 'a/y.md'], '缩影的每颗粒子带着它对应节点的 id(展开时粒子长成那颗节点)');
   assert.equal(a.parent, 'repo');
   const open = evaluateView(u, FLAT_FOLD, { expanded: ['a/'] });
   assert.equal(open.nodes.length, 7);
