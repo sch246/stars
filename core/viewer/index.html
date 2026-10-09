@@ -289,7 +289,8 @@ import { trackProposals } from '/core/proposals.js';
     gap:       { def: 3, min: 0, max: 24, step: 1, label: '间隙 px', hint: '碰撞时节点之间至少留的空隙' },
     friction:  { def: 0.42, min: 0.1, max: 0.8, step: 0.01, label: '阻尼', hint: '越大停得越快、越不飘' },
     enterAt:   { def: 0, min: 0, max: 2, step: 0.01, label: '进入空间', hint: '放大到容器占屏幕短边的多少比例时进入它;0 = 跟随视图的设置(默认 0.42)' },
-    follow:    { def: 1, toggle: true, label: '跟随选中', hint: '选中节点后镜头缓动跟住它,看起来像它不动、外面的世界绕着它转' },
+    follow:    { def: 1, toggle: true, label: '跟随选中', hint: '选中节点后镜头跟住它:它钉在屏幕中央,外面的世界绕着它转;关掉则自由平移缩放' },
+    followDelay: { def: 350, min: 0, max: 1200, step: 10, label: '跟随延迟 ms', hint: '选中后等这么久才开始跟随,给双击(就地展开)留出窗口;0 = 立刻跟随' },
     fade:      { def: 1, toggle: true, label: '淡入淡出', hint: '空间内外切换时的交叉淡入淡出;关掉则瞬间切换,更干脆' },
     compact:   { def: 1, toggle: true, label: '真实体积', hint: '目录和文件用同一套体积公式;占用与展开都不撑大,内容等比缩小;要看清就滚轮放大' },
     volMap:    { def: 'sqrt', choices: ['log', 'sqrt', 'linear'], label: '体积映射', hint: '真实体积开启时,字节数 → 半径 的缩放;sqrt 让面积 ∝ 体积,log 更紧凑' },
@@ -775,40 +776,92 @@ import { trackProposals } from '/core/proposals.js';
   }
 
   function select(id, center) {
-    if (id !== selected) followCam = null;
     selected = id;
-    if (isSpaces()) { if (id && center) reveal(id); renderSide(); return; }
+    if (isSpaces()) {
+      // 跟随时不自己抢镜头:只保证它在画面里,居中交给(带延迟的)跟随,免得两段动画打架
+      if (id && center) { if (P.follow > 0) ensureVisible(id); else reveal(id); }
+      scheduleFollow(id);
+      renderSide(); return;
+    }
     const n = id && sim.get(id);
     if (n && !visible(n)) { hiddenTypes.delete(typeOf(id)); rebuildGraph(); renderChips(); }
-    if (n && center && n.x !== undefined) {
+    if (n && center && n.x !== undefined && !(P.follow > 0)) {
       const t = d3.zoomIdentity.translate(innerWidth / 2 - 100, innerHeight / 2).scale(Math.max(transform.k, 1)).translate(-n.x, -n.y);
       d3.select(canvas).transition().duration(500).call(zoom.transform, t);
     }
+    scheduleFollow(id);
     renderSide();
   }
 
-  // 跟随选中:镜头每帧向选中节点的目标位置缓动。节点在动、镜头跟住它,于是看起来像世界在绕它转。
-  let followCam = null;
-  function followTarget() {
-    if (!selected) return null;
-    if (isSpaces()) { const sp = getSpace(curSpaceId); return sp.byId.get(selected) || null; }
-    const n = sim.get(selected); return n && n.x !== undefined ? n : null;
+  // ---------- 相机:唯一权威 ----------
+  // 画面只由 transform 决定(screen = world × k + transform),它本身就是相机。
+  // d3.zoom 只当输入设备;跟随不是"另一套相机",而是每帧把 transform 挪到让选中节点居中。
+  // 只有 stepCamera() 会在跟随时改 transform,而且每帧只推进一次 —— 别处全是只读,
+  // 所以镜头速度与"这一帧谁调用了它几次"无关,抖动自然消失。
+  const FOLLOW_EASE = 420;           // 锁定进入的平滑时长(ms);之后精确钉住,零抖动
+  let followId = null;               // 正在锁定的节点
+  let followPend = null;             // { id, at }:选中后延迟开始,给双击留窗口
+  let followAt = 0, camFrom = null;  // 锁定开始时镜头在哪(平滑的起点)
+
+  /** 节点相对相机原点的屏幕偏移(与 transform.x/y 无关)与该层累计缩放;现在没被画出来时 null。
+   *  就地展开的祖先逐层累积平移/缩放,和 drawSpace 的几何完全一致 —— 所以"打开的文件夹
+   *  内部的文件夹/文件"也算得出位置,跟随不会失效。 */
+  function screenOffset(id) {
+    if (!compiled || id == null) return null;
+    if (!isSpaces()) {
+      const n = sim.get(id);
+      return n && n.x !== undefined ? { x: n.x * transform.k, y: n.y * transform.k, s: transform.k } : null;
+    }
+    const chain = compiled.ancestors(id);
+    let i = 0, sp = getSpace(null);
+    if (curSpaceId !== null) { i = chain.indexOf(curSpaceId) + 1; if (i === 0) return null; sp = getSpace(curSpaceId); }
+    let ox = 0, oy = 0, s = transform.k;
+    for (; i < chain.length; i++) {
+      const n = sp.byId.get(chain[i]);
+      if (!n) return null;
+      const x = ox + n.x * s, y = oy + n.y * s;
+      if (chain[i] === id) return { x, y, s };
+      if (!expandedSet.has(chain[i])) return null;      // 中间层没展开,后代根本没画出来
+      const child = getSpace(chain[i]), sc = scOf(n, child);
+      ox = x; oy = y; s *= sc; sp = child;
+    }
+    return null;
   }
-  function camOrigin(k) {
-    if (!(P.follow > 0)) return null;
-    const n = followTarget(); if (!n) return null;
-    if (!followCam) followCam = { x: transform.x, y: transform.y };
-    const tx = innerWidth / 2 - n.x * k, ty = innerHeight / 2 - n.y * k;
-    followCam.x += (tx - followCam.x) * 0.16; followCam.y += (ty - followCam.y) * 0.16;
-    return followCam;
+  /** 选中后(延迟)开始跟随;取消或换成别的节点只改目标,绝不重置镜头 —— 所以没有跃迁。 */
+  function scheduleFollow(id) {
+    if (!(P.follow > 0) || id == null) { followPend = null; followId = null; camFrom = null; return; }
+    if (id === followId) return;
+    followPend = { id, at: performance.now() + Math.max(0, P.followDelay || 0) };
+  }
+  /** 让节点可见但不抢镜头(跟随会负责居中):不在当前空间画得出来就先切过去。 */
+  function ensureVisible(id) {
+    if (screenOffset(id)) return;
+    const holder = holderOf(id);
+    if (holder.id !== curSpaceId) jumpTo(holder.id);
+  }
+  /** 每帧一次:把 transform 挪到让选中节点居中的位置。进入用 smoothstep 平滑,之后精确钉住。 */
+  function stepCamera(now) {
+    if (!(P.follow > 0)) { followPend = null; followId = null; camFrom = null; return; }
+    if (followPend && now >= followPend.at) {
+      followId = followPend.id; followPend = null; followAt = now; camFrom = { x: transform.x, y: transform.y };
+      d3.select(canvas).interrupt();   // 别和"适应窗口/居中"的动画抢方向盘
+    }
+    if (!followId) return;
+    if (followId !== selected) { followId = null; camFrom = null; return; }
+    const off = screenOffset(followId);
+    if (!off) { followId = null; camFrom = null; return; }   // 被折叠/切走/过滤掉:就地解冻,不硬跟
+    const tx = innerWidth / 2 - off.x, ty = innerHeight / 2 - off.y;
+    const u = camFrom ? Math.min(1, (now - followAt) / FOLLOW_EASE) : 1, e = u * u * (3 - 2 * u);
+    const nx = camFrom ? camFrom.x + (tx - camFrom.x) * e : tx;
+    const ny = camFrom ? camFrom.y + (ty - camFrom.y) * e : ty;
+    d3.select(canvas).call(zoom.transform, d3.zoomIdentity.translate(nx, ny).scale(transform.k));
   }
 
   // ---------- 交互 ----------
   const find = (px, py) => {
     if (isSpaces()) { const h = pickHit(px, py); return h && !h.domain ? h.n : null; }
-    const cam = camOrigin(transform.k), kk = transform.k;
-    const x = (px - (cam ? cam.x : transform.x)) / kk, y = (py - (cam ? cam.y : transform.y)) / kk;
-    return simulation.find(x, y, 16 / transform.k + 6);
+    const kk = transform.k;
+    return simulation.find((px - transform.x) / kk, (py - transform.y) / kk, 16 / kk + 6);
   };
   const zoom = d3.zoom().scaleExtent([0.08, 10])
     .filter((ev) => !(ev.type === 'mousedown' && find(ev.offsetX, ev.offsetY)) && !ev.button)
@@ -845,7 +898,7 @@ import { trackProposals } from '/core/proposals.js';
         if (!running) { drag.warmed = true; if (drag.h) drag.h.sp.dragging = true; drag.sim.alpha(Math.max(drag.sim.alpha(), P.heatLevel)).alphaTarget(P.heatLevel).restart(); }
       }
       if (drag.h) { drag.tx = (px - drag.h.tx) / drag.h.s; drag.ty = (py - drag.h.ty) / drag.h.s; }
-      else { const cam = camOrigin(transform.k), kk = transform.k; [drag.tx, drag.ty] = [(px - (cam ? cam.x : transform.x)) / kk, (py - (cam ? cam.y : transform.y)) / kk]; }
+      else { const kk = transform.k; [drag.tx, drag.ty] = [(px - transform.x) / kk, (py - transform.y) / kk]; }
     })
     .on('end', () => {
       const d = drag; drag = null;
@@ -1327,9 +1380,10 @@ import { trackProposals } from '/core/proposals.js';
     const t = ev.target.closest('.ph-toggle'); if (!t) return;
     const k = t.dataset.k;
     P[k] = P[k] ? 0 : 1; savePhys(); applyPhys(); renderPhysics();
+    if (k === 'follow') scheduleFollow(selected); // 开:从当前镜头平滑锁到选中;关:就地解冻,不跳
     if (k === 'compact') recompute(); // 真实体积改的是体积计算本身,要重新编译视图
   });
-  $('ph-reset').addEventListener('click', () => { for (const k in PHYS) P[k] = PHYS[k].def; savePhys(); applyPhys(); renderPhysics(); });
+  $('ph-reset').addEventListener('click', () => { for (const k in PHYS) P[k] = PHYS[k].def; savePhys(); applyPhys(); renderPhysics(); scheduleFollow(selected); });
 
   // ---------- 图例:视图用到"新旧"时说明颜色的含义 ----------
   function renderLegend() {
@@ -2066,8 +2120,7 @@ import { trackProposals } from '/core/proposals.js';
     drawnSpaces.clear();
     if (!compiled) return;
     const k = transform.k;
-    const cam = camOrigin(k);
-    const x = cam ? cam.x : transform.x, y = cam ? cam.y : transform.y;
+    const x = transform.x, y = transform.y;
     const p = fade ? Math.min(1, (now - fade.t0) / 420) : 1, ease = p * p * (3 - 2 * p);
     if (fade && p < 1) { // 过渡:旧空间按"来源—目的"的几何关系画出来,渐隐
       try {
@@ -2411,6 +2464,8 @@ import { trackProposals } from '/core/proposals.js';
   }
 
   function draw(now) {
+    now = now || performance.now();
+    stepCamera(now);  // 相机唯一权威:跟随时每帧只在这里推进一次,别处只读
     const frameStart = performance.now();
     const dpr = devicePixelRatio || 1;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -2426,8 +2481,8 @@ import { trackProposals } from '/core/proposals.js';
 
     const galaxy = look === 'galaxy';
     ctx.save();
-    const k = transform.k, cam = camOrigin(k);
-    const camX = cam ? cam.x : transform.x, camY = cam ? cam.y : transform.y;
+    const k = transform.k;
+    const camX = transform.x, camY = transform.y;
     ctx.translate(camX, camY); ctx.scale(k, k);
     curK = k;
     const VW = innerWidth, VH = innerHeight, TX = camX, TY = camY;
@@ -2600,7 +2655,7 @@ import { trackProposals } from '/core/proposals.js';
   }
   requestAnimationFrame(draw);
 
-  window.__stars = { nodes: () => simulation.nodes(), transform: () => transform, scene: () => scene, regions: () => regions, perf, hits: () => frameHits, space: () => curSpaceId, enter: (id) => enterSpace(id, true), exit: () => exitSpace(true), rho: () => (curSpaceId === null ? null : getSpace(curSpaceId).E * transform.k / 0.92 / enterT()), expand: (id) => toggleExpandSpace(id), expanded: () => [...expandedSet], getSpace: (id) => getSpace(id ?? null), hasNode: (id) => !!uni && uni.nodes.has(id), project: () => project, P, heated: () => [...heated].map((sp) => sp.key), flatTarget: () => simulation.alphaTarget(), spaceTarget: (id) => getSpace(id ?? null).sim.alphaTarget(), select: (id) => select(id, false), file: () => fp && { id: fp.id, full: fp.full, dirty: fp.dirty, kind: fp.info && fp.info.kind }, nodeCount: () => uni.nodes.size, lastN: () => lastN, recompute, manual, auto, compiled: () => compiled }; // 调试/自动化用
+  window.__stars = { nodes: () => simulation.nodes(), transform: () => transform, scene: () => scene, regions: () => regions, perf, hits: () => frameHits, space: () => curSpaceId, enter: (id) => enterSpace(id, true), exit: () => exitSpace(true), rho: () => (curSpaceId === null ? null : getSpace(curSpaceId).E * transform.k / 0.92 / enterT()), expand: (id) => toggleExpandSpace(id), expanded: () => [...expandedSet], getSpace: (id) => getSpace(id ?? null), hasNode: (id) => !!uni && uni.nodes.has(id), project: () => project, P, heated: () => [...heated].map((sp) => sp.key), flatTarget: () => simulation.alphaTarget(), spaceTarget: (id) => getSpace(id ?? null).sim.alphaTarget(), select: (id) => select(id, false), offset: (id) => screenOffset(id), follow: () => ({ id: followId, pend: followPend && followPend.id }), file: () => fp && { id: fp.id, full: fp.full, dirty: fp.dirty, kind: fp.info && fp.info.kind }, nodeCount: () => uni.nodes.size, lastN: () => lastN, recompute, manual, auto, compiled: () => compiled }; // 调试/自动化用
   connect();
 })();
 </script>
