@@ -343,9 +343,9 @@ import { trackProposals } from '/core/proposals.js';
     let tx, ty;
     if (off) { const ox = transform.x + off.x - n.x * off.s, oy = transform.y + off.y - n.y * off.s; tx = (drag.px - ox) / off.s; ty = (drag.py - oy) / off.s; }
     else { tx = (drag.px - transform.x) / transform.k; ty = (drag.py - transform.y) / transform.k; }
-    const gg = drag.g;
+    const gg = drag.g, dsp = drag.h && drag.h.sp;   // dsp = 被拖节点所在的空间(就地展开的,或已经"进入"的)
     let cap = Infinity, sCap = 1;
-    if (gg && gg.sp.E0 > 0) { cap = shrinkCap(gg.sp.E0); const r = Math.hypot(tx, ty); if (r > cap && r > 0) sCap = cap / r; }   // 成员侧有界(动态缩放的安全上限)
+    if (dsp && dsp.id != null && dsp.E0 > 0) { cap = shrinkCap(dsp.E0); const r = Math.hypot(tx, ty); if (r > cap && r > 0) sCap = cap / r; }   // 成员侧有界(软约束的另一半:硬上限)
     n.vx += (tx * sCap - n.x) * k; n.vy += (ty * sCap - n.y) * k;
     // 拖的是就地展开空间里的成员:按"收缩到了多少"把拖动力的一部分**同步**分给整组 ——
     // 从第一刻起,收缩和整组受力一起增长(没有死区),成员像把手,整组跟着指针走。
@@ -1803,14 +1803,13 @@ import { trackProposals } from '/core/proposals.js';
     return n && screenOffset(sp.id) ? { ps, n, sp } : null;   // sp = 子空间;ps = 它所在的父空间;n = 父空间里的容器节点
   }
   const simActive = (sp) => !!(sp && (sp.dragging || heated.has(sp) || sp.sim.alphaTarget() > 0 || sp.sim.alpha() > 0.02));
-  /** 疆域张力:超出自然疆域 E0 的成员被拉回中心(越远越强),反作用力推着整组朝它走。
-   *  只和"超出多少"有关、和鼠标无关 —— 所以拖动时表现为"整组逐渐分担力",松手后(或根本没有鼠标时)表现为"自己还原"。
-   *  就地展开的空间能一直保持容器体积,就是因为它:边界是软的,拉得越远顶得越硬。 */
+  /** 疆域张力:超出自然疆域 E0 的成员被拉回中心(越远越强)—— 就是"越往外越大力的软约束"。
+   *  就地展开时,反作用力还会推着外面的容器走(整组跟着离群点);而"进入"某个空间时,同样的软边界照样生效
+   *  (防止成员被拖到天边、退出时整组缩成一个点),但**不动外层的容器** —— 你在里面根本看不见它,
+   *  它偷偷挪位只会让人莫名其妙。根空间(宇宙本身)不设边界,保持自由。 */
   function tension(sp) {
     sp.tr = null;
-    if (!(P.compact > 0) || !(P.tether > 0) || !(sp.E0 > 0)) return null;
-    const g = groupOf(sp);
-    if (!g) return null;
+    if (!(P.compact > 0) || !(P.tether > 0) || !(sp.E0 > 0) || sp.id == null) return null;
     const k = 0.35 * P.tether * heatScale(sp.sim.alpha()), e0 = sp.E0;
     let rx = 0, ry = 0;
     for (const m of sp.nodes) {
@@ -1818,9 +1817,10 @@ import { trackProposals } from '/core/proposals.js';
       if (over <= 0) continue;
       const f = k * over * shrinkLevel(over, e0), ux = m.x / (e || 1), uy = m.y / (e || 1);
       m.vx -= ux * f; m.vy -= uy * f;      // 拉回中心
-      rx += ux * f; ry += uy * f;          // 反作用:整组朝离群点走
+      rx += ux * f; ry += uy * f;          // 反作用(只有画在外面时才用得上)
     }
-    if (rx || ry) sp.tr = { x: rx, y: ry, t: performance.now() };
+    const g = groupOf(sp);
+    if (g && (rx || ry)) sp.tr = { x: rx, y: ry, t: performance.now() };
     return g;
   }
   function onSpaceTick(sp) { // 就地展开的空间在调整时,父空间要跟着给它让位
