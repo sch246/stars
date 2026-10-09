@@ -1,16 +1,18 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFile, execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import { parse } from '../src/format.ts';
 import { apply } from '../src/ops.ts';
 import { listFiles, planScan, statMeta } from '../src/scan.ts';
 import { diffUniverses, gitHistory, gitParentSnapshot, gitSnapshot } from '../src/history.ts';
 import { startServer } from '../src/serve.ts';
+import { exportHtml } from '../src/exporter.ts';
 import { Store } from '../src/store.ts';
 
 const genesis = readFileSync(new URL('../genesis.stars', import.meta.url), 'utf8');
@@ -320,4 +322,124 @@ test('历史:宇宙文件还没提交过时,时间线退回到所在文件夹的
     assert.deepEqual(second.diff.addedNodes.sort(), ['src/', 'src/b.ts']);
     assert.ok(!ids(second).some((id: string) => id.includes('universe.stars')), '宇宙自己的存储不算居民');
   } finally { srv.close(); }
+});
+
+test('共享模块:浏览器拿到的 /core/*.js 去掉了类型、能直接 import;静态导出把它们拼进同一个作用域后脚本仍然合法', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'stars-mod-'));
+  const store = new Store(join(dir, 'universe.stars'));
+  store.create(genesis);
+  const port = await freePort();
+  const srv = startServer(store, port, dir, '127.0.0.1', () => {});
+  await new Promise((r) => setTimeout(r, 150));
+  const out = mkdtempSync(join(tmpdir(), 'stars-js-'));
+  try {
+    for (const name of ['model', 'expr', 'view', 'ops', 'proposals', 'query', 'llf']) {
+      const r = await fetch(`http://127.0.0.1:${port}/core/${name}.js`);
+      assert.equal(r.status, 200, name);
+      const js = await r.text();
+      assert.ok(!/from '\.\/\w+\.ts'/.test(js) && !/from 'node:/.test(js), `${name}.js 不能再引用 .ts 或 node:*`);
+      writeFileSync(join(out, `${name}.js`), js);
+    }
+    writeFileSync(join(out, 'package.json'), '{"type":"module"}');
+    const llf = await import(pathToFileURL(join(out, 'llf.js')).href);
+    assert.deepEqual(llf.llfToJson(llf.llfParse('a !color - #fff\n--LLF-END\n', { tags: true })), { a: { $tag: 'color', $value: '#fff' } });
+    const q = await import(pathToFileURL(join(out, 'query.js')).href);
+    assert.equal(typeof q.shortestPath, 'function');
+  } finally { srv.close(); }
+  // 静态导出:内核模块去掉 import/export 后拼进查看器的模块脚本;名字撞了或语法坏了这里会报
+  const html = exportHtml(store, dir);
+  const mod = /<script type="module">([\s\S]*?)<\/script>/.exec(html)![1]!;
+  const file = join(out, 'export-check.mjs');
+  writeFileSync(file, mod);
+  execFileSync(process.execPath, ['--check', file], { stdio: 'pipe' });
+});
+
+/** 读 SSE:把收到的具名事件交给 onEvent;返回关闭函数 */
+function sse(port: number, onEvent: (event: string, data: unknown) => void): () => void {
+  let buf = '';
+  const req = request({ host: '127.0.0.1', port, path: '/events' }, (res) => {
+    res.setEncoding('utf8');
+    res.on('data', (chunk: string) => {
+      buf += chunk;
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const block = buf.slice(0, i); buf = buf.slice(i + 2);
+        const ev = /^event: (.*)$/m.exec(block)?.[1] ?? 'message', data = /^data: (.*)$/m.exec(block)?.[1];
+        if (data !== undefined) onEvent(ev, JSON.parse(data));
+      }
+    });
+  });
+  req.on('error', () => {});
+  req.end();
+  return () => req.destroy();
+}
+
+test('个人配置:设置 / 快捷键是 ~/.config/stars 下的 LLF 文件 —— 页面内嵌默认值与个人文件,写入带 409,不合法拒收,别处改了推给页面', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'stars-cfgsrv-'));
+  const store = new Store(join(dir, 'universe.stars'));
+  store.create(genesis);
+  const port = await freePort();
+  const srv = startServer(store, port, dir, '127.0.0.1', () => {});
+  await new Promise((r) => setTimeout(r, 150));
+  const base = `http://127.0.0.1:${port}`, H = { 'x-stars-token': srv.token, 'content-type': 'application/json' };
+  const cfgFile = join(process.env.XDG_CONFIG_HOME!, 'stars', 'settings.llf');
+  const events: Array<[string, unknown]> = [];
+  const stop = sse(port, (e, d) => events.push([e, d]));
+  try {
+    const page = await (await fetch(`${base}/`)).text();
+    const cfg = JSON.parse(/<script type="application\/json" id="stars-config">([\s\S]*?)<\/script>/.exec(page)![1]!) as { defaults: Record<string, string> };
+    assert.match(cfg.defaults.settings!, /heatLevel !range\(/, '页面里内嵌了带标签的默认设置');
+    assert.match(cfg.defaults.keys!, /ctrl\+k - palette/);
+    const get = async () => (await fetch(`${base}/api/config?name=settings`, { headers: H })).json() as Promise<{ content: string | null; mtime: number | null }>;
+    const before = await get();
+    const post = (content: string, mtime: number | null) => fetch(`${base}/api/config`, { method: 'POST', headers: H, body: JSON.stringify({ name: 'settings', content, mtime }) });
+    const r1 = await post('motion {}\n  heatLevel - 0.05\n--LLF-END\n', before.mtime);
+    assert.equal(r1.status, 200);
+    const { mtime } = await r1.json() as { mtime: number };
+    assert.equal(readFileSync(cfgFile, 'utf8'), 'motion {}\n  heatLevel - 0.05\n--LLF-END\n');
+    assert.equal((await post('motion {}\n  heatLevel - 0.06\n--LLF-END\n', mtime - 5000)).status, 409, '读到之后别处改过 → 409');
+    assert.equal((await post('motion {\n--LLF-END\n', mtime)).status, 400, '不合法的 LLF 不写');
+    assert.equal((await fetch(`${base}/api/config`, { method: 'POST', headers: H, body: JSON.stringify({ name: '../x', content: '--LLF-END\n' }) })).status, 400);
+    // 在别处改(编辑器):推给页面
+    writeFileSync(cfgFile, 'motion {}\n  spin - 2\n--LLF-END\n');
+    for (let i = 0; i < 40 && !events.some(([e, d]) => e === 'config' && (d as { content: string }).content.includes('spin - 2')); i++) await new Promise((r) => setTimeout(r, 50));
+    assert.ok(events.some(([e, d]) => e === 'config' && (d as { name: string }).name === 'settings' && (d as { content: string }).content.includes('spin - 2')), '页面收到 config 事件');
+  } finally { stop(); srv.close(); }
+});
+
+test('遥控:stars ui 找到正在运行的服务,命令推给页面执行,页面回报的输出交回 CLI;服务关了登记也删掉', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'stars-ui-'));
+  const file = join(dir, 'universe.stars');
+  const store = new Store(file);
+  store.create(genesis);
+  const port = await freePort();
+  const srv = startServer(store, port, dir, '127.0.0.1', () => {});
+  await new Promise((r) => setTimeout(r, 150));
+  const reg = join(process.env.XDG_CONFIG_HOME!, 'stars', 'servers', `${port}.json`);
+  const cli = (...args: string[]) => new Promise<{ code: number | null; out: string; err: string }>((ok) => {
+    execFile(process.execPath, [new URL('../src/cli.ts', import.meta.url).pathname, '-f', file, 'ui', ...args], { env: process.env }, (e, out, err) => ok({ code: e ? (e as { code?: number }).code ?? 1 : 0, out, err }));
+  });
+  try {
+    assert.ok(existsSync(reg), '服务登记在 servers/<端口>.json');
+    assert.equal(statSync(reg).mode & 0o777, 0o600, '含 token,只有自己能读');
+    assert.match((await cli('fit')).err, /没有打开着的查看器页面/);
+    // 假装是一个页面:收到 ui 事件就回报
+    const got: string[] = [];
+    const stop = sse(port, (e, d) => {
+      if (e !== 'ui') return;
+      const m = d as { id: string; line: string; from: string };
+      got.push(`${m.line} ← ${m.from}`);
+      const result = m.line === 'nope' ? { ok: false, error: '没有这个命令:nope' } : { ok: true, out: `做了 ${m.line}` };
+      void fetch(`http://127.0.0.1:${port}/api/ui-result`, { method: 'POST', headers: { 'x-stars-token': srv.token, 'content-type': 'application/json' }, body: JSON.stringify({ id: m.id, ...result }) });
+    });
+    await new Promise((r) => setTimeout(r, 100));
+    try {
+      const a = await cli('select', 'a b');
+      assert.equal(a.code, 0); assert.equal(a.out.trim(), '做了 select "a b"', '多个参数按需加引号拼回一行');
+      const bad = await cli('nope');
+      assert.equal(bad.code, 1); assert.match(bad.err, /没有这个命令/);
+      assert.deepEqual(got, ['select "a b" ← human', 'nope ← human']);
+    } finally { stop(); }
+  } finally { srv.close(); }
+  assert.ok(!existsSync(reg), '关掉服务后登记删除');
 });

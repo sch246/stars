@@ -15,6 +15,7 @@ import { homedir } from 'node:os';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { invalidateSignals, loadSignals, type LiveSignals } from './activity.ts';
+import { configDir, isConfigName, pageConfig, readUserConfig, registerServer, unregisterServer, writeUserConfig } from './config.ts';
 import { FileConflict, IMAGE_TYPES, readProjectFile, resolveInside, writeProjectFile } from './files.ts';
 import { diffUniverses, gitFirstParent, gitHistory, gitParentSnapshot, gitSnapshot, gitTreeUniverse, type HistoryScope } from './history.ts';
 import { lint } from './lint.ts';
@@ -29,7 +30,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const viewerDir = resolve(here, '..', 'viewer');
 
 /** 浏览器能直接 import 的共享模块(都不依赖 Node)。 */
-const SHARED = new Set(['model', 'view', 'expr', 'ops', 'proposals']);
+const SHARED = new Set(['model', 'view', 'expr', 'ops', 'proposals', 'query', 'llf']);
 
 function sharedModule(name: string): string {
   const ts = readFileSync(resolve(here, `${name}.ts`), 'utf8');
@@ -193,7 +194,7 @@ class Project {
 }
 
 // ---------- 最近打开的目录(尽力而为地记在 ~/.config/stars) ----------
-const recentFile = () => join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'stars', 'recent.json');
+const recentFile = () => join(configDir(), 'recent.json');
 function readRecent(): string[] {
   try { return (JSON.parse(readFileSync(recentFile(), 'utf8')) as string[]).filter((d) => typeof d === 'string'); } catch { return []; }
 }
@@ -263,6 +264,30 @@ export function startServer(
   };
   rememberRecent(baseDir);
 
+  /** 推给所有打开着的查看器页面(或指定项目的):SSE 的具名事件,和宇宙的增量消息走同一条连接 */
+  const broadcast = (event: string, obj: unknown, only?: Project[]): number => {
+    const line = `event: ${event}\ndata: ${JSON.stringify(obj)}\n\n`;
+    let n = 0;
+    for (const p of only ?? projects.values()) for (const c of p.clients) { c.write(line); n++; }
+    return n;
+  };
+
+  // 个人配置(设置、快捷键)在别处被改了(编辑器、另一个标签页、stars ui):推给所有页面,它们立即生效
+  let cfgWatcher: FSWatcher | null = null;
+  const cfgTimers = new Map<string, NodeJS.Timeout>();
+  try {
+    mkdirSync(configDir(), { recursive: true });
+    cfgWatcher = watch(configDir(), (_ev, name) => {
+      const n = String(name ?? '').replace(/\.llf$/, '');
+      if (!isConfigName(n)) return;
+      clearTimeout(cfgTimers.get(n));
+      cfgTimers.set(n, setTimeout(() => broadcast('config', readUserConfig(n)), 60));
+    });
+  } catch { /* 只读的家目录:设置只能存在浏览器里 */ }
+
+  // 遥控:`stars ui <命令>` → 推给页面执行 → 第一个回报结果的页面的输出交回给 CLI
+  const pendingUi = new Map<string, (r: unknown) => void>();
+
   const allowedHosts = new Set(['localhost', '127.0.0.1', '[::1]']);
   if (host !== '0.0.0.0' && host !== '::') allowedHosts.add(host);
   for (const h of extraHosts) allowedHosts.add(h.replace(/:\d+$/, '')); // 反向代理转发过来的主机名
@@ -294,6 +319,11 @@ export function startServer(
         const openDirs = new Set(open.map((p) => p.dir));
         const recent = readRecent().filter((d) => !openDirs.has(d)).map((d) => ({ dir: d, name: basename(d), hasUniverse: existsSync(join(d, 'universe.stars')) }));
         return json(res, 200, { open, recent, main: main.id });
+      }
+      if (req.method === 'GET' && url.pathname === '/api/config') {
+        const name = url.searchParams.get('name');
+        if (!isConfigName(name)) return json(res, 400, { error: '需要 name(settings / keys)' });
+        return json(res, 200, readUserConfig(name));
       }
       if (req.method === 'GET' && url.pathname === '/api/ls') {
         const dir = resolve(expandHome(url.searchParams.get('dir') || dirname(main.baseDir)));
@@ -339,11 +369,38 @@ export function startServer(
       }
       if (req.method === 'POST') {
         if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return json(res, 415, { error: '需要 application/json' });
-        const body = JSON.parse(await readBody(req, url.pathname === '/api/file' ? 8 << 20 : 1 << 20) || '{}') as { op?: Op; author?: string; dir?: string; create?: boolean; path?: string; content?: string; mtime?: number | null };
+        const body = JSON.parse(await readBody(req, url.pathname === '/api/file' ? 8 << 20 : 1 << 20) || '{}') as {
+          op?: Op; author?: string; dir?: string; create?: boolean; path?: string; content?: string; mtime?: number | null;
+          name?: string; line?: string; file?: string; from?: string; id?: string; wait?: number;
+        };
         if (url.pathname === '/api/file') {
           if (typeof body.path !== 'string' || typeof body.content !== 'string') return json(res, 400, { error: '需要 path 与 content' });
           try { return json(res, 200, writeProjectFile(proj.baseDir, body.path, body.content, typeof body.mtime === 'number' ? body.mtime : null, { self })); }
           catch (err) { if (err instanceof FileConflict) return json(res, 409, { error: err.message, mtime: err.mtime }); throw err; }
+        }
+        if (url.pathname === '/api/config') {
+          if (!isConfigName(body.name) || typeof body.content !== 'string') return json(res, 400, { error: '需要 name(settings / keys)与 content' });
+          try { return json(res, 200, writeUserConfig(body.name, body.content, typeof body.mtime === 'number' ? body.mtime : null)); }
+          catch (err) { if (err instanceof FileConflict) return json(res, 409, { error: err.message, mtime: err.mtime }); throw err; }
+        }
+        if (url.pathname === '/api/ui') {
+          if (typeof body.line !== 'string' || !body.line.trim()) return json(res, 400, { error: '需要 line(一行命令)' });
+          // 指定了宇宙文件就只发给看着那个项目的页面,否则发给所有页面
+          const target = body.file ? [...projects.values()].filter((p) => resolve(p.store.file) === resolve(body.file!)) : [];
+          const id = randomBytes(6).toString('hex');
+          const wait = Math.min(Math.max(Number(body.wait ?? 4000), 0), 30_000);
+          let delivered = 0;
+          const result = await new Promise<unknown>((ok) => {
+            const t = setTimeout(() => { pendingUi.delete(id); ok(null); }, wait);
+            pendingUi.set(id, (r) => { clearTimeout(t); pendingUi.delete(id); ok(r); });
+            delivered = broadcast('ui', { id, line: body.line, from: String(body.from ?? 'cli').slice(0, 40) }, target.length ? target : undefined);
+            if (!delivered) { clearTimeout(t); pendingUi.delete(id); ok(null); }
+          });
+          return json(res, 200, { delivered, result });
+        }
+        if (url.pathname === '/api/ui-result') {
+          if (typeof body.id === 'string') pendingUi.get(body.id)?.(body);
+          return json(res, 200, { ok: true });
         }
         if (url.pathname === '/api/open') {
           if (typeof body.dir !== 'string' || !body.dir) return json(res, 400, { error: '需要 dir' });
@@ -383,7 +440,8 @@ export function startServer(
       return;
     }
     if (path === '/') {
-      const html = readFileSync(resolve(viewerDir, 'index.html'), 'utf8').replace('__STARS_TOKEN__', token);
+      const html = readFileSync(resolve(viewerDir, 'index.html'), 'utf8').replace('__STARS_TOKEN__', token)
+        .replace('__STARS_CONFIG__', () => pageConfig(true));
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
       res.end(html);
       return;
@@ -397,17 +455,29 @@ export function startServer(
     res.writeHead(404).end('not found');
   });
 
+  let listening = 0;
+  const onExit = () => { if (listening) unregisterServer(listening); };
+  process.once('exit', onExit);
+
   // 反向代理/负载均衡常在连接空闲 30~60 秒后断开,定期发一条注释行保活
   const keepalive = setInterval(() => { for (const p of projects.values()) for (const c of p.clients) c.write(': ping\n\n'); }, 20_000);
   keepalive.unref();
 
   server.listen(port, host, () => {
+    const real = (server.address() as { port: number } | null)?.port ?? port;
+    registerServer({ port: real, host, token, pid: process.pid, file: resolve(store.file), dir: resolve(baseDir), started: Date.now() });
+    listening = real;
     log(`宇宙查看器: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}   (监听 ${store.file})`);
     if (host === '0.0.0.0' || host === '::') log('警告:监听了所有网卡,局域网内的人都能访问这个宇宙;写入接口仍受 token 保护。');
   });
   return {
     token,
-    close: () => { clearInterval(keepalive); for (const p of projects.values()) p.close(); server.close(); },
+    close: () => {
+      clearInterval(keepalive); cfgWatcher?.close();
+      onExit(); process.off('exit', onExit);
+      for (const p of projects.values()) p.close();
+      server.close();
+    },
     pushLive: (l) => main.pushLive(l),
     gitChanged: () => main.gitChanged(),
     setWatching: (on) => { main.watching = on; },

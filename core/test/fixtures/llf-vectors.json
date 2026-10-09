@@ -1,0 +1,1112 @@
+{
+  "vectors": [
+    {
+      "id": 1,
+      "input": "a - hello\n--LLF-END\n",
+      "expected": {
+        "a": "hello"
+      }
+    },
+    {
+      "id": 2,
+      "input": "a - x # y\n--LLF-END\n",
+      "expected": {
+        "a": "x # y"
+      }
+    },
+    {
+      "id": 3,
+      "input": "a - x  \n--LLF-END\n",
+      "expected": {
+        "a": "x"
+      }
+    },
+    {
+      "id": 4,
+      "input": "a -\n  |x  \n--LLF-END\n",
+      "expected": {
+        "a": "x  "
+      }
+    },
+    {
+      "id": 5,
+      "input": "a -\n  |call - fake\n--LLF-END\n",
+      "expected": {
+        "a": "call - fake"
+      }
+    },
+    {
+      "id": 6,
+      "input": "a -\n  |x\n  |\n--LLF-END\n",
+      "expected": {
+        "a": "x\n"
+      }
+    },
+    {
+      "id": 7,
+      "input": "a -\n  |\n  |\n--LLF-END\n",
+      "expected": {
+        "a": "\n"
+      }
+    },
+    {
+      "id": 8,
+      "input": "a _\n--LLF-END\n",
+      "expected": {
+        "a": null
+      }
+    },
+    {
+      "id": 9,
+      "input": "a []\n  - s\n  - 2\n  _\n--LLF-END\n",
+      "expected": {
+        "a": [
+          "s",
+          "2",
+          null
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "input": "a {}\n--LLF-END\n",
+      "expected": {
+        "a": {}
+      }
+    },
+    {
+      "id": 11,
+      "input": "d - 2026-09-19\n--LLF-END\n",
+      "expected": {
+        "d": "2026-09-19"
+      }
+    },
+    {
+      "id": 12,
+      "input": "--LLF-END\n",
+      "expected": {}
+    },
+    {
+      "id": 13,
+      "input": "[]\n  - a\n  - b\n--LLF-END\n",
+      "expected": [
+        "a",
+        "b"
+      ]
+    },
+    {
+      "id": 14,
+      "input": "-\n  |x\n--LLF-END\n",
+      "expected": "x"
+    },
+    {
+      "id": 15,
+      "input": "# c\n- 3\n--LLF-END\n",
+      "expected": "3"
+    },
+    {
+      "id": 16,
+      "input": "- -\n--LLF-END\n",
+      "expected": "-"
+    },
+    {
+      "id": 17,
+      "input": "_\n--LLF-END\n",
+      "expected": null
+    },
+    {
+      "id": 18,
+      "input": "a -\n--LLF-END\n",
+      "expected": {
+        "a": ""
+      }
+    },
+    {
+      "id": 19,
+      "input": "a - 007\n--LLF-END\n",
+      "expected": {
+        "a": "007"
+      }
+    },
+    {
+      "id": 20,
+      "input": "a {}\n  b - 1\n--LLF-END\n",
+      "expected": {
+        "a": {
+          "b": "1"
+        }
+      }
+    },
+    {
+      "id": 21,
+      "input": "a []\n  {}\n    b - 1\n--LLF-END\n",
+      "expected": {
+        "a": [
+          {
+            "b": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": 22,
+      "input": "a - x",
+      "error": "E02"
+    },
+    {
+      "id": 23,
+      "input": "a\n--LLF-END\n",
+      "error": "E04"
+    },
+    {
+      "id": 24,
+      "input": "a % 007\n--LLF-END\n",
+      "error": "E07"
+    },
+    {
+      "id": 25,
+      "input": "a - x\na - y\n--LLF-END\n",
+      "error": "E06"
+    },
+    {
+      "id": 26,
+      "input": "a {}\n   b - 1\n--LLF-END\n",
+      "error": "E03"
+    },
+    {
+      "id": 27,
+      "input": "a -\n  |x\n  # c\n  |y\n--LLF-END\n",
+      "error": "E11"
+    },
+    {
+      "id": 28,
+      "input": "- 3\na - x\n--LLF-END\n",
+      "error": "E12"
+    },
+    {
+      "id": 29,
+      "input": "a {}\n  - - v\n--LLF-END\n",
+      "error": "E15"
+    },
+    {
+      "id": 30,
+      "input": "a _\n  b - 1\n--LLF-END\n",
+      "error": "E09"
+    },
+    {
+      "id": 31,
+      "input": "a []\n  - x\n  b - 1\n--LLF-END\n",
+      "error": "E15"
+    },
+    {
+      "id": 32,
+      "input": "a -\n  |# 不是注释\n--LLF-END\n",
+      "expected": {
+        "a": "# 不是注释"
+      }
+    },
+    {
+      "id": 33,
+      "input": "d @date 2026-09-19\n--LLF-END\n",
+      "error": "E07"
+    },
+    {
+      "id": 34,
+      "input": "名字 - 柚子\n--LLF-END\n",
+      "expected": {
+        "名字": "柚子"
+      }
+    },
+    {
+      "id": 35,
+      "input": "@x - v\n--LLF-END\n",
+      "expected": {
+        "@x": "v"
+      }
+    },
+    {
+      "id": 36,
+      "input": "a#b - v\n--LLF-END\n",
+      "expected": {
+        "a#b": "v"
+      }
+    },
+    {
+      "id": 37,
+      "input": "\"a b\" - v\n--LLF-END\n",
+      "expected": {
+        "a b": "v"
+      }
+    },
+    {
+      "id": 38,
+      "input": "\"\" - v\n--LLF-END\n",
+      "expected": {
+        "": "v"
+      }
+    },
+    {
+      "id": 39,
+      "input": "\"-\" - v\n--LLF-END\n",
+      "expected": {
+        "-": "v"
+      }
+    },
+    {
+      "id": 40,
+      "input": "\"a\\\"b\" - v\n--LLF-END\n",
+      "expected": {
+        "a\"b": "v"
+      }
+    },
+    {
+      "id": 41,
+      "input": "\"a\\tb\" - v\n--LLF-END\n",
+      "expected": {
+        "a\tb": "v"
+      }
+    },
+    {
+      "id": 42,
+      "input": "\"#foo\" - v\n--LLF-END\n",
+      "expected": {
+        "#foo": "v"
+      }
+    },
+    {
+      "id": 43,
+      "input": "\"a\\x\" - v\n--LLF-END\n",
+      "error": "E13"
+    },
+    {
+      "id": 44,
+      "input": "\"a - v\n--LLF-END\n",
+      "error": "E14"
+    },
+    {
+      "id": 45,
+      "input": "a\"b - v\n--LLF-END\n",
+      "error": "E05"
+    },
+    {
+      "id": 46,
+      "input": "a\tb - v\n--LLF-END\n",
+      "error": "E05"
+    },
+    {
+      "id": 47,
+      "input": "a - 1\n--LLF-END\na - 2\n--LLF-END\n",
+      "expected_multi": [
+        {
+          "a": "1"
+        },
+        {
+          "a": "2"
+        }
+      ]
+    },
+    {
+      "id": 48,
+      "input": "\"a\" - 1\na - 2\n--LLF-END\n",
+      "error": "E06"
+    },
+    {
+      "id": 49,
+      "input": "a - \n--LLF-END\n",
+      "expected": {
+        "a": ""
+      }
+    },
+    {
+      "id": 50,
+      "input": "a {}\n  b []\n    - x\nc - y\n--LLF-END\n",
+      "expected": {
+        "a": {
+          "b": [
+            "x"
+          ]
+        },
+        "c": "y"
+      }
+    },
+    {
+      "id": 51,
+      "input": "{}\n  a - 1\n--LLF-END\n",
+      "expected": {
+        "a": "1"
+      }
+    },
+    {
+      "id": 52,
+      "input": "a - x\nb - y\n--LLF-END\n",
+      "expected": {
+        "a": "x",
+        "b": "y"
+      }
+    },
+    {
+      "id": 53,
+      "input": "a {}\n  |x\n--LLF-END\n",
+      "error": "E08"
+    },
+    {
+      "id": 54,
+      "input": "a []\n  |x\n--LLF-END\n",
+      "error": "E08"
+    },
+    {
+      "id": 55,
+      "input": "|x\n--LLF-END\n",
+      "error": "E11"
+    },
+    {
+      "id": 56,
+      "input": "a -\n  |  x  \n--LLF-END\n",
+      "expected": {
+        "a": "  x  "
+      }
+    },
+    {
+      "id": 57,
+      "input": "\"|\" - v\n--LLF-END\n",
+      "expected": {
+        "|": "v"
+      }
+    },
+    {
+      "id": 58,
+      "input": "a - 　x　\n--LLF-END\n",
+      "expected": {
+        "a": "x"
+      }
+    },
+    {
+      "id": 59,
+      "input": "a -\n|x\n--LLF-END\n",
+      "expected": {
+        "a": "x"
+      }
+    },
+    {
+      "id": 60,
+      "input": "a -\n      |x\n--LLF-END\n",
+      "expected": {
+        "a": "x"
+      }
+    },
+    {
+      "id": 61,
+      "input": "a {}\n  b -\n|x\n  c - y\n--LLF-END\n",
+      "expected": {
+        "a": {
+          "b": "x",
+          "c": "y"
+        }
+      }
+    },
+    {
+      "id": 62,
+      "input": "a - v\n  --LLF-END  \n",
+      "expected": {
+        "a": "v"
+      }
+    },
+    {
+      "id": 63,
+      "input": "a - v\n--LLF-END",
+      "expected": {
+        "a": "v"
+      }
+    },
+    {
+      "id": 64,
+      "input": "a -\n  |--LLF-END\n--LLF-END\n",
+      "expected": {
+        "a": "--LLF-END"
+      }
+    },
+    {
+      "id": 65,
+      "input": "--LLF-END - v\n--LLF-END\n",
+      "expected": {
+        "--LLF-END": "v"
+      }
+    },
+    {
+      "id": 66,
+      "input": "a -\n  |x\n\n--LLF-END\n",
+      "error": "E01"
+    },
+    {
+      "id": 67,
+      "input": "a - v\n--LLF-END\nx - y\n",
+      "error": "E12"
+    },
+    {
+      "id": 68,
+      "input": "a -\n  |x\n",
+      "error": "E02"
+    },
+    {
+      "id": 69,
+      "input": "--LLF-END\n--LLF-END\n",
+      "expected_multi": [
+        {},
+        {}
+      ]
+    },
+    {
+      "id": 70,
+      "input": "a - v\n\n",
+      "error": "E02"
+    },
+    {
+      "id": 71,
+      "input": "a -\n\t|x\n--LLF-END\n",
+      "error": "E03"
+    },
+    {
+      "id": 72,
+      "input": "\n",
+      "error": "E02"
+    },
+    {
+      "id": 73,
+      "input": "　 - v\n--LLF-END\n",
+      "error": "E05"
+    },
+    {
+      "id": 74,
+      "input": "\"　\" - v\n--LLF-END\n",
+      "expected": {
+        "　": "v"
+      }
+    },
+    {
+      "id": 75,
+      "input": "k  - v\n--LLF-END\n",
+      "error": "E05"
+    },
+    {
+      "id": 76,
+      "input": "\"k \" - v\n--LLF-END\n",
+      "expected": {
+        "k ": "v"
+      }
+    },
+    {
+      "id": 77,
+      "input": "k\u000b - v\n--LLF-END\n",
+      "error": "E05"
+    },
+    {
+      "id": 78,
+      "input": "\"k\\u000b\" - v\n--LLF-END\n",
+      "expected": {
+        "k\u000b": "v"
+      }
+    },
+    {
+      "id": 79,
+      "input": "k\u001c - v\n--LLF-END\n",
+      "expected": {
+        "k\u001c": "v"
+      }
+    },
+    {
+      "id": 80,
+      "input": "a - 1\n--LLF-END\n\na - 2\n--LLF-END\n",
+      "expected_multi": [
+        {
+          "a": "1"
+        },
+        {
+          "a": "2"
+        }
+      ]
+    },
+    {
+      "id": 81,
+      "input": "\n\na - 1\n--LLF-END\na - 2\n--LLF-END\n",
+      "expected_multi": [
+        {
+          "a": "1"
+        },
+        {
+          "a": "2"
+        }
+      ]
+    },
+    {
+      "id": 82,
+      "input": "a -\n  # c\n  |x\n--LLF-END\n",
+      "error": "E11"
+    },
+    {
+      "id": 83,
+      "input": "-\n# c\n|x\n--LLF-END\n",
+      "error": "E11"
+    },
+    {
+      "id": 84,
+      "input": "\"a\tb\" - v\n--LLF-END\n",
+      "error": "E13"
+    },
+    {
+      "id": 85,
+      "input": "\"a\u0001\" - v\n--LLF-END\n",
+      "error": "E13"
+    },
+    {
+      "id": 86,
+      "input": "a {}\t\n--LLF-END\n",
+      "expected": {
+        "a": {}
+      }
+    },
+    {
+      "id": 87,
+      "input": "a []\t\n  _\t\n--LLF-END\n",
+      "expected": {
+        "a": [
+          null
+        ]
+      }
+    },
+    {
+      "id": 88,
+      "input": "a -\t\n  |x\n--LLF-END\n",
+      "expected": {
+        "a": "x"
+      }
+    },
+    {
+      "id": 89,
+      "input": "a -\tvalue\n--LLF-END\n",
+      "error": "E07"
+    },
+    {
+      "id": 90,
+      "input": "a {}\tx\n--LLF-END\n",
+      "error": "E07"
+    }
+  ],
+  "strict_vectors": [
+    {
+      "id": "S1",
+      "input": "a -\n  |x\r\n--LLF-END\n",
+      "expected": {
+        "a": "x\r"
+      }
+    },
+    {
+      "id": "S2",
+      "input": "a - x\r\n--LLF-END\n",
+      "expected": {
+        "a": "x"
+      }
+    },
+    {
+      "id": "S3",
+      "input": "a {}\r\n  b -\r\n    |x\r\n    |y\r\n  c _\r\n--LLF-END\r\n",
+      "expected": {
+        "a": {
+          "b": "x\r\ny\r",
+          "c": null
+        }
+      }
+    }
+  ],
+  "frame_vectors": [
+    {
+      "id": 1,
+      "input": "--LLF-BEGIN\ncall - write_file\nid - c1\n--LLF-END\n--LLF-BEGIN\ncall - read_file\nid - c2\n--LLF-END\n",
+      "expected_frames": [
+        {
+          "call": "write_file",
+          "id": "c1"
+        },
+        {
+          "call": "read_file",
+          "id": "c2"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "input": "--LLF-BEGIN\ncall - a\n--LLF-END\n\n\n--LLF-BEGIN\ncall - b\n--LLF-END\n",
+      "expected_frames": [
+        {
+          "call": "a"
+        },
+        {
+          "call": "b"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "input": "noise\n--LLF-BEGIN\ncall - a\n--LLF-END\ntrailing\n",
+      "expected_frames": [
+        {
+          "call": "a"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "input": "--LLF-BEGIN\ncall - a\n",
+      "error": "E02"
+    },
+    {
+      "id": 5,
+      "input": "--LLF-BEGIN\ncall - a\n--LLF-BEGIN\ncall - b\n--LLF-END\n",
+      "error": "E02"
+    },
+    {
+      "id": 6,
+      "input": "--LLF-BEGIN\n-\n|call - write_file\n|args {}\n|  path - /etc/passwd\n--LLF-END\n",
+      "expected_frames": [
+        "call - write_file\nargs {}\n  path - /etc/passwd"
+      ]
+    }
+  ],
+  "tag_vectors": [
+    {
+      "id": 1,
+      "input": "accent !color - #ff8800\n--LLF-END\n",
+      "expected": {
+        "accent": {
+          "$tag": "color",
+          "$value": "#ff8800"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "input": "w !rect {}\n  x - 0\n  y - 0\n--LLF-END\n",
+      "expected": {
+        "w": {
+          "$tag": "rect",
+          "$value": {
+            "x": "0",
+            "y": "0"
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "input": "p []\n  !color - #fff\n  !gradient {}\n    from - #000\n  - plain\n--LLF-END\n",
+      "expected": {
+        "p": [
+          {
+            "$tag": "color",
+            "$value": "#fff"
+          },
+          {
+            "$tag": "gradient",
+            "$value": {
+              "from": "#000"
+            }
+          },
+          "plain"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "input": "c !color _\n--LLF-END\n",
+      "expected": {
+        "c": {
+          "$tag": "color",
+          "$value": null
+        }
+      }
+    },
+    {
+      "id": 5,
+      "input": "s !code -\n  |x\n  |\n--LLF-END\n",
+      "expected": {
+        "s": {
+          "$tag": "code",
+          "$value": "x\n"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "input": "s !int - !x\n--LLF-END\n",
+      "expected": {
+        "s": {
+          "$tag": "int",
+          "$value": "!x"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "input": "\"a b\" !名字 []\n--LLF-END\n",
+      "expected": {
+        "a b": {
+          "$tag": "名字",
+          "$value": []
+        }
+      }
+    },
+    {
+      "id": 8,
+      "input": "s !!int - 1\n--LLF-END\n",
+      "expected": {
+        "s": {
+          "$tag": "!int",
+          "$value": "1"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "input": "!color - #fff\n--LLF-END\n",
+      "expected": {
+        "!color": "#fff"
+      }
+    },
+    {
+      "id": 10,
+      "input": "a {}\n  !x !t - v\n--LLF-END\n",
+      "expected": {
+        "a": {
+          "!x": {
+            "$tag": "t",
+            "$value": "v"
+          }
+        }
+      }
+    },
+    {
+      "id": 11,
+      "input": "-\n  |!t - x\n--LLF-END\n",
+      "expected": "!t - x"
+    },
+    {
+      "id": 12,
+      "input": "s ! - x\n--LLF-END\n",
+      "error": "E07"
+    },
+    {
+      "id": 13,
+      "input": "s !t\n--LLF-END\n",
+      "error": "E07"
+    },
+    {
+      "id": 14,
+      "input": "s !t  - x\n--LLF-END\n",
+      "error": "E07"
+    },
+    {
+      "id": 15,
+      "input": "s !a !b - x\n--LLF-END\n",
+      "error": "E07"
+    },
+    {
+      "id": 16,
+      "input": "s !a\"b - x\n--LLF-END\n",
+      "error": "E07"
+    },
+    {
+      "id": 17,
+      "input": "p []\n  !t\n--LLF-END\n",
+      "error": "E07"
+    },
+    {
+      "id": 18,
+      "input": "p []\n  !t x\n--LLF-END\n",
+      "error": "E07"
+    },
+    {
+      "id": 19,
+      "input": "s !t　- x\n--LLF-END\n",
+      "error": "E07"
+    },
+    {
+      "id": 20,
+      "input": "accent !color - #ff8800\n--LLF-END\n",
+      "error": "E07",
+      "tags": false
+    },
+    {
+      "id": 21,
+      "input": "p []\n  !color - #fff\n--LLF-END\n",
+      "error": "E15",
+      "tags": false
+    },
+    {
+      "id": 22,
+      "input": "!color - #fff\n--LLF-END\n",
+      "expected": {
+        "!color": "#fff"
+      },
+      "tags": false
+    }
+  ],
+  "tag_expr_vectors": [
+    {
+      "id": 1,
+      "input": "color",
+      "expected": {
+        "name": "color",
+        "types": [],
+        "args": []
+      }
+    },
+    {
+      "id": 2,
+      "input": "range(0,1,0.01)",
+      "expected": {
+        "name": "range",
+        "types": [],
+        "args": [
+          "0",
+          "1",
+          "0.01"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "input": "list<color>",
+      "expected": {
+        "name": "list",
+        "types": [
+          {
+            "name": "color",
+            "types": [],
+            "args": []
+          }
+        ],
+        "args": []
+      }
+    },
+    {
+      "id": 4,
+      "input": "list<color>(1,8)",
+      "expected": {
+        "name": "list",
+        "types": [
+          {
+            "name": "color",
+            "types": [],
+            "args": []
+          }
+        ],
+        "args": [
+          "1",
+          "8"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "input": "map<range(0,1)>",
+      "expected": {
+        "name": "map",
+        "types": [
+          {
+            "name": "range",
+            "types": [],
+            "args": [
+              "0",
+              "1"
+            ]
+          }
+        ],
+        "args": []
+      }
+    },
+    {
+      "id": 6,
+      "input": "list<map<int>>",
+      "expected": {
+        "name": "list",
+        "types": [
+          {
+            "name": "map",
+            "types": [
+              {
+                "name": "int",
+                "types": [],
+                "args": []
+              }
+            ],
+            "args": []
+          }
+        ],
+        "args": []
+      }
+    },
+    {
+      "id": 7,
+      "input": "pair<int,color>",
+      "expected": {
+        "name": "pair",
+        "types": [
+          {
+            "name": "int",
+            "types": [],
+            "args": []
+          },
+          {
+            "name": "color",
+            "types": [],
+            "args": []
+          }
+        ],
+        "args": []
+      }
+    },
+    {
+      "id": 8,
+      "input": "choice(log,sqrt,linear)",
+      "expected": {
+        "name": "choice",
+        "types": [],
+        "args": [
+          "log",
+          "sqrt",
+          "linear"
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "input": "now()",
+      "expected": {
+        "name": "now",
+        "types": [],
+        "args": []
+      }
+    },
+    {
+      "id": 10,
+      "input": "!int",
+      "expected": {
+        "name": "!int",
+        "types": [],
+        "args": []
+      }
+    },
+    {
+      "id": 11,
+      "input": "名字(甲,乙)",
+      "expected": {
+        "name": "名字",
+        "types": [],
+        "args": [
+          "甲",
+          "乙"
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "input": "range(-1,1e3)",
+      "expected": {
+        "name": "range",
+        "types": [],
+        "args": [
+          "-1",
+          "1e3"
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "input": "ui.color:rgb",
+      "expected": {
+        "name": "ui.color:rgb",
+        "types": [],
+        "args": []
+      }
+    },
+    {
+      "id": 14,
+      "input": "list<>",
+      "invalid": true
+    },
+    {
+      "id": 15,
+      "input": "list<color",
+      "invalid": true
+    },
+    {
+      "id": 16,
+      "input": "list<a,>",
+      "invalid": true
+    },
+    {
+      "id": 17,
+      "input": "<a>",
+      "invalid": true
+    },
+    {
+      "id": 18,
+      "input": "(1)",
+      "invalid": true
+    },
+    {
+      "id": 19,
+      "input": "a>b",
+      "invalid": true
+    },
+    {
+      "id": 20,
+      "input": "a)",
+      "invalid": true
+    },
+    {
+      "id": 21,
+      "input": "choice(a,,b)",
+      "invalid": true
+    },
+    {
+      "id": 22,
+      "input": "choice(,a)",
+      "invalid": true
+    },
+    {
+      "id": 23,
+      "input": "choice(a,b",
+      "invalid": true
+    },
+    {
+      "id": 24,
+      "input": "a(1)x",
+      "invalid": true
+    },
+    {
+      "id": 25,
+      "input": "a(1)<b>",
+      "invalid": true
+    },
+    {
+      "id": 26,
+      "input": "list<a(1)b>",
+      "invalid": true
+    },
+    {
+      "id": 27,
+      "input": "",
+      "invalid": true
+    },
+    {
+      "id": 28,
+      "input": "a b",
+      "invalid": true
+    },
+    {
+      "id": 29,
+      "input": "a\"b",
+      "invalid": true
+    }
+  ]
+}

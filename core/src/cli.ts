@@ -17,6 +17,7 @@ import { BUILTIN_VIEWS, evaluateView, listViews, validateSpec } from './view.ts'
 import { exportHtml } from './exporter.ts';
 import { FsWatcher } from './watch.ts';
 import { startServer } from './serve.ts';
+import { pickServer } from './config.ts';
 import { Store } from './store.ts';
 
 const HELP = `stars —— 关系编辑器(内核 CLI)
@@ -50,6 +51,11 @@ const HELP = `stars —— 关系编辑器(内核 CLI)
   watch                              监听文件系统,把文件/目录的新增、删除、重命名实时同步进宇宙(Ctrl-C 退出)  [--mount repo] [--debounce 80] [--poll 120]
   export <out.html>                  导出成一个自包含的 HTML(含查看器与当前宇宙),拷到任何机器双击就能看(只读)
   serve                              启动实时查看器  [--port 4321] [--host 127.0.0.1] [--allow-host 域名 ...(反向代理用,也可用 STARS_ALLOW_HOSTS)] [--watch(同时实时同步文件系统)]
+
+遥控(查看器里的每个操作都是一条命令,见控制台的 help)
+  ui <命令…>                         把一行命令发给打开着的查看器页面执行,打印它的输出   [--port N 指定服务]
+                                     例:stars ui select core/src/view.ts、stars ui "panel timeline"、stars ui param heatLevel 0.05
+                                     不带参数时从标准输入逐行读(# 开头的行忽略),可以当脚本用;命令里有 -选项 时整行加引号或写在 -- 之后
 
 全局选项
   -f, --file <路径>     宇宙文件(默认 $STARS_FILE 或 ./universe.stars)
@@ -357,6 +363,10 @@ function run(): void {
       process.on('SIGINT', () => { w.stop(); process.exit(0); });
       return;
     }
+    case 'ui': {
+      remoteUi().catch((err: Error) => { console.error(`错误: ${err.message}`); process.exitCode = 2; });
+      return;
+    }
     case 'serve': {
       const extra = [...(o['allow-host'] ?? []), ...(process.env.STARS_ALLOW_HOSTS?.split(',') ?? [])].map((h) => h.trim()).filter(Boolean);
       const baseDir = process.env.STARS_ROOT ?? dirname(file);
@@ -369,6 +379,30 @@ function run(): void {
     }
     default:
       throw new StarsError(`未知命令 "${cmd}"(stars help 查看用法)`);
+  }
+}
+
+/** stars ui:找到正在运行的服务(~/.config/stars/servers),把命令推给看着这个宇宙的页面,等第一个页面回报结果 */
+async function remoteUi(): Promise<void> {
+  const quote = (a: string) => (/^[^\s"'\\]+$/.test(a) ? a : JSON.stringify(a));
+  let lines: string[];
+  if (args.length) lines = [args.length === 1 ? args[0]! : args.map(quote).join(' ')];
+  else if (!process.stdin.isTTY) lines = readFileSync(0, 'utf8').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+  else throw new StarsError('用法: stars ui <命令…>(或从标准输入逐行给命令)');
+  const srv = pickServer(file, o.port ? Number(o.port) : undefined);
+  const host = srv.host === '0.0.0.0' || srv.host === '::' ? '127.0.0.1' : srv.host.includes(':') ? `[${srv.host}]` : srv.host;
+  for (const line of lines) {
+    const res = await fetch(`http://${host}:${srv.port}/api/ui`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-stars-token': srv.token },
+      body: JSON.stringify({ line, file, from: ctx.author }),
+    });
+    const r = await res.json() as { error?: string; delivered?: number; result?: { ok?: boolean; out?: string; error?: string } | null };
+    if (!res.ok) throw new StarsError(r.error ?? `服务返回 ${res.status}`);
+    if (!r.delivered) throw new StarsError(`没有打开着的查看器页面(在浏览器里打开 http://${host}:${srv.port})`);
+    if (!r.result) { console.log(`已发给 ${r.delivered} 个页面(没等到回报)`); continue; }
+    if (r.result.out) console.log(r.result.out);
+    if (r.result.ok === false) { console.error(`错误: ${r.result.error ?? '执行失败'}${lines.length > 1 ? `(${line})` : ''}`); process.exitCode = 1; }
   }
 }
 
