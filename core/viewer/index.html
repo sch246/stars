@@ -290,7 +290,7 @@ import { trackProposals } from '/core/proposals.js';
     friction:  { def: 0.42, min: 0.1, max: 0.8, step: 0.01, label: '阻尼', hint: '越大停得越快、越不飘' },
     dragForce: { def: 0.2, min: 0, max: 2, step: 0.05, label: '拖动力', hint: '拖动时把节点拉向指针的力度(1 = 原来的手感,默认 0.2);锁定拖动会持续施力,太大就会一直加速飞走' },
     tether:    { def: 1, min: 0, max: 3, step: 0.05, label: '疆域张力', hint: '就地展开的空间的一圈软边界:成员超出自然疆域 E0 越多,被拉回的力越大。它同时决定:①软边界有多硬 ②拖成员时整组能分到多少拖动力(越大越早跟着指针走) ③松手后回弹多快。0 = 关闭(拖动会把疆域撑大,松手也不还原)' },
-    shrink:    { def: 0.35, min: 0, max: 3, step: 0.05, label: '收缩余量', hint: '拖成员时整组最多收缩多少:成员在自己的空间里最多伸到 E0×(1+余量),其余成员按比例缩小 ≈ 1/(1+余量)。0.35 ≈ 缩 26%,1 ≈ 缩 50%,3 ≈ 缩 75%;死区只在拖动时张开,松手立刻回到原大小。0 = 不收缩' },
+    shrink:    { def: 1, min: 0, max: 3, step: 0.05, label: '收缩余量', hint: '整组最多能收缩多少:成员在自己的空间里最多伸到 E0×(1+余量),其余成员按比例缩小 ≈ 1/(1+余量)。1 ≈ 缩 50%,3 ≈ 缩 75%;余量越大,整组跟着指针走之前能收缩得越深。0 = 不收缩' },
     enterAt:   { def: 0, min: 0, max: 2, step: 0.01, label: '进入空间', hint: '放大到容器占屏幕短边的多少比例时进入它;0 = 跟随视图的设置(默认 0.42)' },
     follow:    { def: 1, toggle: true, label: '跟随选中', hint: '选中节点后镜头跟住它:它钉在屏幕中央,外面的世界绕着它转;关掉则自由平移缩放' },
     highlight: { def: 1, toggle: true, label: '高亮选中', hint: '选中后其它节点变暗,选中的、它的邻居、以及它展开出来的内容保持明亮;关掉则一律不变暗' },
@@ -307,20 +307,11 @@ import { trackProposals } from '/core/proposals.js';
   // 自定义的力(域之间互推、公转)也按温度缩放(以平时的热量为 1),这样平衡点与温度无关:
   // 刚切换视图时温度高,一两秒内就到位,而不是冷下来以后再花几十秒慢慢胀开。封顶 8 倍,免得起步太猛。
   const heatScale = (alpha) => Math.min(8, alpha / Math.max(P.heatLevel, 0.02));
-  // 疆域张力(见 tension):就地展开的空间超出"自然疆域"多少。E0 = 展开时的疆域,死区容忍平时的小波动。
-  const slackOf = (e0) => e0 * P.shrink + 6;     // 拖动中的死区:允许收缩到自然疆域 E0 的这个比例之外才顶到墙
-  const restSlack = (e0) => e0 * 0.03 + 4;       // 松手后几乎没有死区:一放开就开始还原
-  // 死区只在"正拖着这个空间的成员"时张开 —— 拖的时候允许整组深深收缩(不阻止它),一松手立刻回弹
-  const slackFor = (sp) => (drag && drag.moved && drag.h && drag.h.sp === sp ? slackOf(sp.E0) : restSlack(sp.E0));
-  /** 这个成员"顶到软边界"的程度:超出自然疆域 E0 + 死区多少,0~1。拖动时按它把拖动力分给整组 */
-  const tensionLevel = (sp, e) => {
-    if (!(P.compact > 0) || !(sp && sp.E0 > 0)) return 0;
-    return Math.max(0, Math.min(1, (e - sp.E0 - slackFor(sp)) / (sp.E0 * 0.5)));
-  };
-  /** 拖一个成员时,它在自己空间里最多被拖到多远(软边界再往外一点);更远就该整组跟着走了。
-   *  没有这个上限的话:动态缩放把"指针的局部坐标"放大成 1/scale,拖动与张力会一起发散(空间越小越明显,
-   *  嵌套时内层很小 → 直接爆掉)。上限让成员侧有界,整组侧用真正的世界误差去追指针。 */
-  const reachCap = (sp) => (sp && sp.E0 > 0 ? sp.E0 + slackOf(sp.E0) + Math.max(12, sp.E0 * 0.2) : Infinity);
+  // 疆域张力(见 tension):就地展开的空间超出自然疆域 E0 后受到的软墙力。E0 = 展开时的疆域。
+  // 同一套力在拖动/不拖动时**完全一样**,没有随鼠标开合的死区 —— 力和"收缩程度"同步增长
+  // (over² 起步,到 over = E0×收缩余量 封顶为线性),所以松手时力是连续的:不会"先缩、然后突然能拉",也不会弹一下。
+  const shrinkCap = (e0) => e0 * (1 + Math.max(0, P.shrink));                                     // 成员最多伸到这里(也是动态缩放的安全上限)
+  const shrinkLevel = (over, e0) => Math.min(1, Math.max(0, over) / Math.max(1, e0 * P.shrink));  // 0..1:收缩到了多少
 
   // ---------- 力导向 ----------
   const simulation = d3.forceSimulation()
@@ -353,17 +344,17 @@ import { trackProposals } from '/core/proposals.js';
     if (off) { const ox = transform.x + off.x - n.x * off.s, oy = transform.y + off.y - n.y * off.s; tx = (drag.px - ox) / off.s; ty = (drag.py - oy) / off.s; }
     else { tx = (drag.px - transform.x) / transform.k; ty = (drag.py - transform.y) / transform.k; }
     const gg = drag.g;
-    const cap = gg ? reachCap(gg.sp) : Infinity;
-    const r = Math.hypot(tx, ty), sCap = (r > cap && r > 0) ? cap / r : 1;   // 成员侧有界(见 reachCap)
-    pullDbg = { gg: !!gg, cap: cap === Infinity ? null : Math.round(cap), r: Math.round(r), sCap: +sCap.toFixed(4), m: Math.round(Math.hypot(n.x, n.y)) };
+    let cap = Infinity, sCap = 1;
+    if (gg && gg.sp.E0 > 0) { cap = shrinkCap(gg.sp.E0); const r = Math.hypot(tx, ty); if (r > cap && r > 0) sCap = cap / r; }   // 成员侧有界(动态缩放的安全上限)
     n.vx += (tx * sCap - n.x) * k; n.vy += (ty * sCap - n.y) * k;
-    // 拖的是就地展开空间里的成员、并且已经顶到软边界:把拖动力的一部分转给整组 ——
-    // 成员像把手,整组跟着指针走(收缩越深分走的越多,不收缩时整组不动,成员可以自由在疆域内挪)。
+    // 拖的是就地展开空间里的成员:按"收缩到了多少"把拖动力的一部分**同步**分给整组 ——
+    // 从第一刻起,收缩和整组受力一起增长(没有死区),成员像把手,整组跟着指针走。
     // 这里用**没有截断**的世界误差:成员到不了指针的部分,由整组去走。
-    if (gg && P.tether > 0) {
-      const c = tensionLevel(gg.sp, Math.hypot(n.x, n.y) + n.fp);   // 看被拖的这个成员自己顶出去多少,而不是整个疆域
+    if (gg && P.tether > 0 && gg.sp.E0 > 0) {
+      const c = shrinkLevel(Math.hypot(n.x, n.y) + n.fp - gg.sp.E0, gg.sp.E0);
       if (c > 0) { const kg = k * P.tether * c, cs = scOf(gg.n, gg.sp); gg.n.vx += (tx - n.x) * cs * kg; gg.n.vy += (ty - n.y) * cs * kg; }
     }
+    pullDbg = { gg: !!gg, cap: cap === Infinity ? null : Math.round(cap), sCap: +sCap.toFixed(4), m: Math.round(Math.hypot(n.x, n.y)) };
   };
   simulation.force('pointer', pullTo(simulation));
 
@@ -1814,12 +1805,12 @@ import { trackProposals } from '/core/proposals.js';
     if (!(P.compact > 0) || !(P.tether > 0) || !(sp.E0 > 0)) return null;
     const g = groupOf(sp);
     if (!g) return null;
-    const k = 0.35 * P.tether * heatScale(sp.sim.alpha()), slack = slackFor(sp);
+    const k = 0.35 * P.tether * heatScale(sp.sim.alpha()), e0 = sp.E0;
     let rx = 0, ry = 0;
     for (const m of sp.nodes) {
-      const e = Math.hypot(m.x, m.y) + m.fp, over = e - sp.E0 - slack;
+      const e = Math.hypot(m.x, m.y) + m.fp, over = e - e0;
       if (over <= 0) continue;
-      const f = k * over, ux = m.x / (e || 1), uy = m.y / (e || 1);
+      const f = k * over * shrinkLevel(over, e0), ux = m.x / (e || 1), uy = m.y / (e || 1);
       m.vx -= ux * f; m.vy -= uy * f;      // 拉回中心
       rx += ux * f; ry += uy * f;          // 反作用:整组朝离群点走
     }
