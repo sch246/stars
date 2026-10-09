@@ -293,9 +293,6 @@ import { trackProposals } from '/core/proposals.js';
   try { const saved = JSON.parse(localStorage.getItem('stars.phys') || '{}'); for (const k in P) if (typeof saved[k] === 'number') P[k] = saved[k]; } catch { /* 隐私模式 */ }
   const heatOn = () => P.heat > 0;
   const heatLevel = () => (heatOn() ? P.heatLevel : 0);
-  // 拖动时的温度 = 平时的热量(热量关着也用同一个值)。不能更高:斥力/引力随温度缩放,
-  // 而碰撞、域之间的推力、公转不随温度缩放 —— 温度一变平衡点就变,按住节点时整张图会收缩、松开又弹回去。
-  const dragHeat = () => Math.max(P.heatLevel, 0.02);
   // 自定义的力(域之间互推、公转)也按温度缩放(以平时的热量为 1),这样平衡点与温度无关:
   // 刚切换视图时温度高,一两秒内就到位,而不是冷下来以后再花几十秒慢慢胀开。封顶 8 倍,免得起步太猛。
   const heatScale = (alpha) => Math.min(8, alpha / Math.max(P.heatLevel, 0.02));
@@ -318,6 +315,15 @@ import { trackProposals } from '/core/proposals.js';
     simulation.velocityDecay(P.friction).alphaTarget(heatLevel());
   }
   applyFlatForces();
+
+  // 拖动 = 施加一个力:被拖的节点被拉向指针(弹簧),和别的自定义力一样按温度缩放 —— 不钉住、不改温度,
+  // 周围的节点通过平常的力去响应它。拉力的平衡点也和温度无关。
+  const pullTo = (sim) => (alpha) => {
+    if (!drag || !drag.moved || drag.sim !== sim) return;
+    const n = drag.n, k = 0.35 * heatScale(alpha);
+    n.vx += (drag.tx - n.x) * k; n.vy += (drag.ty - n.y) * k;
+  };
+  simulation.force('pointer', pullTo(simulation));
 
   // 轨道关系:给"子"一个切向速度,像行星绕恒星转。转速随轨道半径衰减。
   simulation.force('swirl', (alpha) => {
@@ -781,28 +787,37 @@ import { trackProposals } from '/core/proposals.js';
       }
     });
   d3.select(canvas).call(zoom).on('dblclick.zoom', null);
+  // 按下和拖动都不改变温度与动力学:按下什么都不做;指针挪动超过 3px 才算拖动,拖动只是给被拖的节点加一个
+  // 指向指针的拉力(见 pullTo),不钉住它。(温度一变平衡点就变:斥力/引力随温度缩放而碰撞不随,
+  // 以前按住时整张图会收缩、松开又弹回去。)唯一的例外:热量关着时模拟是停的,力推不动任何东西,
+  // 这时拖动临时升到热量设定值,松手后冷却。
+  let drag = null;   // { sx, sy, h, n, sim, moved, warmed, tx, ty }
   d3.select(canvas).call(d3.drag()
     .subject((ev) => {
       if (isSpaces()) { const h = pickHit(ev.x, ev.y); return h && !h.domain ? { h, x: ev.x, y: ev.y } : null; }
       return find(ev.x, ev.y);
     })
     .on('start', (ev) => {
-      if (ev.subject.h) { const n = ev.subject.h.n; n.fx = n.x; n.fy = n.y; ev.subject.moved = false; return; }
-      ev.subject.fx = ev.subject.x; ev.subject.fy = ev.subject.y; ev.subject.moved = false;
-      simulation.alphaTarget(dragHeat()).restart();
+      const h = ev.subject.h;
+      drag = { sx: ev.sourceEvent.offsetX, sy: ev.sourceEvent.offsetY, h, n: h ? h.n : ev.subject, sim: h ? h.sp.sim : simulation, moved: false, warmed: false };
     })
     .on('drag', (ev) => {
-      if (ev.subject.h) { // 拖动只影响这个节点所在的空间(物理独立)
-        const { h } = ev.subject, n = h.n;
-        n.fx = (ev.sourceEvent.offsetX - h.tx) / h.s; n.fy = (ev.sourceEvent.offsetY - h.ty) / h.s;
-        if (!ev.subject.moved) { h.sp.dragging = true; h.sp.sim.alphaTarget(dragHeat()).restart(); }
-        ev.subject.moved = true; return;
+      if (!drag) return;
+      const px = ev.sourceEvent.offsetX, py = ev.sourceEvent.offsetY;
+      if (!drag.moved) {
+        if (Math.hypot(px - drag.sx, py - drag.sy) < 3) return;   // 手抖不算拖动
+        drag.moved = true;
+        const running = drag.h ? heated.has(drag.h.sp) : heatOn(); // 拖动只影响这个节点所在的空间(物理独立)
+        if (!running) { drag.warmed = true; if (drag.h) drag.h.sp.dragging = true; drag.sim.alpha(Math.max(drag.sim.alpha(), P.heatLevel)).alphaTarget(P.heatLevel).restart(); }
       }
-      const [x, y] = transform.invert([ev.sourceEvent.offsetX, ev.sourceEvent.offsetY]); ev.subject.fx = x; ev.subject.fy = y; ev.subject.moved = true;
+      if (drag.h) { drag.tx = (px - drag.h.tx) / drag.h.s; drag.ty = (py - drag.h.ty) / drag.h.s; }
+      else { [drag.tx, drag.ty] = transform.invert([px, py]); }
     })
-    .on('end', (ev) => {
-      if (ev.subject.h) { const { h } = ev.subject; h.n.fx = null; h.n.fy = null; h.sp.dragging = false; h.sp.sim.alphaTarget(heated.has(h.sp) ? heatLevel() : 0); if (!ev.subject.moved) select(h.n.id, false); return; }
-      ev.subject.fx = null; ev.subject.fy = null; simulation.alphaTarget(heatLevel()); if (!ev.subject.moved) select(ev.subject.id, false);
+    .on('end', () => {
+      const d = drag; drag = null;
+      if (!d) return;
+      if (!d.moved) { select(d.n.id, false); return; }
+      if (d.warmed) { if (d.h) d.h.sp.dragging = false; d.sim.alphaTarget(d.h ? (heated.has(d.h.sp) ? heatLevel() : 0) : heatLevel()); }
     }));
   canvas.addEventListener('mousemove', (ev) => { pointerXY = [ev.offsetX, ev.offsetY]; hovered = find(ev.offsetX, ev.offsetY) || null; canvas.style.cursor = hovered ? 'pointer' : 'default'; });
   canvas.addEventListener('click', (ev) => {
@@ -1543,6 +1558,7 @@ import { trackProposals } from '/core/proposals.js';
       .force('collide', d3.forceCollide().strength(0.9).iterations(2)) // 半径差很大(展开的疆域 vs 叶子)时一次迭代推不干净
       .stop();
     if (old) old.sim.stop();
+    sim.force('pointer', pullTo(sim));
     const sp = { key, id, ver: spaceVer, nodes, byId, links, external: sd.external, sim, E: 24, warm: false };
     sim.force('swirl', () => {
       if (!sp.warm || !heatOn()) return;
@@ -2387,7 +2403,7 @@ import { trackProposals } from '/core/proposals.js';
   }
   requestAnimationFrame(draw);
 
-  window.__stars = { nodes: () => simulation.nodes(), transform: () => transform, scene: () => scene, regions: () => regions, perf, hits: () => frameHits, space: () => curSpaceId, enter: (id) => enterSpace(id, true), exit: () => exitSpace(true), rho: () => (curSpaceId === null ? null : getSpace(curSpaceId).E * transform.k / 0.92 / enterT()), expand: (id) => toggleExpandSpace(id), expanded: () => [...expandedSet], getSpace: (id) => getSpace(id ?? null), hasNode: (id) => !!uni && uni.nodes.has(id), project: () => project, P, heated: () => [...heated].map((sp) => sp.key), flatTarget: () => simulation.alphaTarget(), select: (id) => select(id, false), file: () => fp && { id: fp.id, full: fp.full, dirty: fp.dirty, kind: fp.info && fp.info.kind }, nodeCount: () => uni.nodes.size, lastN: () => lastN, recompute, manual, auto, compiled: () => compiled }; // 调试/自动化用
+  window.__stars = { nodes: () => simulation.nodes(), transform: () => transform, scene: () => scene, regions: () => regions, perf, hits: () => frameHits, space: () => curSpaceId, enter: (id) => enterSpace(id, true), exit: () => exitSpace(true), rho: () => (curSpaceId === null ? null : getSpace(curSpaceId).E * transform.k / 0.92 / enterT()), expand: (id) => toggleExpandSpace(id), expanded: () => [...expandedSet], getSpace: (id) => getSpace(id ?? null), hasNode: (id) => !!uni && uni.nodes.has(id), project: () => project, P, heated: () => [...heated].map((sp) => sp.key), flatTarget: () => simulation.alphaTarget(), spaceTarget: (id) => getSpace(id ?? null).sim.alphaTarget(), select: (id) => select(id, false), file: () => fp && { id: fp.id, full: fp.full, dirty: fp.dirty, kind: fp.info && fp.info.kind }, nodeCount: () => uni.nodes.size, lastN: () => lastN, recompute, manual, auto, compiled: () => compiled }; // 调试/自动化用
   connect();
 })();
 </script>
