@@ -290,7 +290,6 @@ import { trackProposals } from '/core/proposals.js';
     friction:  { def: 0.42, min: 0.1, max: 0.8, step: 0.01, label: '阻尼', hint: '越大停得越快、越不飘' },
     enterAt:   { def: 0, min: 0, max: 2, step: 0.01, label: '进入空间', hint: '放大到容器占屏幕短边的多少比例时进入它;0 = 跟随视图的设置(默认 0.42)' },
     follow:    { def: 1, toggle: true, label: '跟随选中', hint: '选中节点后镜头跟住它:它钉在屏幕中央,外面的世界绕着它转;关掉则自由平移缩放' },
-    followDelay: { def: 350, min: 0, max: 1200, step: 10, label: '跟随延迟 ms', hint: '选中后等这么久才开始跟随,给双击(就地展开)留出窗口;0 = 立刻跟随' },
     fade:      { def: 1, toggle: true, label: '淡入淡出', hint: '空间内外切换时的交叉淡入淡出;关掉则瞬间切换,更干脆' },
     compact:   { def: 1, toggle: true, label: '真实体积', hint: '目录和文件用同一套体积公式;占用与展开都不撑大,内容等比缩小;要看清就滚轮放大' },
     volMap:    { def: 'sqrt', choices: ['log', 'sqrt', 'linear'], label: '体积映射', hint: '真实体积开启时,字节数 → 半径 的缩放;sqrt 让面积 ∝ 体积,log 更紧凑' },
@@ -800,7 +799,6 @@ import { trackProposals } from '/core/proposals.js';
   // 所以镜头速度与"这一帧谁调用了它几次"无关,抖动自然消失。
   const FOLLOW_EASE = 420;           // 锁定进入的平滑时长(ms);之后精确钉住,零抖动
   let followId = null;               // 正在锁定的节点
-  let followPend = null;             // { id, at }:选中后延迟开始,给双击留窗口
   let followAt = 0, camFrom = null;  // 锁定开始时镜头在哪(平滑的起点)
 
   /** 节点相对相机原点的屏幕偏移(与 transform.x/y 无关)与该层累计缩放;现在没被画出来时 null。
@@ -827,11 +825,12 @@ import { trackProposals } from '/core/proposals.js';
     }
     return null;
   }
-  /** 选中后(延迟)开始跟随;取消或换成别的节点只改目标,绝不重置镜头 —— 所以没有跃迁。 */
+  /** 选中即开始跟随(不做延迟:双击改由"原地双击"识别);取消或换目标只改目标,绝不重置镜头 —— 所以没有跃迁。 */
   function scheduleFollow(id) {
-    if (!(P.follow > 0) || id == null) { followPend = null; followId = null; camFrom = null; return; }
+    if (!(P.follow > 0) || id == null) { followId = null; camFrom = null; return; }
     if (id === followId) return;
-    followPend = { id, at: performance.now() + Math.max(0, P.followDelay || 0) };
+    followId = id; followAt = performance.now(); camFrom = { x: transform.x, y: transform.y };
+    d3.select(canvas).interrupt();   // 别和"适应窗口/居中"的动画抢方向盘
   }
   /** 让节点可见但不抢镜头(跟随会负责居中):不在当前空间画得出来就先切过去。 */
   function ensureVisible(id) {
@@ -841,11 +840,7 @@ import { trackProposals } from '/core/proposals.js';
   }
   /** 每帧一次:把 transform 挪到让选中节点居中的位置。进入用 smoothstep 平滑,之后精确钉住。 */
   function stepCamera(now) {
-    if (!(P.follow > 0)) { followPend = null; followId = null; camFrom = null; return; }
-    if (followPend && now >= followPend.at) {
-      followId = followPend.id; followPend = null; followAt = now; camFrom = { x: transform.x, y: transform.y };
-      d3.select(canvas).interrupt();   // 别和"适应窗口/居中"的动画抢方向盘
-    }
+    if (!(P.follow > 0)) { followId = null; camFrom = null; return; }
     if (!followId) return;
     if (followId !== selected) { followId = null; camFrom = null; return; }
     const off = screenOffset(followId);
@@ -854,7 +849,11 @@ import { trackProposals } from '/core/proposals.js';
     const u = camFrom ? Math.min(1, (now - followAt) / FOLLOW_EASE) : 1, e = u * u * (3 - 2 * u);
     const nx = camFrom ? camFrom.x + (tx - camFrom.x) * e : tx;
     const ny = camFrom ? camFrom.y + (ty - camFrom.y) * e : ty;
-    d3.select(canvas).call(zoom.transform, d3.zoomIdentity.translate(nx, ny).scale(transform.k));
+    // 直接写 __zoom,不走 zoom.transform:后者是"发起一次缩放手势",会和用户正按下的手势互踩
+    // (按背景还没移动时会把 click 吃掉),也不该每帧 emit 事件。
+    if (canvas.__transition) d3.select(canvas).interrupt();
+    transform = d3.zoomIdentity.translate(nx, ny).scale(transform.k);
+    canvas.__zoom = transform;
   }
 
   // ---------- 交互 ----------
@@ -872,7 +871,7 @@ import { trackProposals } from '/core/proposals.js';
         userMoved = true;
         const kChanged = Math.abs(transform.k - prevK) > 1e-4;
         if (kChanged) lastUserZoom = performance.now(); // 只有缩放算"进出意图",平移不算
-        else if (ev.sourceEvent.type === 'mousemove' && (followId || followPend)) select(null); // 拖背景 = 脱离锁定
+        else if (ev.sourceEvent.type === 'mousemove' && followId) select(null); // 拖背景 = 脱离锁定
         if (isSpaces()) maybeSwitch(ev.sourceEvent, transform.k > prevK * 1.0001 ? 1 : transform.k < prevK * 0.9999 ? -1 : 0);
       }
     });
@@ -897,7 +896,8 @@ import { trackProposals } from '/core/proposals.js';
       if (!drag.moved) {
         if (Math.hypot(px - drag.sx, py - drag.sy) < 3) return;   // 手抖不算拖动
         drag.moved = true;
-        const lockT = followId || (followPend && followPend.id);
+        lastTap = null;   // 真拖动过:清掉"原地双击"的记忆
+        const lockT = followId;
         if (lockT && drag.n && drag.n.id !== lockT) select(null);   // 拖别的元素 = 脱离锁定;拖锁定本体不脱离 —— 它钉在中心、世界绕它转
         const running = drag.h ? heated.has(drag.h.sp) : heatOn(); // 拖动只影响这个节点所在的空间(物理独立)
         if (!running) { drag.warmed = true; if (drag.h) drag.h.sp.dragging = true; drag.sim.alpha(Math.max(drag.sim.alpha(), P.heatLevel)).alphaTarget(P.heatLevel).restart(); }
@@ -908,13 +908,54 @@ import { trackProposals } from '/core/proposals.js';
     .on('end', () => {
       const d = drag; drag = null;
       if (!d) return;
-      if (!d.moved) { select(d.n.id, false); return; }
+      // 单击(没拖动)不在这里选中:交给 canvas 的 click 统一处理,好把"原地双击"算在第一次点击的目标上
       if (d.warmed) { if (d.h) d.h.sp.dragging = false; d.sim.alphaTarget(d.h ? (heated.has(d.h.sp) ? heatLevel() : 0) : heatLevel()); }
     }));
   canvas.addEventListener('mousemove', (ev) => { pointerXY = [ev.offsetX, ev.offsetY]; hovered = find(ev.offsetX, ev.offsetY) || null; canvas.style.cursor = hovered ? 'pointer' : 'default'; });
+  // 点击统一入口(选中 + 原地双击)。canvas 的 click 只在"没有真正拖动"时触发,所以拖动不会被误当成点击。
+  let lastTap = null;                        // 第一次点击:{ id, x, y, t }
+  const TAP_MS = 500, TAP_PX = 10;           // 原地双击:同一屏幕位置,500ms 以内(和系统双击阈值一致)
+  function performDouble(id) {   // 双击动作(容器就地展开/收起,叶子选中并进编辑)
+    if (id == null) return;
+    if (isSpaces()) { const n = compiled.node(id); if (n && n.container) { toggleExpandSpace(id); return; } }
+    else { const n = sim.get(id); if (n && n.container) { toggleExpand(id); return; } }
+    select(id, false); focusEditor();
+  }
+  function handleTap(px, py, hit) {
+    const now = performance.now();
+    if (lastTap && now - lastTap.t < TAP_MS && Math.hypot(px - lastTap.x, py - lastTap.y) < TAP_PX) {
+      // 第二次点击仍落在第一次的位置附近 → 算在第一次的目标上,第二次点到的"当地东西"忽略(镜头已经移动也不影响)
+      const id = lastTap.id; lastTap = null;
+      performDouble(id);
+      return;
+    }
+    lastTap = { id: hit && hit.n ? hit.n.id : null, x: px, y: py, t: now };
+    select(hit ? hit.n.id : null, false);
+  }
+  // "原地双击"在捕获阶段处理:第二次按下先只记成候选,抬起时还没怎么移动才算双击。
+  // 这样即使第一次点击后镜头移动、甚至详情面板(看文件时会展开到 600px)盖住了那个位置,双击仍算在第一次的目标上;
+  // 而"点一下再按住拖"不会被误判成双击——一旦移动超过 3px 候选就作废,拖动照常。
+  let swallowClick = false, dblCand = null;
+  addEventListener('mousedown', (ev) => {
+    swallowClick = false; dblCand = null;
+    if (!lastTap || ev.button) return;
+    if (performance.now() - lastTap.t < TAP_MS && Math.hypot(ev.clientX - lastTap.x, ev.clientY - lastTap.y) < TAP_PX) dblCand = { id: lastTap.id, x: ev.clientX, y: ev.clientY };
+  }, true);
+  addEventListener('mousemove', (ev) => { if (dblCand && Math.hypot(ev.clientX - dblCand.x, ev.clientY - dblCand.y) > 3) dblCand = null; }, true);
+  addEventListener('mouseup', () => {
+    if (!dblCand) return;
+    const id = dblCand.id; dblCand = null; lastTap = null; swallowClick = true;
+    performDouble(id);   // 第二次是原地点击(没有拖动)→ 算在第一次点击的目标上
+  }, true);
+  addEventListener('click', (ev) => {
+    if (!swallowClick) return;
+    swallowClick = false; ev.preventDefault(); ev.stopPropagation();
+  }, true);
   canvas.addEventListener('click', (ev) => {
-    if (isSpaces()) { const h = pickHit(ev.offsetX, ev.offsetY); if (!h) select(null); else if (h.domain) select(h.n.id); return; }
-    if (!find(ev.offsetX, ev.offsetY)) select(null);
+    let hit = null;
+    if (isSpaces()) hit = pickHit(ev.offsetX, ev.offsetY);
+    else { const n = find(ev.offsetX, ev.offsetY); hit = n ? { n } : null; }
+    handleTap(ev.clientX, ev.clientY, hit);
   });
   $('q').addEventListener('input', (ev) => { query = ev.target.value.trim().toLowerCase(); computeMatches(); });
   addEventListener('keydown', (ev) => {
@@ -1588,10 +1629,7 @@ import { trackProposals } from '/core/proposals.js';
     manual.set(id, !n.expanded);
     recompute(false);
   }
-  canvas.addEventListener('dblclick', (ev) => {
-    if (isSpaces()) { const h = pickHit(ev.offsetX, ev.offsetY); if (h && h.n.container) toggleExpandSpace(h.n.id); else if (h) { select(h.n.id, false); focusEditor(); } return; }
-    const n = find(ev.offsetX, ev.offsetY); if (n && n.container) toggleExpand(n.id); else if (n) { select(n.id, false); focusEditor(); }
-  });
+  // 双击不在这里处理:统一走 handleTap() 的"原地双击"(作用在第一次点击的目标上),镜头移动也不会点空。
 
   // ======================= 嵌套空间 =======================
   // 每个容器是一个独立的小世界:只有它的直接子节点,只受内部关系约束,和外界没有力的交互。
@@ -2669,7 +2707,7 @@ import { trackProposals } from '/core/proposals.js';
   }
   requestAnimationFrame(draw);
 
-  window.__stars = { nodes: () => simulation.nodes(), transform: () => transform, scene: () => scene, regions: () => regions, perf, hits: () => frameHits, space: () => curSpaceId, enter: (id) => enterSpace(id, true), exit: () => exitSpace(true), rho: () => (curSpaceId === null ? null : getSpace(curSpaceId).E * transform.k / 0.92 / enterT()), expand: (id) => toggleExpandSpace(id), expanded: () => [...expandedSet], getSpace: (id) => getSpace(id ?? null), hasNode: (id) => !!uni && uni.nodes.has(id), project: () => project, P, heated: () => [...heated].map((sp) => sp.key), flatTarget: () => simulation.alphaTarget(), spaceTarget: (id) => getSpace(id ?? null).sim.alphaTarget(), select: (id) => select(id, false), offset: (id) => screenOffset(id), follow: () => ({ id: followId, pend: followPend && followPend.id }), file: () => fp && { id: fp.id, full: fp.full, dirty: fp.dirty, kind: fp.info && fp.info.kind }, nodeCount: () => uni.nodes.size, lastN: () => lastN, recompute, manual, auto, compiled: () => compiled }; // 调试/自动化用
+  window.__stars = { nodes: () => simulation.nodes(), transform: () => transform, scene: () => scene, regions: () => regions, perf, hits: () => frameHits, space: () => curSpaceId, enter: (id) => enterSpace(id, true), exit: () => exitSpace(true), rho: () => (curSpaceId === null ? null : getSpace(curSpaceId).E * transform.k / 0.92 / enterT()), expand: (id) => toggleExpandSpace(id), expanded: () => [...expandedSet], getSpace: (id) => getSpace(id ?? null), hasNode: (id) => !!uni && uni.nodes.has(id), project: () => project, P, heated: () => [...heated].map((sp) => sp.key), flatTarget: () => simulation.alphaTarget(), spaceTarget: (id) => getSpace(id ?? null).sim.alphaTarget(), select: (id) => select(id, false), offset: (id) => screenOffset(id), follow: () => ({ id: followId }), tap: () => (lastTap ? { id: lastTap.id, age: Math.round(performance.now() - lastTap.t) } : null), file: () => fp && { id: fp.id, full: fp.full, dirty: fp.dirty, kind: fp.info && fp.info.kind }, nodeCount: () => uni.nodes.size, lastN: () => lastN, recompute, manual, auto, compiled: () => compiled }; // 调试/自动化用
   connect();
 })();
 </script>
