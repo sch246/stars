@@ -371,7 +371,7 @@ test('空间:每个容器是独立的小世界 —— 只含直接子节点;子�
   apply(u, { op: 'addEdge', from: 'goal', type: 'describes', to: 'a/lib/y.ts' });      // 来自整个 repo 之外
   const c = compileView(u, BUILTIN_VIEWS.galaxy!);
   assert.equal(c.layout, 'spaces');
-  assert.equal(c.enterAt, 0.2);
+  assert.equal(c.enterAt, 0.42);
 
   const root = c.space(null);
   assert.deepEqual(root.nodes.map((n) => n.id).sort(), ['goal', 'repo', 'universe']);

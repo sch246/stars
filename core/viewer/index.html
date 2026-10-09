@@ -152,7 +152,7 @@
   <input id="q" placeholder="过滤节点… ( / )" autocomplete="off">
   <div id="chips"></div>
   <div id="status">连接中…</div>
-  <div id="modes"><span class="vbtn" id="btn-edit">✎ 视图规则</span><span class="vbtn" id="btn-time">⏱ 时间线</span><span class="vbtn" id="btn-bg" title="背景:星系 / 星点 / 无(B)">✦ 背景</span><span class="vbtn" id="btn-review" title="AI(或别人)以「提议」写入的关系,等你接受或拒绝">✓ 审阅<span class="badge" id="rv-badge" hidden>0</span></span><span class="vbtn" id="btn-phys" title="宇宙参数:热量、公转、斥力、引力……">⚙ 参数</span></div>
+  <div id="modes"><span class="vbtn" id="btn-edit">✎ 视图规则</span><span class="vbtn" id="btn-time">⏱ 时间线</span><span class="vbtn" id="btn-bg" title="背景:星系 / 星点 / 无(B)">✦ 背景</span><span class="vbtn" id="btn-bounds" title="文件夹的虚线边界与半透明底(视图规则 space.boundary)">▢ 边界</span><span class="vbtn" id="btn-review" title="AI(或别人)以「提议」写入的关系,等你接受或拒绝">✓ 审阅<span class="badge" id="rv-badge" hidden>0</span></span><span class="vbtn" id="btn-phys" title="宇宙参数:热量、公转、斥力、引力……">⚙ 参数</span></div>
 </div>
 <div class="panel" id="editor" hidden>
   <div id="ed-head"><b id="ed-name"></b><span>JSON · 改动即时预览,保存后写入宇宙</span></div>
@@ -170,6 +170,7 @@
     <div><code>color[]</code> when, by: type | attr:x | group | recency(signal, halfLifeDays, from, to, rollup), value</div>
     <div><code>style[]</code> when, shape: dot/star/nebula/ringed/pulsar</div>
     <div><code>relations</code> 边类型 → mode: region/orbit/line/faint/hidden, distance, strength, color, arrow, spin(<code>*</code> 为兜底)</div>
+    <div><code>forces</code> 自定义布局力:函数节点数组(如 <code>["~fn/名字"]</code>),每个是 <code>(nodes, links, alpha, ctx) =&gt; void</code>,每 tick 调用(用 <code>stars fn-set</code> 建)</div>
     <div><b>表达式</b>(原生 JS 编译,很快):<code>size[].expr</code> 数值 · <code>color[].expr</code> 返回 #rrggbb 或 0..1(配 from/to) · <code>style[].expr</code> 返回形状名 · <code>when</code>/<code>select.where</code> 可写布尔表达式</div>
     <div>变量:<code>id label type degree depth children descendants</code>、任意属性名(数字自动转数值)、信号 <code>touched fileChanged</code>;函数:<code>log log1p sqrt min max clamp mix hsl hash days(t) recent(t,半衰期)</code>、<code>fn.名字(...)</code>(宇宙里的函数节点,<code>stars fn-set</code> 创建)</div>
     <div>规则按顺序匹配,<b>第一条</b>生效;<code>when</code> 是 key=value 相等(type 匹配节点类型)。信号:touched / fileChanged。</div>
@@ -218,7 +219,7 @@
 </div>
 <div id="toast" hidden></div>
 </div>
-<div id="hint"><kbd>/</kbd> 过滤 · <kbd>Esc</kbd> 取消 · 点击节点聚焦 · 滚轮缩放 · 拖动平移/拖节点 · <kbd>F</kbd> 适应窗口 · 放大进入空间 / 缩小或 <kbd>⌫</kbd> 返回 · 双击/<kbd>E</kbd> 就地展开 · <kbd>⏎</kbd> 进入选中的 · <kbd>B</kbd> 背景 · <kbd>P</kbd> 切换文件夹 · <kbd>1</kbd>–<kbd>6</kbd> 视图</div>
+<div id="hint"><kbd>/</kbd> 过滤 · <kbd>Esc</kbd> 取消 · 点击节点聚焦 · 滚轮缩放 · 拖动平移/拖节点 · <kbd>F</kbd> 适应窗口 · 放大进入空间 / 缩小或 <kbd>⌫</kbd> 返回 · 双击/<kbd>E</kbd> 就地展开 · <kbd>⏎</kbd> 进入选中的 · <kbd>B</kbd> 背景 · <kbd>P</kbd> 切换文件夹 · <kbd>1</kbd>–<kbd>6</kbd> 视图 · <kbd>I</kbd> 工具 · <kbd>L</kbd> 日志</div>
 <script src="/d3.js"></script>
 <script type="module">
 import { compileView, listViews, validateSpec } from '/core/view.js';
@@ -287,10 +288,16 @@ import { trackProposals } from '/core/proposals.js';
     gravity:   { def: 1, min: 0, max: 4, step: 0.05, label: '引力', hint: '把节点拉向空间中心' },
     gap:       { def: 3, min: 0, max: 24, step: 1, label: '间隙 px', hint: '碰撞时节点之间至少留的空隙' },
     friction:  { def: 0.42, min: 0.1, max: 0.8, step: 0.01, label: '阻尼', hint: '越大停得越快、越不飘' },
-    enterAt:   { def: 0, min: 0, max: 0.6, step: 0.01, label: '进入空间', hint: '放大到容器占屏幕短边的多少比例时进入它;0 = 跟随视图的设置(默认 0.2)' },
+    enterAt:   { def: 0, min: 0, max: 2, step: 0.01, label: '进入空间', hint: '放大到容器占屏幕短边的多少比例时进入它;0 = 跟随视图的设置(默认 0.42)' },
+    follow:    { def: 1, toggle: true, label: '跟随选中', hint: '选中节点后镜头缓动跟住它,看起来像它不动、外面的世界绕着它转' },
+    fade:      { def: 1, toggle: true, label: '淡入淡出', hint: '空间内外切换时的交叉淡入淡出;关掉则瞬间切换,更干脆' },
+    compact:   { def: 1, toggle: true, label: '真实体积', hint: '目录和文件用同一套体积公式;占用与展开都不撑大,内容等比缩小;要看清就滚轮放大' },
+    volMap:    { def: 'sqrt', choices: ['log', 'sqrt', 'linear'], label: '体积映射', hint: '真实体积开启时,字节数 → 半径 的缩放;sqrt 让面积 ∝ 体积,log 更紧凑' },
+    volMin:    { def: 2, min: 0, max: 40, step: 0.5, label: '体积下限', hint: '真实体积映射后最小节点的半径' },
+    volMax:    { def: 16, min: 1, max: 80, step: 0.5, label: '体积上限', hint: '真实体积映射后最大节点的半径' },
   };
   const P = Object.fromEntries(Object.entries(PHYS).map(([k, d]) => [k, d.def]));
-  try { const saved = JSON.parse(localStorage.getItem('stars.phys') || '{}'); for (const k in P) if (typeof saved[k] === 'number') P[k] = saved[k]; } catch { /* 隐私模式 */ }
+  try { const saved = JSON.parse(localStorage.getItem('stars.phys') || '{}'); for (const k in P) if (typeof saved[k] === typeof P[k]) P[k] = saved[k]; } catch { /* 隐私模式 */ }
   const heatOn = () => P.heat > 0;
   const heatLevel = () => (heatOn() ? P.heatLevel : 0);
   // 自定义的力(域之间互推、公转)也按温度缩放(以平时的热量为 1),这样平衡点与温度无关:
@@ -502,6 +509,14 @@ import { trackProposals } from '/core/proposals.js';
    */
   let compiled = null;
   const perf = { compileMs: 0, foldMs: 0, frameMs: 0, regionsMs: 0, edgesMs: 0, nodesMs: 0, labelsMs: 0 };
+  // 真实体积:目录和文件用同一套体积公式(同 scale、同 range);目录仍按 contains 汇总子孙字节数。
+  function withVolume(spec) {
+    if (!(P.compact > 0) || !spec || !Array.isArray(spec.size)) return spec;
+    const scale = P.volMap === 'log' || P.volMap === 'linear' ? P.volMap : 'sqrt';
+    const lo = Number(P.volMin), hi = Number(P.volMax);
+    const range = hi > lo ? [lo, hi] : [2, 16];
+    return { ...spec, size: spec.size.map((r) => (r && r.attr === 'size') ? { ...r, scale, range } : r) };
+  }
   function recompute(structural = true) {
     if (!uni) return;
     banner(viewErrors.length ? viewErrors.join(';') : null);
@@ -511,8 +526,9 @@ import { trackProposals } from '/core/proposals.js';
     const t0 = performance.now();
     if (structural || !compiled) {
       const base = draftSpec ?? specs[currentView];
-      const spec = base.layout === 'spaces' && hiddenTypes.size // 空间模式下,类型过滤交给内核(被隐藏的容器是"透明"的)
+      const spec0 = base.layout === 'spaces' && hiddenTypes.size // 空间模式下,类型过滤交给内核(被隐藏的容器是"透明"的)
         ? { ...base, select: { ...(base.select || {}), hideTypes: [...((base.select && base.select.hideTypes) || []), ...hiddenTypes] } } : base;
+      const spec = withVolume(spec0);
       try { compiled = compileView(uni, spec, { signals: data.signals || {}, now: Date.now() }); }
       catch (err) { banner('视图无法编译: ' + err.message); return; }
     }
@@ -636,7 +652,7 @@ import { trackProposals } from '/core/proposals.js';
   function setView(v) {
     if (!v || v === currentView) return;
     currentView = v; setHash(); fresh = true; selected = null; hiddenTypes.clear(); manual.clear(); auto.clear();
-    curSpaceId = null; expandedSet.clear(); fade = null; spaces.clear(); activeTags.clear();
+    curSpaceId = null; expandedSet.clear(); fade = null; spaces.clear(); activeTags.clear(); zoomFocusId = null;
     for (const n of sim.values()) n.born = 0;
     recompute();
     fresh = false; userMoved = false; setTimeout(fit, 900); setTimeout(() => { if (!userMoved) fit(); }, 3600);
@@ -708,7 +724,7 @@ import { trackProposals } from '/core/proposals.js';
       const issues = [...groups].map(([rule, g]) => g.items.length <= 3
         ? g.items.map((i) => `<div class="row sev-${g.sev}">${esc(i.message)}</div>`).join('')
         : `<div class="row sev-${g.sev}"><b>${g.items.length} × ${esc(rule)}</b></div><div class="row sev-${g.sev}" style="opacity:.7">例如 ${esc(g.items[0].message)}</div>`).join('');
-      el.innerHTML = `<h3>宇宙</h3><div class="sub">点击任意节点查看它的关系;用上方按钮切换视图 —— 同一份关系,不同的表达</div>`
+      el.innerHTML = `<h3>日志</h3>`
         + (issues ? `<div class="sec"><div class="t">需要关注</div>${issues}</div>` : '')
         + `<div class="sec"><div class="t">最近变更</div>${feed || '<span class="tag">暂无</span>'}</div>`;
       return;
@@ -759,6 +775,7 @@ import { trackProposals } from '/core/proposals.js';
   }
 
   function select(id, center) {
+    if (id !== selected) followCam = null;
     selected = id;
     if (isSpaces()) { if (id && center) reveal(id); renderSide(); return; }
     const n = id && sim.get(id);
@@ -770,10 +787,27 @@ import { trackProposals } from '/core/proposals.js';
     renderSide();
   }
 
+  // 跟随选中:镜头每帧向选中节点的目标位置缓动。节点在动、镜头跟住它,于是看起来像世界在绕它转。
+  let followCam = null;
+  function followTarget() {
+    if (!selected) return null;
+    if (isSpaces()) { const sp = getSpace(curSpaceId); return sp.byId.get(selected) || null; }
+    const n = sim.get(selected); return n && n.x !== undefined ? n : null;
+  }
+  function camOrigin(k) {
+    if (!(P.follow > 0)) return null;
+    const n = followTarget(); if (!n) return null;
+    if (!followCam) followCam = { x: transform.x, y: transform.y };
+    const tx = innerWidth / 2 - n.x * k, ty = innerHeight / 2 - n.y * k;
+    followCam.x += (tx - followCam.x) * 0.16; followCam.y += (ty - followCam.y) * 0.16;
+    return followCam;
+  }
+
   // ---------- 交互 ----------
   const find = (px, py) => {
     if (isSpaces()) { const h = pickHit(px, py); return h && !h.domain ? h.n : null; }
-    const [x, y] = transform.invert([px, py]);
+    const cam = camOrigin(transform.k), kk = transform.k;
+    const x = (px - (cam ? cam.x : transform.x)) / kk, y = (py - (cam ? cam.y : transform.y)) / kk;
     return simulation.find(x, y, 16 / transform.k + 6);
   };
   const zoom = d3.zoom().scaleExtent([0.08, 10])
@@ -782,7 +816,7 @@ import { trackProposals } from '/core/proposals.js';
       const prevK = transform.k;
       transform = ev.transform;
       if (ev.sourceEvent) {
-        userMoved = true; lastUserZoom = performance.now();
+        userMoved = true; if (Math.abs(transform.k - prevK) > 1e-4) lastUserZoom = performance.now(); // 只有缩放算"进出意图",平移不算
         if (isSpaces()) maybeSwitch(ev.sourceEvent, transform.k > prevK * 1.0001 ? 1 : transform.k < prevK * 0.9999 ? -1 : 0);
       }
     });
@@ -811,7 +845,7 @@ import { trackProposals } from '/core/proposals.js';
         if (!running) { drag.warmed = true; if (drag.h) drag.h.sp.dragging = true; drag.sim.alpha(Math.max(drag.sim.alpha(), P.heatLevel)).alphaTarget(P.heatLevel).restart(); }
       }
       if (drag.h) { drag.tx = (px - drag.h.tx) / drag.h.s; drag.ty = (py - drag.h.ty) / drag.h.s; }
-      else { [drag.tx, drag.ty] = transform.invert([px, py]); }
+      else { const cam = camOrigin(transform.k), kk = transform.k; [drag.tx, drag.ty] = [(px - (cam ? cam.x : transform.x)) / kk, (py - (cam ? cam.y : transform.y)) / kk]; }
     })
     .on('end', () => {
       const d = drag; drag = null;
@@ -842,6 +876,8 @@ import { trackProposals } from '/core/proposals.js';
     else if (!typing && ev.key === 'Enter' && selected && fileOf(raw.get(selected))) { ev.preventDefault(); focusEditor(); }
     else if (!typing && isSpaces() && (ev.key === 'Backspace' || ev.key === 'u' || ev.key === 'U')) { ev.preventDefault(); exitSpace(true); }
     else if (!typing && (ev.key === 'b' || ev.key === 'B')) setBg(bgMode + 1);
+    else if (!typing && (ev.key === 'i' || ev.key === 'I')) togglePanel('tools');
+    else if (!typing && (ev.key === 'l' || ev.key === 'L')) togglePanel('side');
     else if (!typing && (ev.key === 'p' || ev.key === 'P')) toggleProjects($('projects').hidden);
     else if (!typing && ev.key === '0') { if (isSpaces()) { expandedSet.clear(); spaceVer++; renderStatus(); } else { manual.clear(); auto.clear(); recompute(false); } }
     else if (!typing && /^[1-9]$/.test(ev.key) && viewNames[+ev.key - 1]) setView(viewNames[+ev.key - 1]);
@@ -881,7 +917,17 @@ import { trackProposals } from '/core/proposals.js';
     draftSpec = null; editorDirty = false; if (clearMsg) msg.innerHTML = '';
   }
   function layoutPanels() { const b = $('tools').getBoundingClientRect().bottom + 10; for (const id of ['editor', 'review', 'projects', 'physics']) { $(id).style.top = b + 'px'; $(id).style.maxHeight = `calc(100vh - ${b + 30}px)`; } }
-  addEventListener('resize', layoutPanels);
+  addEventListener('resize', () => { layoutPanels(); updateCrumbWidth(); });
+  // 侧面板统一注册:每个面板一个快捷键(底栏有提示);关闭后按快捷键或点按钮再开
+  const PANELS = [
+    { key: 'i', id: 'tools', label: '工具' },
+    { key: 'l', id: 'side', label: '日志' },
+  ];
+  function togglePanel(id, on) {
+    const el = $(id); if (!el) return;
+    el.hidden = on === undefined ? !el.hidden : !on;
+    updateCrumbWidth();
+  }
   function toggleEditor(on) {
     if (on && typeof toggleReview === 'function' && !$('review').hidden) { $('review').hidden = true; $('btn-review').classList.remove('on'); }
     if (on) { $('projects').hidden = true; togglePhysics(false); }
@@ -1001,7 +1047,7 @@ import { trackProposals } from '/core/proposals.js';
     $('timeline').hidden = true; $('btn-time').classList.remove('on');
     draftSpec = null; editorDirty = false; toggleEditor(false);
     selected = null; hovered = null; hiddenTypes.clear(); manual.clear(); auto.clear(); activeTags.clear();
-    curSpaceId = null; expandedSet.clear(); fade = null; spaces.clear(); spaceVer++;
+    curSpaceId = null; expandedSet.clear(); fade = null; spaces.clear(); spaceVer++; zoomFocusId = null;
     sim.clear(); known = new Set(); fresh = true; lastN = 0; compiled = null; uni = null;
     links = []; drawNodes = []; regions = []; labelNodes = [];
     simulation.nodes([]); simulation.force('link').links([]);
@@ -1228,7 +1274,7 @@ import { trackProposals } from '/core/proposals.js';
     grip.addEventListener('pointermove', (ev) => {
       if (!drag) return;
       widths[drag] = Math.round(Math.max(240, Math.min(innerWidth - 330, innerWidth - ev.clientX - 12)));
-      apply();
+      apply(); updateCrumbWidth();
     });
     grip.addEventListener('pointerup', () => { if (!drag) return; drag = null; document.body.classList.remove('resizing'); save(); });
     grip.addEventListener('dblclick', () => { delete widths[$('side').classList.contains('file') ? 'file' : 'info']; apply(); save(); });
@@ -1255,6 +1301,8 @@ import { trackProposals } from '/core/proposals.js';
   function renderPhysics() {
     $('ph-body').innerHTML = Object.entries(PHYS).map(([k, d]) => d.toggle
       ? `<div class="ph-toggle ${P[k] ? 'on' : ''}" data-k="${k}" title="${esc(d.hint)}"><span class="sw"></span><b>${esc(d.label)}</b><span>${P[k] ? '开' : '关'}</span></div>`
+      : d.choices
+      ? '<div class="ph-row"><label title="' + esc(d.hint) + '">' + esc(d.label) + '</label><span style="display:flex;gap:4px;justify-content:flex-end;grid-column:2 / span 2">' + d.choices.map((c) => '<span class="vbtn ' + (P[k] === c ? 'on' : '') + '" data-k="' + k + '" data-v="' + c + '">' + c + '</span>').join('') + '</span></div>'
       : `<div class="ph-row ${k === 'heatLevel' && !heatOn() ? 'off' : ''}"><label title="${esc(d.hint)}">${esc(d.label)}</label>`
         + `<input type="range" data-k="${k}" min="${d.min}" max="${d.max}" step="${d.step}" value="${P[k]}"><output>${fmtP(k, P[k])}</output></div>`).join('');
   }
@@ -1271,11 +1319,15 @@ import { trackProposals } from '/core/proposals.js';
   $('ph-body').addEventListener('input', (ev) => {
     const k = ev.target.dataset && ev.target.dataset.k; if (!k) return;
     P[k] = Number(ev.target.value); ev.target.nextElementSibling.textContent = fmtP(k, P[k]);
-    savePhys(); applyPhys();
+    savePhys(); applyPhys(); if (k === 'volMin' || k === 'volMax') recompute();
   });
   $('ph-body').addEventListener('click', (ev) => {
+    const ch = ev.target.closest('[data-v]');
+    if (ch) { const k = ch.dataset.k, v = ch.dataset.v; if (k && P[k] !== v) { P[k] = v; savePhys(); renderPhysics(); recompute(); applyPhys(); } return; }
     const t = ev.target.closest('.ph-toggle'); if (!t) return;
-    P[t.dataset.k] = P[t.dataset.k] ? 0 : 1; savePhys(); applyPhys(); renderPhysics();
+    const k = t.dataset.k;
+    P[k] = P[k] ? 0 : 1; savePhys(); applyPhys(); renderPhysics();
+    if (k === 'compact') recompute(); // 真实体积改的是体积计算本身,要重新编译视图
   });
   $('ph-reset').addEventListener('click', () => { for (const k in PHYS) P[k] = PHYS[k].def; savePhys(); applyPhys(); renderPhysics(); });
 
@@ -1492,10 +1544,11 @@ import { trackProposals } from '/core/proposals.js';
   // 只留 5% 防抖(画面是连续的,来回切换也看不出来),放大一点进去、缩小一点就出来。
   const smooth = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
   const enterT = () => (P.enterAt > 0 ? P.enterAt : compiled.enterAt) * Math.min(innerWidth, innerHeight);
-  const innerAlpha = (r) => smooth((r - 0.4) / 0.6);                                          // r = ρ / T
-  const outerAlpha = (r) => (1 - 0.85 * smooth((r - 0.6) / 1.6)) * (1 - smooth(r - 3));
+  const fadeOn = () => P.fade > 0;                                                             // 关掉:内外直接切换,没有任何交叉淡入淡出
+  const innerAlpha = (r) => (fadeOn() ? smooth((r - 0.4) / 0.6) : (r >= 1 ? 1 : 0));           // r = ρ / T
+  const outerAlpha = (r) => (fadeOn() ? (1 - 0.85 * smooth((r - 0.6) / 1.6)) * (1 - smooth(r - 3)) : 1);
   const EXIT_AT = 0.95;
-  let pointerXY = null, stickyFocus = null;
+  let pointerXY = null, stickyFocus = null, zoomFocusId = null;
   const spaces = new Map();          // 容器 id('' = 顶层)→ 空间
   let spaceVer = 0;
   let curSpaceId = null;             // 当前所在的空间,null = 顶层
@@ -1521,7 +1574,8 @@ import { trackProposals } from '/core/proposals.js';
     sp.E = E;
   }
   function updateFootprints(sp) {
-    for (const n of sp.nodes) n.fp = n.container ? (expandedSet.has(n.id) ? getSpace(n.id).E + PAD : n.D) : n.r * 1.6 + 2;
+    const compact = P.compact > 0;
+    for (const n of sp.nodes) n.fp = n.container ? (expandedSet.has(n.id) ? (compact ? n.D : getSpace(n.id).E + PAD) : n.D) : n.r * 1.6 + 2;
   }
   // 斥力只负责"把节点匀开",按节点自己的体(收起的盘 / 叶子)线性给;不能按 fp(就地展开后的整个疆域)给,
   // 更不能按平方给:疆域越大斥力越大 → 兄弟被推得越远 → 父疆域更大 → 在上一层斥力更大,层层放大。
@@ -1537,6 +1591,19 @@ import { trackProposals } from '/core/proposals.js';
   /** 视图里 contains 关系的 spin:空间里的成员绕空间中心公转(像星系自转),只在保持热量时生效 */
   const spaceSpin = () => { const sp = draftSpec ?? specs[currentView] ?? {}; return (sp.relations && sp.relations[(sp.expand && sp.expand.relation) || 'contains'] || {}).spin ?? 0; };
 
+  /** 视图里 spec.forces 列出的函数节点:~fn/名字 的 code 编译成 (nodes, links, alpha, ctx) => void */
+  function compileForces() {
+    const spec = draftSpec ?? specs[currentView] ?? {};
+    if (!Array.isArray(spec.forces)) return [];
+    const out = [];
+    for (const name of spec.forces) {
+      const id = String(name).startsWith('~') ? String(name) : '~fn/' + name;
+      const code = raw.get(id) && raw.get(id).attrs && raw.get(id).attrs.code;
+      if (!code) continue;
+      try { const f = new Function('return (' + code + ')')(); if (typeof f === 'function') out.push(f); } catch { /* 忽略坏函数 */ }
+    }
+    return out;
+  }
   function getSpace(id) {
     const key = keyOf(id);
     const old = spaces.get(key);
@@ -1562,6 +1629,7 @@ import { trackProposals } from '/core/proposals.js';
     if (old) old.sim.stop();
     sim.force('pointer', pullTo(sim));
     const sp = { key, id, ver: spaceVer, nodes, byId, links, external: sd.external, sim, E: 24, warm: false };
+    sp.forces = compileForces();
     sim.force('swirl', () => {
       if (!sp.warm || !heatOn()) return;
       const w0 = 0.07 * spaceSpin() * P.spin;
@@ -1591,6 +1659,7 @@ import { trackProposals } from '/core/proposals.js';
     return getSpace(null);
   }
   function onSpaceTick(sp) { // 就地展开的空间在调整时,父空间要跟着给它让位
+    if (sp.forces && sp.forces.length) for (const f of sp.forces) { try { f(sp.nodes, sp.links, sp.sim.alpha(), { space: sp.key, k: transform.k }); } catch { /* 用户函数出错不该拖垮渲染 */ } }
     measure(sp);
     if (sp.id === null || !expandedSet.has(sp.id)) return;
     // 保持热量时子空间每帧都在动:疆域半径变化够大才通知父空间,否则父空间会被不停地重新加热、抖个不停
@@ -1598,7 +1667,7 @@ import { trackProposals } from '/core/proposals.js';
     sp.sentE = sp.E;
     const ps = holderOf(sp.id), n = ps.byId.get(sp.id);
     if (!n) return;
-    n.fp = sp.E + PAD;
+    n.fp = P.compact > 0 ? n.D : sp.E + PAD;
     applyForces(ps);
     if (!heated.has(ps) && ps.sim.alpha() < 0.08) ps.sim.alpha(0.25).restart();
   }
@@ -1621,7 +1690,7 @@ import { trackProposals } from '/core/proposals.js';
     applyFlatForces();
     if (!isSpaces()) simulation.alpha(Math.max(simulation.alpha(), 0.3)).restart();
     for (const sp of spaces.values()) {
-      applyForces(sp);
+      updateFootprints(sp); applyForces(sp);
       if (heated.has(sp) || drawnSpaces.has(sp)) { if (!sp.dragging) sp.sim.alphaTarget(heatLevel()); sp.sim.alpha(Math.max(sp.sim.alpha(), 0.3)).restart(); }
     }
     for (const sp of heated) if (!heatOn()) { sp.sim.alphaTarget(0); heated.delete(sp); }
@@ -1652,12 +1721,12 @@ import { trackProposals } from '/core/proposals.js';
     for (const l of sp.links) { if (l.source.id === id) s.add(l.target.id); if (l.target.id === id) s.add(l.source.id); }
     return s;
   }
-  const mustLabel = (n) => n === hovered || n.id === selected || (query && matchSet.has(n.id));
+  const mustLabel = (n) => n.id === selected || (query && matchSet.has(n.id)); // 悬浮不再影响图谱标签布局(改用光标气泡)
 
   // 端点:就地展开的容器,连线停在它的疆界上
   function endPoint(n, other) {
     if (!expandedSet.has(n.id)) return n;
-    const E = getSpace(n.id).E + 4, dx = other.x - n.x, dy = other.y - n.y, d = Math.hypot(dx, dy) || 1;
+    const child = getSpace(n.id), E = child.E * scOf(n, child) + 4, dx = other.x - n.x, dy = other.y - n.y, d = Math.hypot(dx, dy) || 1;
     return { x: n.x + dx / d * E, y: n.y + dy / d * E, r: 0 };
   }
 
@@ -1716,15 +1785,23 @@ import { trackProposals } from '/core/proposals.js';
     let focus = null, aIn = 0, aOutF = 1;
     if (mode === 'context' && opt.focusId) focus = sp.byId.get(opt.focusId) || null;
     else if (depth === 0 && !mode && !morph) {
-      const T = enterT(), [px, py] = pointerXY || [W / 2, H / 2];
-      for (const n of sp.nodes) {
-        if (!n.container || expandedSet.has(n.id) || n.id === skipId) continue;
-        const R = n.D * s; if (R < 0.4 * T) continue;
-        const d = Math.hypot(tx + n.x * s - px, ty + n.y * s - py);
-        if (n.id === stickyFocus && d <= R * 1.6) { focus = n; break; }
-        if (d <= R && (!focus || R > focus.D * s)) focus = n;
+      // 进入/退出只由缩放决定:指针只在"正在缩放"时用来挑目标;鼠标悬浮本身不改变任何淡入淡出。
+      const T = enterT();
+      if (performance.now() - lastUserZoom < 220) {
+        const [px, py] = pointerXY || [W / 2, H / 2];
+        let pick = null;
+        for (const n of sp.nodes) {
+          if (!n.container || expandedSet.has(n.id) || n.id === skipId) continue;
+          const R = n.D * s; if (R < 0.4 * T) continue;
+          const d = Math.hypot(tx + n.x * s - px, ty + n.y * s - py);
+          if (n.id === stickyFocus && d <= R * 1.6) { pick = n; break; }
+          if (d <= R && (!pick || R > pick.D * s)) pick = n;
+        }
+        zoomFocusId = pick ? pick.id : null;
+        if (!pick) stickyFocus = null;
       }
-      if (!focus) stickyFocus = null;
+      focus = zoomFocusId ? (sp.byId.get(zoomFocusId) || null) : null;
+      if (focus && focus.D * s < 0.4 * T) focus = null; // 没在"进入"的容器不画预览,避免残留
     }
     if (focus) { const r = focus.D * s / enterT(); aIn = innerAlpha(r); aOutF = outerAlpha(r); }
     // 展开中:匹配到粒子的节点从粒子的位置插值到真实位置(用代理对象画,不动模拟里的节点)
@@ -1768,7 +1845,8 @@ import { trackProposals } from '/core/proposals.js';
       if (!onScr(n, n.D * 1.7)) continue;
       const R = n.D * s, sx = tx + n.x * s, sy = ty + n.y * s;
       if (n.r * s < 1.2) { ctx.fillStyle = rgba(n.core, 0.8 * aOf(n)); ctx.fillRect(n.x - 1 / s, n.y - 1 / s, 2 / s, 2 / s); }
-      else drawNode(n, now, aOf(n) * (real(n) === hovered ? 1.25 : 1), n !== focus); // 焦点容器的旋臂由展开中的粒子代替
+      else drawNode(n, now, aOf(n), n !== focus); // 焦点容器的旋臂由展开中的粒子代替
+      if (real(n) === hovered) hoverRing(real(n));
       hit({ n: real(n), sp, depth, sx, sy, sr: Math.max(R * 0.75, 6), R, tx, ty, s });
       if (R >= 10 || mustLabel(n) || (query && matchAnc.has(n.id))) {
         const cnt = query && matchAnc.has(n.id) ? `  ·${matchAnc.get(n.id)} 处匹配` : '';
@@ -1779,29 +1857,32 @@ import { trackProposals } from '/core/proposals.js';
     for (const n of nodesV) { // 叶子
       if (n.container || n.id === skipId || !onScr(n, n.r * 5)) continue;
       const sx = tx + n.x * s, sy = ty + n.y * s, sr = n.r * s;
-      if (sr < 2.2 && real(n) !== hovered && n.id !== selected) { const q = Math.max(1.2 / s, n.r * 0.9); ctx.fillStyle = rgba(n.core, 0.9 * aOf(n)); ctx.fillRect(n.x - q / 2, n.y - q / 2, q, q); }
-      else drawNode(n, now, aOf(n) * (real(n) === hovered ? 1.25 : 1));
+      if (sr < 2.2 && n.id !== selected) { const q = Math.max(1.2 / s, n.r * 0.9); ctx.fillStyle = rgba(n.core, 0.9 * aOf(n)); ctx.fillRect(n.x - q / 2, n.y - q / 2, q, q); }
+      else drawNode(n, now, aOf(n));
+      if (real(n) === hovered) hoverRing(real(n));
       const age = now - (n.born || -1e9);
       if (age < 1800) { const p = age / 1800; ctx.strokeStyle = rgba(n.rgb, (1 - p) * 0.9 * alpha); ctx.lineWidth = 2 / s; ctx.beginPath(); ctx.arc(n.x, n.y, n.r + 4 + p * 50, 0, TAU); ctx.stroke(); }
       hit({ n: real(n), sp, depth, sx, sy, sr: Math.max(sr * 1.4, 5), R: sr, tx, ty, s });
       if (lblA > 0.02 && (sr >= 4 || mustLabel(n) || sp.nodes.length <= 16)) frameLabels.push({ text: n.label, sx, sy: sy + sr * 1.3 + 3, prio: mustLabel(n) ? 1e9 : sr, color: '#e8e8f6', alpha: lab(n), fade: alpha * lblA * aOutF });
     }
     flushParticles();
-    for (const n of inPlace) { // 就地展开:疆界 + 子空间(同一尺度,物理独立)
-      const child = getSpace(n.id);
-      if (!onScr(n, child.E + 30)) continue;
-      const E = child.E + 4, cx = tx + n.x * s, cy = ty + n.y * s, R = E * s;
+    for (const n of inPlace) { // 就地展开:疆界 + 子空间(物理独立;开启"紧凑展开"时按容器体积等比缩小)
+      const child = getSpace(n.id), cs = scOf(n, child);
+      const E = child.E * cs + 4, cx = tx + n.x * s, cy = ty + n.y * s, R = E * s, s2 = s * cs;
+      if (!onScr(n, E + 30)) continue;
       ctx.globalCompositeOperation = 'source-over'; setT();
-      ctx.beginPath(); ctx.arc(n.x, n.y, E, 0, TAU);
-      ctx.fillStyle = rgba(n.rgb, 0.05 * aOf(n)); ctx.fill();
-      ctx.strokeStyle = rgba(n.rgb, (n.id === selected ? 0.65 : 0.32) * aOf(n)); ctx.lineWidth = 1.2 / s; ctx.setLineDash([6 / s, 5 / s]); ctx.stroke(); ctx.setLineDash([]);
+      if (boundsOn()) { // 文件夹的虚线边界 + 半透明底,可关;关掉后交互与文字仍在
+        ctx.beginPath(); ctx.arc(n.x, n.y, E, 0, TAU);
+        ctx.fillStyle = rgba(n.rgb, 0.05 * aOf(n)); ctx.fill();
+        ctx.strokeStyle = rgba(n.rgb, (n.id === selected ? 0.65 : 0.32) * aOf(n)); ctx.lineWidth = 1.2 / s; ctx.setLineDash([6 / s, 5 / s]); ctx.stroke(); ctx.setLineDash([]);
+      }
       frameLabels.push({ text: n.label, sx: cx, sy: cy - R - 16, prio: 6e5 + R, color: '#cfd6ff', alpha: aOf(n), fade: alpha * mE * aOutF });
       hit({ n: real(n), sp, depth, sx: cx, sy: cy, sr: R, R, tx, ty, s, domain: true });
-      drawSpace(child, cx, cy, s, alpha * mE * aOutF, depth + 1, now, null, mode);
+      drawSpace(child, cx, cy, s2, alpha * mE * aOutF, depth + 1, now, null, mode);
       setT();
-      drawInnerLinks(child, n, sp, s, alpha * mE * aOutF);
+      drawInnerLinks(child, n, sp, s, alpha * mE * aOutF, cs);
     }
-    if (focus && mode !== 'context') { // 正在钻进去的容器:它的小星系展开成内部的空间(同样的几何,画在盘里)
+    if (focus && mode !== 'context' && fadeOn()) { // 正在钻进去的容器:它的小星系展开成内部的空间(同样的几何,画在盘里)
       const child = getSpace(focus.id);
       drawSpace(child, tx + focus.x * s, ty + focus.y * s, s * scOf(focus, child), alpha, depth + 1, now, null, 'preview', { morph: { host: focus, hs: s, e: aIn } });
       setT();
@@ -1809,17 +1890,17 @@ import { trackProposals } from '/core/proposals.js';
   }
 
   /** 就地展开的容器里,通向外面的关系:如果对方在这个空间里看得见,直接连过去(不同层级在一起时才能看到的连线) */
-  function drawInnerLinks(child, container, sp, s, alpha) {
+  function drawInnerLinks(child, container, sp, s, alpha, cs = 1) {
     if (!child.external.length) return;
     ctx.globalCompositeOperation = look === 'galaxy' ? 'lighter' : 'source-over';
     for (const x of child.external) {
       const q = child.byId.get(x.node), target = sp.byId.get(x.other);
       if (!q || !target || target === container) continue;
-      const a = { x: container.x + q.x, y: container.y + q.y }, b = endPoint(target, a);
+      const a = { x: container.x + q.x * cs, y: container.y + q.y * cs }, b = endPoint(target, a);
       const col = hex2rgb(x.color), hot = selected && (q.id === selected || target.id === selected);
       ctx.strokeStyle = rgba(col, alpha * (hot ? 0.9 : 0.38)); ctx.lineWidth = (hot ? 1.6 : 1) / s;
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-      if (x.out) drawArrow(a, { ...b, r: target.r || 0 }, col, alpha * 0.7, s); else drawArrow(b, { ...a, r: q.r }, col, alpha * 0.7, s);
+      if (x.out) drawArrow(a, { ...b, r: target.r || 0 }, col, alpha * 0.7, s); else drawArrow(b, { ...a, r: q.r * cs }, col, alpha * 0.7, s);
     }
   }
 
@@ -1852,7 +1933,7 @@ import { trackProposals } from '/core/proposals.js';
   }
 
   // ---------- 空间切换(有来源有目的 → 连续的过渡)----------
-  const scOf = (n, child) => (expandedSet.has(n.id) ? 1 : (n.D * 0.92) / child.E);
+  const scOf = (n, child) => (expandedSet.has(n.id) && !(P.compact > 0) ? 1 : (n.D * 0.92) / child.E);
   /** 从当前空间走到目标容器:中间必须都是就地展开的(那样目标在画面里是看得见的) */
   function pathWithin(fromId, targetId) {
     const chain = compiled.ancestors(targetId);
@@ -1880,8 +1961,8 @@ import { trackProposals } from '/core/proposals.js';
     for (const n of path) { ox += n.x; oy += n.y; } // 穿过就地展开的祖先,尺度都是 1
     const target = path[path.length - 1], child = getSpace(id), sc = scOf(target, child);
     const { x, y, k } = transform;
-    fade = path.length > 1 ? { kind: 'jump', fromId: curSpaceId, oldT: transform, t0: performance.now() } : null; // 穿过就地展开的几层:几何不连续,用淡入淡出
-    curSpaceId = id; lastSwitchAt = performance.now(); stickyFocus = null;
+    fade = fadeOn() && path.length > 1 ? { kind: 'jump', fromId: curSpaceId, oldT: transform, t0: performance.now() } : null; // 穿过就地展开的几层:几何不连续,用淡入淡出
+    curSpaceId = id; lastSwitchAt = performance.now(); stickyFocus = null; zoomFocusId = null; hovered = null;
     setTransformNow(x + k * ox, y + k * oy, k * sc);
     afterSwitch();
     if (fly) fitSpace(true);
@@ -1893,7 +1974,7 @@ import { trackProposals } from '/core/proposals.js';
     if (!n) { jumpTo(ps.id); return true; }
     const sc = scOf(n, cur), { x, y, k } = transform, k2 = k / sc;
     fade = null;
-    curSpaceId = ps.id; lastSwitchAt = performance.now(); stickyFocus = n.id; // 刚出来:它的内部继续按 ρ 淡出,不因指针不在它上面而突然消失
+    curSpaceId = ps.id; lastSwitchAt = performance.now(); stickyFocus = n.id; zoomFocusId = n.id; hovered = null; // 刚出来:它的内部继续按 ρ 淡出,不因指针不在它上面而突然消失
     setTransformNow(x - k2 * n.x, y - k2 * n.y, k2);
     afterSwitch();
     if (fly) fitSpace(true);
@@ -1902,8 +1983,8 @@ import { trackProposals } from '/core/proposals.js';
   /** 跨多级的跳转(面包屑、搜索结果):淡出旧空间,适应窗口地显示新空间 */
   function jumpTo(id, focusId) {
     if (id === curSpaceId && !focusId) { fitSpace(true); return; }
-    fade = { kind: 'jump', fromId: curSpaceId, oldT: transform, t0: performance.now() };
-    curSpaceId = id; lastSwitchAt = performance.now();
+    fade = fadeOn() ? { kind: 'jump', fromId: curSpaceId, oldT: transform, t0: performance.now() } : null;
+    curSpaceId = id; lastSwitchAt = performance.now(); zoomFocusId = focusId ?? null; hovered = null;
     if (focusId) { const sp = getSpace(id), n = sp.byId.get(focusId); fitSpace(false); if (n) centerOn(n, sp); }
     else fitSpace(false);
     afterSwitch();
@@ -1958,6 +2039,17 @@ import { trackProposals } from '/core/proposals.js';
     return best || bestDomain;
   }
 
+  // 面包屑居中在顶部:两侧面板折叠(或用户拖窄)后把可用宽度让出来,否则长路径被截断
+  function updateCrumbWidth() {
+    const el = $('crumbs'); if (!el) return;
+    const GAP = 20, PAD = 12;
+    const vis = (id) => { const e = $(id); if (!e || e.hidden) return null; const r = e.getBoundingClientRect(); return r.width > 0 ? r : null; };
+    const lt = vis('tools'), rt = vis('side');
+    const L = lt ? lt.right + GAP : PAD;
+    const R = rt ? rt.left - GAP : innerWidth - PAD;
+    const c = innerWidth / 2;
+    el.style.maxWidth = Math.max(140, Math.floor(Math.min(R - L, 2 * (c - L), 2 * (R - c)))) + 'px';
+  }
   function renderCrumbs() {
     const el = $('crumbs');
     if (!isSpaces()) { el.hidden = true; return; }
@@ -1965,6 +2057,7 @@ import { trackProposals } from '/core/proposals.js';
     const chain = curSpaceId === null ? [] : compiled.ancestors(curSpaceId);
     el.innerHTML = `<span class="crumb" data-c="">🌌 宇宙</span>` + chain.map((id) => `<span class="sep">›</span><span class="crumb" data-c="${esc(id)}">${esc(raw.get(id)?.label || id)}</span>`).join('')
       + `<span class="hint">放大进入 · 缩小返回 · 双击就地展开</span>`;
+    updateCrumbWidth();
   }
   $('crumbs').addEventListener('click', (ev) => { const c = ev.target.closest('.crumb'); if (c) jumpTo(c.dataset.c || null); });
 
@@ -1972,7 +2065,9 @@ import { trackProposals } from '/core/proposals.js';
     frameHits = []; frameLabels = [];
     drawnSpaces.clear();
     if (!compiled) return;
-    const { x, y, k } = transform;
+    const k = transform.k;
+    const cam = camOrigin(k);
+    const x = cam ? cam.x : transform.x, y = cam ? cam.y : transform.y;
     const p = fade ? Math.min(1, (now - fade.t0) / 420) : 1, ease = p * p * (3 - 2 * p);
     if (fade && p < 1) { // 过渡:旧空间按"来源—目的"的几何关系画出来,渐隐
       try {
@@ -1989,7 +2084,7 @@ import { trackProposals } from '/core/proposals.js';
       if (c && !expandedSet.has(c.id)) {
         const r = cur.E * k / 0.92 / enterT(), sc = scOf(c, cur), kP = k / sc, e = innerAlpha(r);
         if (outerAlpha(r) > 0.01 || e < 0.999) { drawSpace(ps, x - kP * c.x, y - kP * c.y, kP, 1, 0, now, null, 'context', { focusId: c.id }); frameLabels = frameLabels.filter((L) => (L.fade ?? 1) >= 0.25); }
-        if (e < 0.999) morphC = { host: c, hs: kP, e };
+        if (e < 0.999 && fadeOn()) morphC = { host: c, hs: kP, e };
       }
     }
     drawSpace(cur, x, y, k, fade ? Math.max(0.05, ease) : 1, 0, now, null, '', { morph: morphC });
@@ -2089,6 +2184,19 @@ import { trackProposals } from '/core/proposals.js';
   }
   $('btn-bg').addEventListener('click', () => setBg(bgMode + 1));
   setBg(bgMode);
+
+  // 文件夹的边界(虚线圆)与半透明底:视图层开关(视图规则 space.boundary=false 也关)。关掉后交互与文字保留,边界和底色全透明。
+  let showBounds = true;
+  try { showBounds = (localStorage.getItem('stars.bounds') ?? '1') !== '0'; } catch { /* 隐私模式 */ }
+  const boundsOn = () => showBounds && (((draftSpec ?? specs[currentView] ?? {}).space || {}).boundary !== false);
+  function setBounds(on) {
+    showBounds = !!on;
+    try { localStorage.setItem('stars.bounds', showBounds ? '1' : '0'); } catch { /* ignore */ }
+    $('btn-bounds').classList.toggle('on', showBounds);
+    $('btn-bounds').textContent = '▢ 边界:' + (showBounds ? '开' : '关');
+  }
+  $('btn-bounds').addEventListener('click', () => setBounds(!showBounds));
+  setBounds(showBounds);
 
   function drawBackdrop(now) {
     const W = innerWidth, H = innerHeight;
@@ -2201,6 +2309,17 @@ import { trackProposals } from '/core/proposals.js';
     ctx.closePath(); ctx.fill();
   }
 
+  // 悬浮的反馈只是一圈描边:不改变节点的透明度、大小或"点↔完整节点"的呈现,免得鼠标扫过时东西一闪一闪。
+  function hoverRing(n) {
+    if (!n || n.x === undefined) return;
+    const gco = ctx.globalCompositeOperation;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = 1.5 / Math.max(curK, 1e-6);
+    ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 1.7 + 5 / Math.max(curK, 1e-6), 0, TAU); ctx.stroke();
+    ctx.globalCompositeOperation = gco;
+  }
+
   function drawNode(n, now, a, arms = true) {
     const r = n.r, x = n.x, y = n.y, c = n.rgb;
     switch (n.shape) {
@@ -2265,6 +2384,32 @@ import { trackProposals } from '/core/proposals.js';
     ctx.globalAlpha = 1;
   }
 
+  // 悬浮标签用光标气泡,不进入图谱标签的避让重排,所以鼠标移动时别的标签不会跳。
+  function drawHoverTip() {
+    if (!hovered || !pointerXY || !compiled) return;
+    const label = hovered.label || hovered.id;
+    if (!label) return;
+    const dpr = devicePixelRatio || 1;
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1; ctx.setLineDash([]);
+    ctx.font = '12px -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
+    const pad = 6, h = 17, w = ctx.measureText(label).width;
+    let bx = pointerXY[0] + 14, by = pointerXY[1] + 16;
+    if (bx + w + pad * 2 > innerWidth) bx = pointerXY[0] - 14 - w - pad * 2;
+    if (by + h + pad > innerHeight) by = pointerXY[1] - 16 - h - pad;
+    const bw = w + pad * 2, rr = 5;
+    ctx.beginPath();
+    ctx.moveTo(bx + rr, by); ctx.arcTo(bx + bw, by, bx + bw, by + h + pad, rr);
+    ctx.arcTo(bx + bw, by + h + pad, bx, by + h + pad, rr); ctx.arcTo(bx, by + h + pad, bx, by, rr);
+    ctx.arcTo(bx, by, bx + bw, by, rr); ctx.closePath();
+    ctx.fillStyle = 'rgba(8,10,24,0.92)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(122,142,220,0.75)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = '#e8e8f6'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, bx + pad, by + (h + pad) / 2);
+    ctx.restore();
+  }
+
   function draw(now) {
     const frameStart = performance.now();
     const dpr = devicePixelRatio || 1;
@@ -2273,6 +2418,7 @@ import { trackProposals } from '/core/proposals.js';
     drawBackdrop(now);
     if (isSpaces()) {
       drawSpacesFrame(now);
+      drawHoverTip();
       perf.frameMs = perf.frameMs * 0.9 + (performance.now() - frameStart) * 0.1;
       requestAnimationFrame(draw);
       return;
@@ -2280,10 +2426,11 @@ import { trackProposals } from '/core/proposals.js';
 
     const galaxy = look === 'galaxy';
     ctx.save();
-    ctx.translate(transform.x, transform.y); ctx.scale(transform.k, transform.k);
-    const k = transform.k;
+    const k = transform.k, cam = camOrigin(k);
+    const camX = cam ? cam.x : transform.x, camY = cam ? cam.y : transform.y;
+    ctx.translate(camX, camY); ctx.scale(k, k);
     curK = k;
-    const VW = innerWidth, VH = innerHeight, TX = transform.x, TY = transform.y;
+    const VW = innerWidth, VH = innerHeight, TX = camX, TY = camY;
     const onScreen = (n, extra) => { const m = n.r * extra * k + 24, sx = n.x * k + TX, sy = n.y * k + TY; return sx > -m && sx < VW + m && sy > -m && sy < VH + m; };
 
     const focus = selected ? new Set([selected]) : null;
@@ -2295,6 +2442,7 @@ import { trackProposals } from '/core/proposals.js';
     const tR = performance.now();
     // 域:展开的容器与它的后代之间,一片柔和的疆界。凸包较贵,缓存并节流到约每 220ms 重算一次
     for (const reg of regions) {
+      if (!boundsOn()) continue; // 关掉文件夹边界:平铺视图的域也不画
       if (!reg.hull || now - reg.hullAt > 220) {
         const mem = reg.members.filter((m) => m.x !== undefined && visible(m));
         if (mem.length < 2) { reg.hull = null; reg.hullAt = now; continue; }
@@ -2367,12 +2515,15 @@ import { trackProposals } from '/core/proposals.js';
     const nodes = drawNodes.filter((n) => n.x !== undefined);
     for (const n of nodes) {
       if (!onScreen(n, 6.5)) continue;
-      if (n.r * k < 2.4 && n !== hovered && n.id !== selected) { // 小到看不清发光细节的节点:一个点就够了
+      const isHover = n === hovered;
+      if (n.r * k < 2.4 && n.id !== selected) { // 小到看不清发光细节的节点:一个点就够了
         const q = Math.max(1.6 / k, n.r * 0.9);   // 屏幕上至少 1.6px,否则上万个点糊成一片灰
         ctx.fillStyle = rgba(n.dot, 0.9 * alphaOf(n)); ctx.fillRect(n.x - q / 2, n.y - q / 2, q, q);
+        if (isHover) hoverRing(n);
         continue;
       }
-      drawNode(n, now, alphaOf(n) * (n === hovered ? 1.25 : 1));
+      drawNode(n, now, alphaOf(n));
+      if (isHover) hoverRing(n);
       const age = now - (n.born || -1e9);
       if (age < 1800) { // 新生:扩散环
         const p = age / 1800;
@@ -2409,8 +2560,8 @@ import { trackProposals } from '/core/proposals.js';
     ctx.font = `${fs}px -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif`;
     // 标签避让:按重要性排序,和已放置的标签重叠就不画(选中/悬停/聚焦邻居/搜索命中优先)。
     // 规划(排序+重叠检测)较贵,节流到约每 160ms 或交互状态变化时才重做,每帧只按最新位置画。
-    const must = (n) => n === hovered || n.id === selected || (focus && focus.has(n.id)) || (query && matches(n.id));
-    const planKey = `${selected}|${query}|${hovered && hovered.id}|${Math.round(k * 20)}|${shown.length}`;
+    const must = (n) => n.id === selected || (focus && focus.has(n.id)) || (query && matches(n.id)); // 悬浮不再重排标签
+    const planKey = `${selected}|${query}|${Math.round(k * 20)}|${shown.length}`;
     if (planKey !== labelKey || now - labelAt > 160) {
       labelKey = planKey; labelAt = now;
       const cands = shown.filter((n) => must(n) || (!tiny && (k > 1.7 || n.r >= 6 || shown.length <= 14)))
@@ -2443,6 +2594,7 @@ import { trackProposals } from '/core/proposals.js';
     }
     ctx.globalAlpha = 1;
     ctx.restore();
+    drawHoverTip();
     perf.frameMs = perf.frameMs * 0.9 + (performance.now() - frameStart) * 0.1;
     requestAnimationFrame(draw);
   }

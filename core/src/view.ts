@@ -86,7 +86,9 @@ export interface ViewSpec {
    *         放大到容器占据小半屏幕(space.enterAt)才"进入"它,父级的布局从不因为放大而改变。
    */
   layout?: 'flat' | 'spaces';
-  space?: { enterAt?: number };
+  /** 自定义布局力:函数节点(~fn/名字)的列表,每个是 (nodes, links, alpha, ctx) => void,每个 tick 调用 */
+  forces?: string[];
+  space?: { enterAt?: number; boundary?: boolean };
   /** 把容器当作 tag 打在节点上(容器本身不必显示):节点带上它在前 depth 层的祖先容器 */
   tags?: { relation?: string; depth?: number };
   select?: {
@@ -229,7 +231,7 @@ export const BUILTIN_VIEWS: Record<string, ViewSpec> = {
   galaxy: {
     look: 'galaxy',
     layout: 'spaces',
-    space: { enterAt: 0.2 },
+    space: { enterAt: 0.42 },
     expand: { relation: 'contains' },
     size: GALAXY_SIZE,
     color: GALAXY_COLOR,
@@ -243,7 +245,7 @@ export const BUILTIN_VIEWS: Record<string, ViewSpec> = {
   recent: {
     look: 'galaxy',
     layout: 'spaces',
-    space: { enterAt: 0.2 },
+    space: { enterAt: 0.42 },
     expand: { relation: 'contains' },
     size: GALAXY_SIZE,
     color: [
@@ -282,7 +284,7 @@ export const BUILTIN_VIEWS: Record<string, ViewSpec> = {
   arch: {
     look: 'galaxy',
     layout: 'spaces',
-    space: { enterAt: 0.2 },
+    space: { enterAt: 0.42 },
     select: { hideTypes: ['file'] },
     expand: { relation: 'contains' },
     size: [{ when: { type: 'dir' }, attr: 'size', rollup: { relation: 'contains', op: 'sum' }, scale: 'log', range: [6, 18] }, { by: 'degree', range: [5, 14] }],
@@ -958,7 +960,7 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     nodeCount: N, edgeCount: E, fold, space,
     layout: spec.layout ?? 'flat',
     look,
-    enterAt: spec.space?.enterAt ?? 0.2,
+    enterAt: spec.space?.enterAt ?? 0.42,
     ancestors: (id) => { const i = idx.get(id); return i === undefined ? [] : chainOf(i).map((v) => ids[v]!); },
     node: (id) => { const i = idx.get(id); return i === undefined ? undefined : mkNode(i); },
     parentOf: (id) => { const i = idx.get(id); return i === undefined || parent[i]! < 0 ? undefined : ids[parent[i]!]!; },
@@ -988,7 +990,7 @@ export function listViews(u: Universe): { specs: Record<string, ViewSpec>; error
 }
 
 const KEYS = {
-  spec: ['look', 'layout', 'space', 'tags', 'select', 'expand', 'size', 'color', 'style', 'relations'],
+  spec: ['look', 'layout', 'space', 'tags', 'select', 'expand', 'size', 'color', 'style', 'relations', 'forces'],
   select: ['onlyTypes', 'hideTypes', 'withRelations', 'schema', 'where'],
   expand: ['relation', 'depth', 'maxNodes', 'auto'],
   size: ['when', 'attr', 'expr', 'signal', 'recency', 'by', 'rollup', 'scale', 'range'],
@@ -1014,6 +1016,7 @@ export function validateSpec(spec: unknown, u?: Universe): string[] {
   };
   if (!isObj(spec)) return ['规格必须是一个 JSON 对象'];
   unknownKeys(spec, KEYS.spec, '规格');
+  if (spec.forces !== undefined && (!Array.isArray(spec.forces) || !spec.forces.every((f) => typeof f === 'string'))) bad.push('forces 必须是函数名字符串数组(如 ["~fn/名字"])');
   if (spec.look !== undefined && !['galaxy', 'plain'].includes(spec.look as string)) bad.push('look 只能是 galaxy 或 plain');
   if (spec.layout !== undefined && !['flat', 'spaces'].includes(spec.layout as string)) bad.push('layout 只能是 flat 或 spaces');
   if (spec.select !== undefined) {
