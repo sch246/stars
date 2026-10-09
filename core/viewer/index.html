@@ -889,7 +889,13 @@ import { trackProposals } from '/core/proposals.js';
     return simulation.find((px - transform.x) / kk, (py - transform.y) / kk, 16 / kk + 6);
   };
   const zoom = d3.zoom().scaleExtent([0.08, 10])
-    .filter((ev) => !(ev.type === 'mousedown' && (isSpaces() ? pickHit(ev.offsetX, ev.offsetY) : find(ev.offsetX, ev.offsetY))) && !ev.button)
+    // 只有落在**真正的节点(亮点)**上才把鼠标交给 d3.drag;文件夹的虚线疆界 = 背景,照常拖动平移
+    .filter((ev) => {
+      if (ev.button) return false;
+      if (ev.type !== 'mousedown') return true;
+      const h = isSpaces() ? pickHit(ev.offsetX, ev.offsetY) : find(ev.offsetX, ev.offsetY);
+      return !(h && !h.domain);
+    })
     .on('zoom', (ev) => {
       const prevK = transform.k;
       transform = ev.transform;
@@ -911,7 +917,7 @@ import { trackProposals } from '/core/proposals.js';
   d3.select(canvas).call(d3.drag()
     .subject((ev) => {
       // 只有亮点(真正的节点,包括收起的小星系)是拖动把手;文件夹的虚线疆界(半透明底)不是 ——
-      // 它仍旧可点击(选中),但按下拖动什么也不做。展开的文件夹靠拖它里面的成员来整组移动(见 pullTo)。
+      // 它和背景一样:点击仍旧选中那个文件夹,按下拖动 = 平移镜头。展开的文件夹靠拖它里面的成员来整组移动(见 pullTo)。
       if (isSpaces()) { const h = pickHit(ev.x, ev.y); return h && !h.domain ? { h, x: ev.x, y: ev.y } : null; }
       return find(ev.x, ev.y);
     })
