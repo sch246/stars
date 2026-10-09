@@ -335,10 +335,12 @@ function run(): void {
       const git = (...a: string[]) => execFileSync('git', ['-C', root, ...a], { encoding: 'utf8' });
       git('config', 'merge.stars.name', '星罗宇宙文件:按事实三方合并');
       git('config', 'merge.stars.driver', `node ${JSON.stringify(cli)} merge %O %A %B`);
+      // 宇宙文件按事实合并;操作日志只追加,两边各自追加的行取并集即可(否则每次合并都会在日志上冲突)
       const attrs = resolve(root, '.gitattributes');
-      const has = existsSync(attrs) && readFileSync(attrs, 'utf8').split('\n').some((l) => l.trim() === '*.stars merge=stars');
-      if (!has) appendFileSync(attrs, '*.stars merge=stars\n');
-      console.log(`已启用:merge.stars.driver 写入 ${root}/.git/config(本机配置),${has ? '' : '.gitattributes 新增了一行 *.stars merge=stars(请提交)'}`);
+      const lines = existsSync(attrs) ? readFileSync(attrs, 'utf8').split('\n').map((l) => l.trim()) : [];
+      const want = ['*.stars merge=stars', '*.stars.log merge=union'].filter((l) => !lines.includes(l));
+      if (want.length) appendFileSync(attrs, (lines.length && lines[lines.length - 1] !== '' ? '\n' : '') + want.join('\n') + '\n');
+      console.log(`已启用:merge.stars.driver 写入 ${root}/.git/config(本机配置)${want.length ? `;.gitattributes 新增 ${want.join('、')}(请提交)` : ''}`);
       return;
     }
     case 'export': {

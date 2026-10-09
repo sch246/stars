@@ -12,14 +12,15 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch, writ
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { stripTypeScriptTypes } from 'node:module';
 import { homedir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { invalidateSignals, loadSignals, type LiveSignals } from './activity.ts';
-import { diffUniverses, gitHistory, gitSnapshot } from './history.ts';
+import { FileConflict, IMAGE_TYPES, readProjectFile, resolveInside, writeProjectFile } from './files.ts';
+import { diffUniverses, gitHistory, gitParentSnapshot, gitSnapshot } from './history.ts';
 import { lint } from './lint.ts';
 import { StarsError } from './model.ts';
 import { apply, type Op } from './ops.ts';
-import { listFiles, planScan, statMeta } from './scan.ts';
+import { listFiles, planScan, selfRel, statMeta } from './scan.ts';
 import { buildSnapshot } from './snapshot.ts';
 import { fileSig, Store } from './store.ts';
 import { FsWatcher } from './watch.ts';
@@ -268,7 +269,9 @@ export function startServer(
   const projectOf = (url: URL): Project => projects.get(url.searchParams.get('p') ?? '') ?? main;
 
   const api = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
-    if (req.headers['x-stars-token'] !== token) return json(res, 403, { error: '缺少或错误的 token' });
+    // <img> 没法带请求头,只读的 /api/raw 允许把 token 放在查询参数里
+    const tok = req.headers['x-stars-token'] ?? (url.pathname === '/api/raw' ? url.searchParams.get('t') : undefined);
+    if (tok !== token) return json(res, 403, { error: '缺少或错误的 token' });
     const origin = req.headers.origin;
     if (origin) { // 同源,或来自明确信任的主机名(反向代理时 Origin 是代理的域名)
       const o = new URL(origin);
@@ -291,17 +294,33 @@ export function startServer(
           .sort((a, b) => Number(b.hasUniverse) - Number(a.hasUniverse) || a.name.localeCompare(b.name));
         return json(res, 200, { dir, parent: dirname(dir) === dir ? null : dirname(dir), hasUniverse: existsSync(join(dir, 'universe.stars')), entries });
       }
-      if (req.method === 'GET' && url.pathname === '/api/history') return json(res, 200, gitHistory(proj.store.file));
+      const self = selfRel(proj.baseDir, proj.store.file);
+      if (req.method === 'GET' && url.pathname === '/api/file') {
+        return json(res, 200, readProjectFile(proj.baseDir, url.searchParams.get('path') ?? '', { self, statOnly: url.searchParams.has('stat') }));
+      }
+      if (req.method === 'GET' && url.pathname === '/api/raw') { // 图片预览
+        const abs = resolveInside(proj.baseDir, url.searchParams.get('path') ?? '');
+        const type = IMAGE_TYPES[extname(abs).toLowerCase()];
+        if (!type) return json(res, 415, { error: '只提供图片' });
+        res.writeHead(200, { 'content-type': type, 'cache-control': 'no-cache', 'content-security-policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'" });
+        res.end(readFileSync(abs));
+        return;
+      }
+      if (req.method === 'GET' && url.pathname === '/api/history') return json(res, 200, gitHistory(proj.store.file, Math.min(20000, Math.max(1, Number(url.searchParams.get('limit')) || 300))));
       if (req.method === 'GET' && url.pathname === '/api/state') {
         const hash = url.searchParams.get('commit') ?? '';
         const snap = gitSnapshot(proj.store.file, hash);
-        const parent = gitHistory(proj.store.file).commits.find((c) => c.hash === hash)?.parents[0];
-        const diff = diffUniverses(parent ? gitSnapshot(proj.store.file, parent) : null, snap);
+        const diff = diffUniverses(gitParentSnapshot(proj.store.file, hash), snap);
         return json(res, 200, { nodes: [...snap.nodes.values()], edges: [...snap.edges.values()], diff });
       }
       if (req.method === 'POST') {
         if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return json(res, 415, { error: '需要 application/json' });
-        const body = JSON.parse(await readBody(req) || '{}') as { op?: Op; author?: string; dir?: string; create?: boolean };
+        const body = JSON.parse(await readBody(req, url.pathname === '/api/file' ? 8 << 20 : 1 << 20) || '{}') as { op?: Op; author?: string; dir?: string; create?: boolean; path?: string; content?: string; mtime?: number | null };
+        if (url.pathname === '/api/file') {
+          if (typeof body.path !== 'string' || typeof body.content !== 'string') return json(res, 400, { error: '需要 path 与 content' });
+          try { return json(res, 200, writeProjectFile(proj.baseDir, body.path, body.content, typeof body.mtime === 'number' ? body.mtime : null, { self })); }
+          catch (err) { if (err instanceof FileConflict) return json(res, 409, { error: err.message, mtime: err.mtime }); throw err; }
+        }
         if (url.pathname === '/api/open') {
           if (typeof body.dir !== 'string' || !body.dir) return json(res, 400, { error: '需要 dir' });
           return json(res, 200, openProject(body.dir, !!body.create).info());
