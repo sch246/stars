@@ -1,6 +1,7 @@
 // LLF(Literal Line Format,字面行格式):解析、编码,以及保留原文的文档模型(配置表单写回用)。
 //
-// 移植自 sch246/llf-format 的参考实现 llf.py(SPEC v0.11,外加 EXTENSIONS.md 的 §1 帧流与 §3 类型标签)。
+// 移植自 sch246/llf-format 的参考实现 llf.py(SPEC v0.11,外加 EXTENSIONS.md 的 §1 帧流、§3 类型标签、§4 标签表达式)。
+// 跟到 llf-format 9ed0e8c:文本块必须紧跟 `-` 行;头之后的行尾空白可以是任意 White_Space;引号键里的控制字符必须转义。
 // 行为与错误码以 llf.py 为准;错误行号(1 起)也照它算:llfParseMulti / llfParseFrames 里每条消息从 1 重新计数。
 //
 // 这个文件也作为 ES 模块直接发给浏览器,并会被静态导出拼进同一个作用域:
@@ -115,8 +116,17 @@ function llfFirstToken(s: string): string {
   return sp === -1 ? s : s.slice(0, sp);
 }
 
+// 头 token:行内第一个以 U+0020 分隔的 token,去掉它之后到行尾的空白(任意 White_Space,如 `{}⇥`、严格模式下的 `_␍`)。
+// 分词仍只认 U+0020,所以 `a -⇥value` 的第一个 token 是 `-⇥value`,不是头(E07)
+function llfHeadToken(s: string): string {
+  const t = llfFirstToken(s);
+  let j = t.length;
+  while (j > 0 && llfIsWs(t.charCodeAt(j - 1))) j--;
+  return t.slice(0, j);
+}
+
 function llfStartsWithHead(content: string): boolean {
-  return llfHeads.includes(llfFirstToken(content));
+  return llfHeads.includes(llfHeadToken(content));
 }
 
 // ---------- 切行 ----------
@@ -176,7 +186,7 @@ function llfLinesFrom(raws: LlfRawLine[], from: number, to: number): LlfLine[] {
 interface LlfHead { token: string; payload: string | null; lead: number }
 
 function llfHead(rest: string, no: number): LlfHead {
-  const token = llfFirstToken(rest);
+  const token = llfHeadToken(rest);
   if (!llfHeads.includes(token)) throw new LlfError('E07', `未知的头符号:${JSON.stringify(rest.slice(0, 4))}`, no);
   const raw = rest.slice(token.length);
   if (token === '-') {
@@ -280,7 +290,7 @@ class LlfParser {
     return [key, rest];
   }
 
-  // JSON 风格的引号键;与 JSON 不同,python 版允许引号里直接出现控制字符,这里照做
+  // 引号键就是一个 JSON 字符串:转义规则相同,控制字符(U+0000–U+001F,含 tab、CR)不能原样出现(E13)
   quotedKey(content: string, no: number): [string, string] {
     let out = '';
     let i = 1;
@@ -306,6 +316,8 @@ class LlfParser {
         } else {
           throw new LlfError('E13', `非法转义 \\${e}`, no);
         }
+      } else if (c.charCodeAt(0) < 0x20) {
+        throw new LlfError('E13', `引号键里的控制字符必须转义(同 JSON):U+${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}`, no);
       } else {
         out += c;
         i++;
@@ -371,13 +383,14 @@ class LlfParser {
       }
       node.value = '';
       node.valueStart = node.valueEnd = headStart + 1;
-      // 注意 peek 会跳过注释:`-` 与第一行 `|` 之间夹注释在 python 版里是允许的
-      const nxt = this.peek();
-      if (nxt === null) return node;
-      if (nxt.content.startsWith('|')) {
+      // 文本块必须紧跟 `-` 行(SPEC §5):中间夹注释时不开始文本块,后面的 `|` 行报 E11
+      if (this.i < this.lines.length && this.lines[this.i].content.startsWith('|')) {
         this.textBlock(node);
         return node;
       }
+      const nxt = this.peek();
+      if (nxt === null) return node;
+      if (nxt.content.startsWith('|')) throw new LlfError('E11', '文本块必须紧跟 - 行,中间不能有注释', nxt.no);
       if (nxt.indent <= indent) return node;
       if (nxt.indent !== indent + 2) throw new LlfError('E03', '缩进不是恰好多 2 格', nxt.no);
       throw new LlfError('E10', '字符串的子层只能是文本行', nxt.no);
@@ -725,4 +738,56 @@ export function llfDelete(text: string, path: (string | number)[], opts: LlfOpti
     from = prev;
   }
   return t.slice(0, from) + t.slice(node.end);
+}
+
+// ---------- 标签表达式(EXTENSIONS §4,注册表层的可选约定)----------
+// 把标签名读成 { name, types, args }:`list<color>(1,8)` → { name: 'list', types: [{ name: 'color', … }], args: ['1', '8'] }。
+// 值参数是原样的字符串,不做任何词法解释;名字是什么意思由注册表决定。
+// 这不是格式的一部分:表达式写错抛普通的 Error(不是 LlfError),调用方捕获后按"不认识的标签"处理(退回文本框)。
+
+export interface LlfTagExpr { name: string; types: LlfTagExpr[]; args: string[] }
+
+const llfTagPunct = '<>(),';
+
+export function llfParseTagExpr(name: string): LlfTagExpr {
+  if (typeof name !== 'string' || !llfTagOk(name)) throw new Error(`不是合法的标签名:${JSON.stringify(name)}`);
+  const [expr, i] = llfTagExprAt(name, 0);
+  if (i !== name.length) throw new Error(`标签表达式在第 ${i} 个字符之后还有内容:${JSON.stringify(name)}`);
+  return expr;
+}
+
+function llfTagAtomEnd(s: string, i: number): number {
+  while (i < s.length && !llfTagPunct.includes(s[i])) i++;
+  return i;
+}
+
+function llfTagExprAt(s: string, i: number): [LlfTagExpr, number] {
+  let j = llfTagAtomEnd(s, i);
+  if (j === i) throw new Error(`标签表达式缺少名字:${JSON.stringify(s)}`);
+  const node: LlfTagExpr = { name: s.slice(i, j), types: [], args: [] };
+  i = j;
+  if (s[i] === '<') {
+    for (;;) {
+      const [sub, k] = llfTagExprAt(s, i + 1);
+      node.types.push(sub);
+      i = k;
+      if (s[i] === ',') continue;
+      if (s[i] === '>') { i++; break; }
+      throw new Error(`类型参数缺少 >:${JSON.stringify(s)}`);
+    }
+  }
+  if (s[i] === '(') {
+    i++;
+    if (s[i] === ')') return [node, i + 1];
+    for (;;) {
+      j = llfTagAtomEnd(s, i);
+      if (j === i) throw new Error(`值参数为空:${JSON.stringify(s)}`);
+      node.args.push(s.slice(i, j));
+      i = j;
+      if (s[i] === ',') { i++; continue; }
+      if (s[i] === ')') return [node, i + 1];
+      throw new Error(`值参数缺少 ):${JSON.stringify(s)}`);
+    }
+  }
+  return [node, i];
 }

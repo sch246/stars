@@ -351,12 +351,12 @@ AI 用 `--proposed` 写入的边是"待确认"的。查看器里:
 
 下一步要让配置文件在侧栏里显示成表单(滑条、开关、取色器……),原文随时可以切回去改。格式用
 [LLF](https://github.com/sch246/llf-format) 加类型标签扩展:带标签的默认配置本身就是 schema(`heatLevel !heat - 0.03`),
-标签的含义(控件、范围)由注册表给;参数和泛型(`!range(0,1,0.01)`、`!list<color>`)按标签表达式约定只在注册表层解释,格式不变。
+标签的含义(控件、范围)由注册表给;参数和泛型(`!range(0,1,0.01)`、`!list<color>`)按标签表达式约定(llf-format EXTENSIONS §4)只在注册表层解释,格式不变;`llfParseTagExpr` 把名字拆成 `{ name, types, args }`。
 
 `core/src/llf.ts` 是 `llf.py` 的移植(浏览器与 Node 共用):`llfParse` / `llfStringify` / 帧流 / 标签,
 外加**保留原文的文档模型**:`llfParseDoc` 给出每个值在原文里的位置和紧挨在上面的注释(表单拿来当名字和提示),
 `llfSetString` / `llfDelete` 只改目标那一段,注释、顺序、排版都不动(表单写回用)。测试跑 llf-format 的全部向量
-(81 + 2 + 6 + 22 条)、往返 fuzz,以及"改完只动了目标区域"的编辑 fuzz。
+(90 + 3 + 6 + 22 条,外加 29 条标签表达式向量)、往返 fuzz,以及"改完只动了目标区域"的编辑 fuzz。
 
 还没接上的:个人设置迁到 `~/.config/stars/settings.llf` / `keys.llf`(设置面板变成这个文件的表单)、
 文件类型处理器(侧栏视图 + 双击行为,原文页始终可用)、JSON / TOML 等格式的表单。

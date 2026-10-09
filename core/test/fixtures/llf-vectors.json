@@ -501,7 +501,7 @@
     },
     {
       "id": 78,
-      "input": "\"k\u000b\" - v\n--LLF-END\n",
+      "input": "\"k\\u000b\" - v\n--LLF-END\n",
       "expected": {
         "k\u000b": "v"
       }
@@ -536,6 +536,59 @@
           "a": "2"
         }
       ]
+    },
+    {
+      "id": 82,
+      "input": "a -\n  # c\n  |x\n--LLF-END\n",
+      "error": "E11"
+    },
+    {
+      "id": 83,
+      "input": "-\n# c\n|x\n--LLF-END\n",
+      "error": "E11"
+    },
+    {
+      "id": 84,
+      "input": "\"a\tb\" - v\n--LLF-END\n",
+      "error": "E13"
+    },
+    {
+      "id": 85,
+      "input": "\"a\u0001\" - v\n--LLF-END\n",
+      "error": "E13"
+    },
+    {
+      "id": 86,
+      "input": "a {}\t\n--LLF-END\n",
+      "expected": {
+        "a": {}
+      }
+    },
+    {
+      "id": 87,
+      "input": "a []\t\n  _\t\n--LLF-END\n",
+      "expected": {
+        "a": [
+          null
+        ]
+      }
+    },
+    {
+      "id": 88,
+      "input": "a -\t\n  |x\n--LLF-END\n",
+      "expected": {
+        "a": "x"
+      }
+    },
+    {
+      "id": 89,
+      "input": "a -\tvalue\n--LLF-END\n",
+      "error": "E07"
+    },
+    {
+      "id": 90,
+      "input": "a {}\tx\n--LLF-END\n",
+      "error": "E07"
     }
   ],
   "strict_vectors": [
@@ -551,6 +604,16 @@
       "input": "a - x\r\n--LLF-END\n",
       "expected": {
         "a": "x"
+      }
+    },
+    {
+      "id": "S3",
+      "input": "a {}\r\n  b -\r\n    |x\r\n    |y\r\n  c _\r\n--LLF-END\r\n",
+      "expected": {
+        "a": {
+          "b": "x\r\ny\r",
+          "c": null
+        }
       }
     }
   ],
@@ -784,6 +847,266 @@
         "!color": "#fff"
       },
       "tags": false
+    }
+  ],
+  "tag_expr_vectors": [
+    {
+      "id": 1,
+      "input": "color",
+      "expected": {
+        "name": "color",
+        "types": [],
+        "args": []
+      }
+    },
+    {
+      "id": 2,
+      "input": "range(0,1,0.01)",
+      "expected": {
+        "name": "range",
+        "types": [],
+        "args": [
+          "0",
+          "1",
+          "0.01"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "input": "list<color>",
+      "expected": {
+        "name": "list",
+        "types": [
+          {
+            "name": "color",
+            "types": [],
+            "args": []
+          }
+        ],
+        "args": []
+      }
+    },
+    {
+      "id": 4,
+      "input": "list<color>(1,8)",
+      "expected": {
+        "name": "list",
+        "types": [
+          {
+            "name": "color",
+            "types": [],
+            "args": []
+          }
+        ],
+        "args": [
+          "1",
+          "8"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "input": "map<range(0,1)>",
+      "expected": {
+        "name": "map",
+        "types": [
+          {
+            "name": "range",
+            "types": [],
+            "args": [
+              "0",
+              "1"
+            ]
+          }
+        ],
+        "args": []
+      }
+    },
+    {
+      "id": 6,
+      "input": "list<map<int>>",
+      "expected": {
+        "name": "list",
+        "types": [
+          {
+            "name": "map",
+            "types": [
+              {
+                "name": "int",
+                "types": [],
+                "args": []
+              }
+            ],
+            "args": []
+          }
+        ],
+        "args": []
+      }
+    },
+    {
+      "id": 7,
+      "input": "pair<int,color>",
+      "expected": {
+        "name": "pair",
+        "types": [
+          {
+            "name": "int",
+            "types": [],
+            "args": []
+          },
+          {
+            "name": "color",
+            "types": [],
+            "args": []
+          }
+        ],
+        "args": []
+      }
+    },
+    {
+      "id": 8,
+      "input": "choice(log,sqrt,linear)",
+      "expected": {
+        "name": "choice",
+        "types": [],
+        "args": [
+          "log",
+          "sqrt",
+          "linear"
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "input": "now()",
+      "expected": {
+        "name": "now",
+        "types": [],
+        "args": []
+      }
+    },
+    {
+      "id": 10,
+      "input": "!int",
+      "expected": {
+        "name": "!int",
+        "types": [],
+        "args": []
+      }
+    },
+    {
+      "id": 11,
+      "input": "名字(甲,乙)",
+      "expected": {
+        "name": "名字",
+        "types": [],
+        "args": [
+          "甲",
+          "乙"
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "input": "range(-1,1e3)",
+      "expected": {
+        "name": "range",
+        "types": [],
+        "args": [
+          "-1",
+          "1e3"
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "input": "ui.color:rgb",
+      "expected": {
+        "name": "ui.color:rgb",
+        "types": [],
+        "args": []
+      }
+    },
+    {
+      "id": 14,
+      "input": "list<>",
+      "invalid": true
+    },
+    {
+      "id": 15,
+      "input": "list<color",
+      "invalid": true
+    },
+    {
+      "id": 16,
+      "input": "list<a,>",
+      "invalid": true
+    },
+    {
+      "id": 17,
+      "input": "<a>",
+      "invalid": true
+    },
+    {
+      "id": 18,
+      "input": "(1)",
+      "invalid": true
+    },
+    {
+      "id": 19,
+      "input": "a>b",
+      "invalid": true
+    },
+    {
+      "id": 20,
+      "input": "a)",
+      "invalid": true
+    },
+    {
+      "id": 21,
+      "input": "choice(a,,b)",
+      "invalid": true
+    },
+    {
+      "id": 22,
+      "input": "choice(,a)",
+      "invalid": true
+    },
+    {
+      "id": 23,
+      "input": "choice(a,b",
+      "invalid": true
+    },
+    {
+      "id": 24,
+      "input": "a(1)x",
+      "invalid": true
+    },
+    {
+      "id": 25,
+      "input": "a(1)<b>",
+      "invalid": true
+    },
+    {
+      "id": 26,
+      "input": "list<a(1)b>",
+      "invalid": true
+    },
+    {
+      "id": 27,
+      "input": "",
+      "invalid": true
+    },
+    {
+      "id": 28,
+      "input": "a b",
+      "invalid": true
+    },
+    {
+      "id": 29,
+      "input": "a\"b",
+      "invalid": true
     }
   ]
 }

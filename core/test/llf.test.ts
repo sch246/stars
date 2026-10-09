@@ -3,11 +3,11 @@ import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import {
   LlfError, LlfTagged, llfDelete, llfDocValue, llfFind, llfParse, llfParseDoc, llfParseFrames, llfParseMulti,
-  llfSetString, llfStringify, llfToJson, llfUntag, type LlfDoc, type LlfNode, type LlfOptions, type LlfValue,
+  llfParseTagExpr, llfSetString, llfStringify, llfToJson, llfUntag, type LlfDoc, type LlfNode, type LlfOptions, type LlfValue,
 } from '../src/llf.ts';
 
 // vectors.json 原样拷自 sch246/llf-format(参考实现的机器可读向量)
-interface Vector { id: number | string; input: string; expected?: unknown; expected_multi?: unknown[]; expected_frames?: unknown[]; error?: string; tags?: boolean }
+interface Vector { id: number | string; input: string; expected?: unknown; invalid?: boolean; expected_multi?: unknown[]; expected_frames?: unknown[]; error?: string; tags?: boolean }
 const V = JSON.parse(readFileSync(new URL('./fixtures/llf-vectors.json', import.meta.url), 'utf8')) as Record<string, Vector[]>;
 
 // python 参考实现给出的错误行号(llf.py 的 LLFError.line)
@@ -16,6 +16,7 @@ const PY_LINES: Record<string, number | null> = {
   'vectors/29': 2, 'vectors/30': 2, 'vectors/31': 3, 'vectors/33': 1, 'vectors/43': 1, 'vectors/44': 1, 'vectors/45': 1,
   'vectors/46': 1, 'vectors/48': 2, 'vectors/53': 2, 'vectors/54': 2, 'vectors/55': 1, 'vectors/66': 3, 'vectors/67': null,
   'vectors/68': null, 'vectors/70': null, 'vectors/71': 2, 'vectors/72': null, 'vectors/73': 1, 'vectors/75': 1, 'vectors/77': 1,
+  'vectors/82': 3, 'vectors/83': 3, 'vectors/84': 1, 'vectors/85': 1, 'vectors/89': 1, 'vectors/90': 1,
   'tag_vectors/12': 1, 'tag_vectors/13': 1, 'tag_vectors/14': 1, 'tag_vectors/15': 1, 'tag_vectors/16': 1, 'tag_vectors/17': 2,
   'tag_vectors/18': 2, 'tag_vectors/19': 1, 'tag_vectors/20': 1, 'tag_vectors/21': 2,
 };
@@ -58,8 +59,8 @@ function checkVector(group: string, v: Vector, opts: LlfOptions): void {
   sameValue(got, group === 'frame_vectors' ? v.expected_frames : v.expected, tag);
 }
 
-test('LLF 向量:81 条默认模式向量(含多消息)', () => {
-  assert.equal(V.vectors.length, 81);
+test('LLF 向量:90 条默认模式向量(含多消息)', () => {
+  assert.equal(V.vectors.length, 90);
   for (const v of V.vectors) checkVector('vectors', v, {});
 });
 
@@ -76,6 +77,30 @@ test('LLF 向量:帧流向量', () => {
 test('LLF 向量:类型标签向量', () => {
   assert.ok(V.tag_vectors.length >= 22);
   for (const v of V.tag_vectors) checkVector('tag_vectors', v, { tags: v.tags ?? true });
+});
+
+test('LLF 向量:标签表达式(EXTENSIONS §4)—— 合法的拆成 { name, types, args },不合法的抛普通 Error 而不是 LlfError', () => {
+  assert.ok(V.tag_expr_vectors.length >= 29);
+  for (const v of V.tag_expr_vectors) {
+    if (v.invalid) {
+      assert.throws(() => llfParseTagExpr(v.input), (e: unknown) => e instanceof Error && !(e instanceof LlfError), `tag_expr ${v.id}: ${v.input}`);
+      continue;
+    }
+    assert.deepStrictEqual(llfParseTagExpr(v.input), v.expected, `tag_expr ${v.id}: ${v.input}`);
+  }
+});
+
+test('LLF 规范澄清:文本块紧跟 - 行、头后任意行尾空白、引号键控制字符必须转义', () => {
+  assert.equal(codeOf(() => llfParse('a -\n  # c\n  |x\n--LLF-END\n')), 'E11');
+  assert.equal(codeOf(() => llfParseDoc('a -\n  # c\n  |x\n--LLF-END\n')), 'E11');
+  assert.deepStrictEqual(llfToJson(llfParse('a {}\t\n  b -\u3000\n    |x\n  c _\t\n--LLF-END\n')), { a: { b: 'x', c: null } });
+  assert.equal(codeOf(() => llfParse('a -\tvalue\n--LLF-END\n')), 'E07');
+  assert.equal(codeOf(() => llfParse('"a\u0001" - v\n--LLF-END\n')), 'E13');
+  // 带控制字符的键,编码器写成转义,能往返
+  const v = { 'a\u0001\tb': 'x' };
+  assert.deepStrictEqual(llfParse(llfStringify(v)), v);
+  // 严格模式读 CRLF 文件:结构行的 CR 是行尾空白,文本行的 CR 是内容
+  assert.deepStrictEqual(llfToJson(llfParse('a {}\r\n  b -\r\n    |x\r\n  c _\r\n--LLF-END\r\n', { strict: true })), { a: { b: 'x\r', c: null } });
 });
 
 test('LLF 向量:本体向量在 tags=true 下结果完全相同(扩展只占用非法写法)', () => {
