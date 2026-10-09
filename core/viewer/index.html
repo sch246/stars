@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="stars-token" content="__STARS_TOKEN__">
+<meta name="stars-preview" content="__STARS_PREVIEW__">
 <title>星罗 · 宇宙</title>
 <style>
   :root {
@@ -217,6 +218,7 @@
   /* 文件视图:打开方式、Markdown 预览、LLF 表单、宇宙概况、全屏看图 */
   #fp-with:empty { display: none; } #fp-with { font-size: 12px; flex: none; }
   #fp-remember { font-size: 11px; color: var(--muted); flex: none; } #fp-remember.on { color: #fff; border-color: var(--accent); background: #7aa7ff33; }
+  #fp-pin { font-size: 11px; flex: none; opacity: .35; filter: grayscale(1); } #fp-pin.on { opacity: 1; filter: none; border-color: var(--accent); background: #7aa7ff33; }
   #fp-md, #fp-form, #fp-uni { flex: 1; overflow: auto; padding: 10px 14px; min-width: 0; }
   .md { line-height: 1.65; color: #d6dcff; word-break: break-word; }
   .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { color: #fff; margin: 1.1em 0 .45em; line-height: 1.3; } .md h1 { font-size: 1.5em; } .md h2 { font-size: 1.3em; border-bottom: 1px solid var(--line); padding-bottom: .2em; } .md h3 { font-size: 1.12em; }
@@ -240,6 +242,7 @@
   .pv-opt { cursor: pointer; user-select: none; display: inline-flex; gap: 3px; align-items: center; color: var(--muted); text-decoration: none; }
   .pv-opt:hover { color: var(--text); } .pv-opt.on { color: #fff; } .pv-opt i { font-style: normal; }
   .pv-opt.act { border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; } .pv-out { margin-left: auto; }
+  .pv-conn { display: inline-flex; gap: 5px; align-items: center; } .pv-conn .seg span { padding: 0 6px; }
   #fp-body.split { flex-direction: column; }
   .sp-edit { flex: 1 1 42%; display: flex; min-height: 90px; border-bottom: 2px solid var(--line); overflow: hidden; }
   .sp-view { flex: 1 1 58%; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
@@ -320,7 +323,7 @@
 <div class="panel" id="tagbar" hidden></div>
 <div class="panel" id="side"><div id="side-grip" title="拖动调整宽度 · 双击恢复默认"></div><div id="side-info"></div>
   <div id="side-file">
-    <div id="fp-head"><span id="fp-state"></span><span class="seg" id="fp-with" title="打开方式"></span><span class="mini" id="fp-remember" hidden>记住</span><span class="btn pri" id="fp-save" data-cmd="save" title="Ctrl/⌘ + S;切走时也会自动保存">保存</span><a class="btn" id="fp-code" title="用本机的 VS Code 打开(查看器和文件在同一台机器上时)" style="text-decoration:none">VS Code ↗</a></div>
+    <div id="fp-head"><span class="mini" id="fp-pin" data-cmd="pin toggle" title="固定:单击选中别的节点时侧栏不换(双击 / open 照样打开别的文件)">📌</span><span id="fp-state"></span><span class="seg" id="fp-with" title="打开方式"></span><span class="mini" id="fp-remember" hidden>记住</span><span class="btn pri" id="fp-save" data-cmd="save" title="Ctrl/⌘ + S;切走时也会自动保存">保存</span><a class="btn" id="fp-code" title="用本机的 VS Code 打开(查看器和文件在同一台机器上时)" style="text-decoration:none">VS Code ↗</a></div>
     <div id="fp-bar" hidden></div>
     <div id="fp-body"></div>
     <div id="fp-more" hidden></div>
@@ -339,11 +342,12 @@
 import { compileView, listViews, validateSpec } from '/core/view.js';
 import { edgeKey } from '/core/model.js';
 import { apply } from '/core/ops.js';
-import { trackProposals } from '/core/proposals.js';
+import { nodeProposalKey, trackProposals } from '/core/proposals.js';
 import { filterNodes, neighborhood, shortestPath } from '/core/query.js';
 import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '/core/llf.js';
 import { parse } from '/core/format.js';
 import { textDiff, textHash, textNormEol } from '/core/textsync.js';
+import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } from '/core/bridge.js';
 (() => {
   const TAU = Math.PI * 2;
   const canvas = document.getElementById('c');
@@ -353,6 +357,7 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
 
   let data = { nodes: [], edges: [], issues: [], log: [] };
   let uni = null;                    // 内核里的 Universe(Map 结构)
+  let bridge = null;                 // 页面桥:当前挂着的、连上了的 HTML 预览 { nonce, frame, path, level, subs }(见「页面桥」一节)
   let specs = {}, viewErrors = [], viewNames = [];
   let scene = { look: 'galaxy', nodes: [], edges: [], expand: { relation: 'contains' } };
   const manual = new Map();          // id -> true/false:用户手动展开/收起,优先级最高
@@ -455,7 +460,7 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
   // 个人文件:{ text, mtime }。live = 有服务端(写回 ~/.config/stars);静态导出存在浏览器里
   const CFG_LIVE = !!CFG.user && !window.__STARS_STATIC__;
   const userCfg = {};
-  for (const name of ['settings', 'keys']) {
+  for (const name of ['settings', 'keys', 'grants']) {
     let text = CFG_LIVE ? CFG.user[name] && CFG.user[name].content : null;
     if (!CFG_LIVE) { try { text = localStorage.getItem('stars.cfg.' + name); } catch { /* 隐私模式 */ } }
     userCfg[name] = { text: text ?? (CFG.header[name] || '--LLF-END\n'), mtime: CFG_LIVE && CFG.user[name] ? CFG.user[name].mtime : null, exists: text != null,
@@ -645,11 +650,12 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
     recomputeTimer = setTimeout(() => { recomputeTimer = null; recompute(true); }, Math.max(120, lastCompile * 3));
   }
   function applyOps(entries) {
+    const done = [];
     for (const e of entries) {
       if (e.n <= lastN) continue;                       // 重复(快照已包含)
       if (e.n !== lastN + 1) { resync(); return; }      // 缺口
       try { apply(uni, e.op); } catch { resync(); return; }
-      lastN = e.n;
+      lastN = e.n; done.push(e);
       data.log.push(e); if (data.log.length > 60) data.log.shift();
       data.proposals = data.proposals || {};
       trackProposals(data.proposals, e);
@@ -661,6 +667,7 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
     scheduleRecompute();
     renderReview();
     renderStatus();
+    if (done.length) bridgeEmit('change', { n: lastN, ops: done.map((e) => ({ n: e.n, author: e.author, t: e.t, op: e.op })) });
   }
   function applySignals(m) {
     if (fp && fp.handler === 'html' && m.changed && Object.keys(m.changed).some((id) => id !== fp.id || !fp.opts.live)) htmlRefreshSoon();   // 页面引用的 css / js 改了
@@ -693,6 +700,7 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
     lastN = snap.n || 0; staleLive = false;
     if (replay) return;
     applyData(snap);
+    bridgeEmit('change', { n: lastN, reset: true });   // 整份重新载入(重连、切项目……)
     if (!$('editor').hidden && !editorDirty) loadEditor(false);
   }
 
@@ -945,6 +953,7 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
     const myIssues = data.issues.filter((i) => i.nodes.includes(n.id));
     el.innerHTML = `<h3 style="color:${sn ? sn.color : '#fff'}">${esc(n.label)}</h3>
       <div class="sub">${esc(n.id)}${n.attrs.type ? ' · ' + esc(n.attrs.type) : ''}${sn && sn.value !== undefined ? ' · 视图值 ' + esc(sn.value) : ''}</div>
+      ${n.attrs.status === 'proposed' ? (() => { const who = (data.proposals || {})[nodeProposalKey(n.id)]; return `<div class="sec"><div class="row"><span class="sev-warn">待确认的节点</span><span>${who ? esc(who.author) + ' · ' + ago(who.t) : '来源未知'}</span><span class="mini ok" data-act="accept" data-id="${esc(n.id)}" title="接受">✓</span><span class="mini no" data-act="reject" data-id="${esc(n.id)}" title="拒绝(删除这个节点和它的边)">✗</span></div></div>`; })() : ''}
       ${n.attrs.summary ? `<p>${esc(n.attrs.summary)}</p>` : ''}
       ${sn && sn.container ? (isSpaces()
         ? `<div class="sec"><div class="row"><span class="tag">空间</span><span>${sn.children} 个直接子项 · ${sn.descendants} 个后代${expandedSet.has(sn.id) ? ' · 已就地展开' : ''}${curSpaceId === sn.id ? ' · 你在这里' : ''}</span></div>`
@@ -982,6 +991,7 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
   }
 
   function select(id, center) {
+    if (id !== selected) bridgeEmit('select', id || null);
     selected = id;
     if (isSpaces()) {
       // 跟随时不自己抢镜头:只保证它在画面里,居中交给(带延迟的)跟随,免得两段动画打架
@@ -1185,6 +1195,7 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
 
   // ---------- 与服务端的接口(写入需要页面内嵌的 token)----------
   const token = (document.querySelector('meta[name=stars-token]') || {}).content || '';
+  const pvToken = (document.querySelector('meta[name=stars-preview]') || {}).content || '';   // 只用于 /preview(预览页能读到它,所以它什么也写不了)
   function withP(path) { return projectId ? path + (path.includes('?') ? '&' : '?') + 'p=' + projectId : path; }
   async function api(path, body) {
     if (window.__STARS_STATIC__) throw new Error('这是静态导出,只读;请连接实时查看器来保存');
@@ -1258,16 +1269,20 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
     try { await api('/api/op', { op: { op: 'removeNode', id: '~view/' + currentView }, author: 'viewer' }); msg.innerHTML = '<span class="ok">已删除</span>'; } catch (e) { msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
   });
 
-    // ---------- 审阅:接受/拒绝 AI(或别人)提议的边;把汇总出来的边提升为真边 ----------
+    // ---------- 审阅:接受/拒绝 AI(或别人、或页面)提议的节点和边;把汇总出来的边提升为真边 ----------
   const edgeKeyOf = (e) => `${e.from}|${e.type}|${e.to}`;
-  const proposed = () => data.edges.filter((e) => e.attrs.status === 'proposed');
+  /** 待确认的:先节点后边(节点在 id 上区分:边没有 id) */
+  const proposed = () => [...data.nodes.filter((n) => n.attrs.status === 'proposed'), ...data.edges.filter((e) => e.attrs.status === 'proposed')];
+  const propKeyOf = (x) => (x.id !== undefined ? nodeProposalKey(x.id) : edgeKeyOf(x));
+  /** 一批接受 / 拒绝:拒绝时先删边再删节点(删节点会连带它的边,反过来做就会删两次) */
+  const batchOps = (list, fn) => ({ op: 'batch', ops: [...list.filter((x) => x.id === undefined), ...list.filter((x) => x.id !== undefined)].map(fn) });
   const rvMsg = (t, bad) => { $('rv-msg').style.color = bad ? 'var(--warn)' : 'var(--muted)'; $('rv-msg').textContent = t; };
-  async function write(op, okText) {
-    try { const r = await api('/api/op', { op, author: 'viewer' }); rvMsg(`${okText}(操作 #${r.n},可撤销)`); }
+  async function write(op, okText, author = 'viewer') {
+    try { const r = await api('/api/op', { op, author }); rvMsg(`${okText}(操作 #${r.n},可撤销)`); }
     catch (e) { rvMsg('写入失败:' + e.message, true); }
   }
-  const acceptOp = (e) => ({ op: 'setEdge', from: e.from, type: e.type, to: e.to, unset: ['status'] });
-  const rejectOp = (e) => ({ op: 'removeEdge', from: e.from, type: e.type, to: e.to });
+  const acceptOp = (e) => (e.id !== undefined ? { op: 'setNode', id: e.id, unset: ['status'] } : { op: 'setEdge', from: e.from, type: e.type, to: e.to, unset: ['status'] });
+  const rejectOp = (e) => (e.id !== undefined ? { op: 'removeNode', id: e.id } : { op: 'removeEdge', from: e.from, type: e.type, to: e.to });
   function renderReview() {
     const list = proposed(), props = data.proposals || {};
     $('rv-badge').hidden = list.length === 0; $('rv-badge').textContent = list.length;
@@ -1275,10 +1290,13 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
     if ($('review').hidden) return;
     $('rv-sub').textContent = list.length ? `${list.length} 条等待确认` : '没有待确认的了';
     $('rv-list').innerHTML = list.map((e, i) => {
-      const who = props[edgeKeyOf(e)];
-      return `<div class="rv-row"><div class="t" data-i="${i}"><span style="color:#dfe3ff">${esc(raw.get(e.from)?.label || e.from)}</span> <span style="color:${edgeColors.get(edgeKeyOf(e)) || '#ffd24a'}">—${esc(e.type)}→</span> <span style="color:#dfe3ff">${esc(raw.get(e.to)?.label || e.to)}</span>`
+      const who = props[propKeyOf(e)];
+      const what = e.id !== undefined
+        ? `<span style="color:#ffd24a">＋</span> <span style="color:#dfe3ff">${esc(e.label)}</span> <span class="tag">${esc(e.id)}${e.attrs.type ? ' · ' + esc(e.attrs.type) : ''}</span>`
+        : `<span style="color:#dfe3ff">${esc(raw.get(e.from)?.label || e.from)}</span> <span style="color:${edgeColors.get(edgeKeyOf(e)) || '#ffd24a'}">—${esc(e.type)}→</span> <span style="color:#dfe3ff">${esc(raw.get(e.to)?.label || e.to)}</span>`;
+      return `<div class="rv-row"><div class="t" data-i="${i}">${what}`
         + `<div class="who">${who ? esc(who.author) + ' · ' + ago(who.t) : '来源未知'}</div></div>`
-        + `<div class="acts"><span class="mini ok" data-ok="${i}" title="接受">✓</span><span class="mini no" data-no="${i}" title="拒绝(删除这条边)">✗</span></div></div>`;
+        + `<div class="acts"><span class="mini ok" data-ok="${i}" title="接受">✓</span><span class="mini no" data-no="${i}" title="${e.id !== undefined ? '拒绝(删除这个节点和它的边)' : '拒绝(删除这条边)'}">✗</span></div></div>`;
     }).join('') || '<div class="tag" style="padding:8px">🎉 都处理完了</div>';
     $('rv-all').style.opacity = $('rv-none').style.opacity = list.length ? 1 : 0.4;
   }
@@ -1291,13 +1309,13 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
     const list = proposed(); const t = ev.target.closest('[data-i],[data-ok],[data-no]'); if (!t) return;
     if (t.dataset.ok !== undefined) write(acceptOp(list[+t.dataset.ok]), '已接受');
     else if (t.dataset.no !== undefined) write(rejectOp(list[+t.dataset.no]), '已拒绝并删除');
-    else { const e = list[+t.dataset.i]; select(e.from, true); }
+    else { const e = list[+t.dataset.i]; select(e.id ?? e.from, true); }
   });
   // 面板里单条边的操作(节点详情里的 proposed 边;收起容器里的汇总边)
   $('side').addEventListener('click', (ev) => {
     const b = ev.target.closest('[data-act]'); if (!b) return;
     ev.stopPropagation();
-    const e = { from: b.dataset.from, type: b.dataset.type, to: b.dataset.to };
+    const e = b.dataset.from === undefined && b.dataset.id !== undefined ? { id: b.dataset.id } : { from: b.dataset.from, type: b.dataset.type, to: b.dataset.to };
     if (b.dataset.act === 'enter' || b.dataset.act === 'inplace') { if (b.dataset.act === 'enter') { if (!enterSpace(b.dataset.id, true)) jumpTo(b.dataset.id); } else toggleExpandSpace(b.dataset.id); return; }
     if (b.dataset.act === 'accept') write(acceptOp(e), '已接受');
     else if (b.dataset.act === 'reject') write(rejectOp(e), '已拒绝');
@@ -1457,7 +1475,9 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
   }
 
   function fpState() {
-    if (!fp || !fp.info) return;
+    if (!fp) return;
+    $('fp-pin').classList.toggle('on', !!fp.pinned);
+    if (!fp.info) return;
     const i = fp.info;
     $('fp-state').innerHTML = (fpDirty() ? '<span class="dirty">● 未保存</span> · ' : '') + `${fmtBytes(i.size)} · 改于 ${ago(i.mtime)}`
       + (i.readonly ? ' · 只读' : i.kind === 'text' && !i.editable ? ' · 超过 2 MB,只读' : '');
@@ -1487,7 +1507,7 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
     $('fp-remember').title = remembered ? `已记住:.${d.ext} 文件用「${FILE_HANDLERS.find((h) => h.id === fp.handler).label}」打开(再点取消)` : `以后 .${d.ext} 文件都用「${(FILE_HANDLERS.find((h) => h.id === fp.handler) || {}).label}」打开`;
     const body = $('fp-body');
     body.className = 'h-' + (fp.handler || 'none'); body.innerHTML = '';
-    fp.renderView = null; fp.onEditRender = false;
+    fp.renderView = null; fp.onEditRender = false; bridge = null;
     const h = FILE_HANDLERS.find((x) => x.id === fp.handler);
     if (h) h.mount(body); else body.innerHTML = '<div id="fp-media">没有能打开它的视图</div>';
     fpState();
@@ -1731,35 +1751,106 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
   // ---- HTML 预览:沙箱 iframe(不同源,碰不到查看器和 token)。脚本:每个预览可开关;实时:跟着编辑器里没保存的改动走,
   // 关掉则显示保存了的版本。项目里其它文件变了(serve --watch 的实时信号)也刷新 —— 像 VS Code 的 Live Preview。
   // 相对路径的 css / js / 图片从 /preview/<token>/<项目>/… 取,所以页面引用的资源都能加载。
-  const previewUrl = (path) => `/preview/${token}/${(project && project.id) || '_'}/` + path.split('/').map(encodeURIComponent).join('/');
+  const previewUrl = (path) => `/preview/${pvToken}/${(project && project.id) || '_'}/` + path.split('/').map(encodeURIComponent).join('/');
   function mountHtml(body) {
     fp.onEditRender = !!fp.opts.live;
     mountPreview(body, (pane) => {
-      const o = fp.opts;
+      const o = fp.opts, level = o.scripts ? levelOf(fp.path) : 'off';
       fp.onEditRender = !!o.live;
-      if (!pane.querySelector('iframe') || pane.dataset.mode !== `${o.scripts}|${o.live}`) {
-        pane.dataset.mode = `${o.scripts}|${o.live}`;
-        pane.innerHTML = previewBar([
-          ['preview scripts toggle', '脚本', o.scripts, '允许这个预览运行 JavaScript(在沙箱里);新预览的默认在设置 → 文件预览'],
-          ['preview live toggle', '实时', o.live, '跟着编辑器里还没保存的改动走;关掉则只显示保存了的版本(保存后刷新)'],
-          ['preview split toggle', '并排编辑', o.split, '上面编辑原文,下面看预览'],
-          ['preview reload', '↻ 重新加载'],
-        ]) + `<a class="pv-opt act pv-out" href="${esc(previewUrl(fp.path))}" target="_blank" rel="noopener" title="在新标签页里打开(同样在沙箱里)">新标签页 ↗</a>`
-          + `<iframe id="fp-html" referrerpolicy="no-referrer" title="HTML 预览"></iframe>`;
-        pane.querySelector('.pv-bar').appendChild(pane.querySelector('.pv-out'));
-      }
+      if (!pane.querySelector('iframe')) pane.innerHTML = '<div class="pv-bar"></div><iframe id="fp-html" referrerpolicy="no-referrer" title="HTML 预览"></iframe>';
+      htmlBar(pane);
       const old = pane.querySelector('iframe'), f = document.createElement('iframe');   // 换一个新的 iframe = 干净地重新加载
       f.id = 'fp-html'; f.title = 'HTML 预览'; f.referrerPolicy = 'no-referrer';
       f.setAttribute('sandbox', o.scripts ? 'allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox' : '');
+      const nonce = level === 'off' ? null : bridgeNonce();   // 页面桥:每次载入换一个暗号,旧页面发来的消息不再认
       if (o.live) {
         const dir = fp.path.includes('/') ? fp.path.replace(/[^/]*$/, '') : '';
-        const baseTag = `<base href="${esc(location.origin + previewUrl(dir))}">`;
-        const t = fp.text;
-        f.srcdoc = /<head[^>]*>/i.test(t) ? t.replace(/<head[^>]*>/i, (h) => h + baseTag) : /<html[^>]*>/i.test(t) ? t.replace(/<html[^>]*>/i, (h) => h + baseTag) : baseTag + t;
-      } else f.src = previewUrl(fp.path) + '?v=' + Math.round(fp.info.mtime);
+        f.srcdoc = bridgeInject(fp.text, `<base href="${esc(location.origin + previewUrl(dir))}">` + (nonce ? bridgeShim(nonce) : ''));
+      } else f.src = previewUrl(fp.path) + '?v=' + Math.round(fp.info.mtime) + (nonce ? '&bridge=' + nonce : '');
       old.replaceWith(f);
+      bridge = nonce ? { nonce, frame: f, path: fp.path, level, subs: new Set() } : null;
+      // 第二次 load = 页面里点了链接、换成了别的文档:断开(事件不再发过去;要连就 ↻ 重新加载,或在星图里打开那个文件)
+      let loads = 0;
+      if (nonce) f.addEventListener('load', () => { if (++loads > 1 && bridge && bridge.frame === f) bridge = null; });
     });
   }
+  /** HTML 预览的工具条:脚本 / 实时 / 并排 / 重新加载;开了脚本时还有「连接」(页面桥的级别);最右是新标签页 */
+  function htmlBar(pane) {
+    const o = fp.opts, lv = levelOf(fp.path), own = grantOf(fp.path) !== null;
+    const conn = o.scripts ? `<span class="pv-conn" title="这个页面能通过 window.stars 调哪些命令:读(查询、快照、订阅变化)/ 界面(再加选中、镜头、视图)/ 提议(再加写,但新增的都要你在审阅里确认)/ 写。按页面记在 ~/.config/stars/grants.llf(单独选过、不是「关」的页面,打开时自动运行脚本)${own ? '' : ';现在用的是设置里的默认'}">连接 <span class="seg">`
+      + BRIDGE_LEVELS.map((l) => `<span class="${l === lv ? 'on' : ''}" data-cmd="connect ${l}">${LEVEL_NAMES[l]}</span>`).join('') + `</span>${own ? '' : '<span class="tag">默认</span>'}</span>` : '';
+    pane.querySelector('.pv-bar').outerHTML = previewBar([
+      ['preview scripts toggle', '脚本', o.scripts, '允许这个预览运行 JavaScript(在沙箱里);新预览的默认在设置 → 文件预览'],
+      ['preview live toggle', '实时', o.live, '跟着编辑器里还没保存的改动走;关掉则只显示保存了的版本(保存后刷新)'],
+      ['preview split toggle', '并排编辑', o.split, '上面编辑原文,下面看预览'],
+      ['preview reload', '↻ 重新加载'],
+    ]).slice(0, -'</div>'.length) + conn
+      + `<a class="pv-opt act pv-out" href="${esc(previewUrl(fp.path))}" target="_blank" rel="noopener" title="在新标签页里打开(同样在沙箱里;那里没有页面桥)">新标签页 ↗</a></div>`;
+  }
+
+  // ---------- 页面桥(见 core/src/bridge.ts):侧栏 HTML 预览里的页面通过 postMessage 调命令 ----------
+  // 页面拿不到 token。查看器只认当前挂着的那个 iframe 发来的、带着这次暗号的消息;命令照常走 exec(src = page),
+  // 执行前按命令的 effect 和页面的级别检查。级别按「项目目录 + 页面路径」记在 ~/.config/stars/grants.llf,没记的用设置里的默认。
+  const LEVEL_NAMES = { off: '关', read: '读', ui: '界面', propose: '提议', write: '写' };
+  const bridgeNonce = () => [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  const projDir = () => (project && project.dir) || '_';
+  function grantOf(path) {
+    try { const n = llfFind(llfParseDoc(userCfg.grants.text, CFG_OPTS), ['pages', projDir(), path]); if (n && n.kind === 'str' && bridgeIsLevel(n.value.trim())) return n.value.trim(); }
+    catch { /* 坏文件:按默认 */ }
+    return null;
+  }
+  const levelOf = (path) => grantOf(path) || (bridgeIsLevel(P.pageBridge) ? P.pageBridge : 'read');
+  function setGrant(path, level) { cfgEdit('grants', { path: ['pages', projDir(), path], value: level === null ? undefined : level }); grantsChanged(); }
+  /** 授权或默认值变了:要加上 / 去掉 window.stars 就重新载入页面;只是级别变了就就地改(页面会收到 level 事件) */
+  function grantsChanged() {
+    if (!fp || fp.handler !== 'html' || !fp.renderView || !fp.info) return;
+    const lv = fp.opts.scripts ? levelOf(fp.path) : 'off', cur = bridge && bridge.path === fp.path ? bridge.level : 'off';
+    if ((lv === 'off') !== (cur === 'off')) { fp.renderView(); return; }
+    if (bridge && lv !== bridge.level) { bridge.level = lv; bridgeEmit('level', lv); }
+    const pane = $('fp-body').querySelector('.sp-view');
+    if (pane && pane.querySelector('.pv-bar')) htmlBar(pane);
+  }
+  function bridgeEmit(event, value) {
+    const b = bridge;
+    if (!b || !b.subs.has(event) || !b.frame.isConnected || !b.frame.contentWindow) return;
+    try { b.frame.contentWindow.postMessage({ stars: b.nonce, event, value }, '*'); } catch { /* 克隆不了的值:这次不发 */ }
+  }
+  /** 按页面存的小数据(沙箱里的页面没有 localStorage):存在查看器这边,按项目目录 + 页面路径分开 */
+  function bridgeStore(b, m) {
+    const k = 'stars.page:' + projDir() + ':' + b.path;
+    let obj = {};
+    try { obj = JSON.parse(localStorage.getItem(k) || '{}') || {}; } catch { /* 隐私模式 / 坏数据 */ }
+    if (m.op === 'get') return Object.prototype.hasOwnProperty.call(obj, m.key) ? obj[m.key] : null;
+    if (m.op === 'keys') return Object.keys(obj);
+    if (m.key === '__proto__') throw new Error('不能用这个键');
+    if (m.op === 'set') obj[m.key] = m.value === undefined ? null : JSON.parse(JSON.stringify(m.value));
+    else if (m.op === 'del') delete obj[m.key];
+    else throw new Error('store 只有 get / set / del / keys');
+    localStorage.setItem(k, JSON.stringify(obj));
+    return true;
+  }
+  window.addEventListener('message', (ev) => {
+    const b = bridge, m = ev.data;
+    if (!b || !m || typeof m !== 'object' || m.stars !== b.nonce || !b.frame.isConnected || ev.source !== b.frame.contentWindow) return;
+    const reply = (ok, v) => {
+      if (m.id === undefined) return;
+      try { ev.source.postMessage(ok ? { stars: b.nonce, re: m.id, ok: true, value: v } : { stars: b.nonce, re: m.id, ok: false, error: String(v) }, '*'); }
+      catch (e) { ev.source.postMessage({ stars: b.nonce, re: m.id, ok: false, error: '结果传不回页面:' + e.message }, '*'); }
+    };
+    try {
+      if (m.kind === 'sub') { if (['change', 'select', 'level'].includes(m.event)) b.subs.add(m.event); return; }
+      if (m.kind === 'info') { reply(true, { path: b.path, project: project ? { id: project.id, name: project.name, dir: project.dir } : null, level: b.level, selected, view: currentView }); return; }
+      if (m.kind === 'graph') { reply(true, { nodes: data.nodes, edges: data.edges, proposals: data.proposals || {}, n: lastN }); return; }
+      if (m.kind === 'store') { reply(true, bridgeStore(b, m)); return; }
+      if (m.kind === 'exec') {
+        const spec = CMDS.get(tokenize(String(m.line || ''))[0] || '');
+        if (spec && spec.effect === 'ui' && bridgeAllows('ui', b.level) && fp && fp.path === b.path && !fp.pinned) { fp.pinned = true; fpState(); }   // 页面动界面(选中、跳转……):先把自己固定住,不然选中别的就把自己换掉了
+        exec(m.line, 'page', (r) => reply(r.ok, r.ok ? { out: r.out, data: r.data } : r.error), 'page:' + b.path, b.level);
+        return;
+      }
+      throw new Error('不认识的请求:' + m.kind);
+    } catch (e) { reply(false, (e && e.message) || e); }
+  });
   const htmlRefreshSoon = debounce(() => { if (fp && fp.handler === 'html' && fp.renderView) fp.renderView(); }, 300);
 
   // ---- LLF 表单:文件里的类型标签就是 schema(和设置面板同一套控件);改动按路径写回同一份缓冲,停手 0.6 秒自动保存 ----
@@ -1858,10 +1949,11 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
   }
 
   // ---- 文件的载入、保存、冲突 ----
-  /** 侧栏跟着选中走:选中的是文件就显示它,不是就收起(有修改先自动保存) */
+  /** 侧栏跟着选中走:选中的是文件就显示它,不是就收起(有修改先自动保存)。固定(📌)了的文件不跟:选中别的,上面的详情换,下面的文件不换 */
   function syncFile(n) {
     const id = n && fileOf(n) && !window.__STARS_STATIC__ ? n.id : null;
     if (fp && fp.id === id) return;
+    if (fp && fp.pinned) return;
     if (fp) releaseFile();
     $('side').classList.toggle('file', !!id);
     if (id) loadFile(id);
@@ -1871,7 +1963,7 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
     const path = fileOf(raw.get(id));
     const req = fpNext && fpNext.id === id ? fpNext : null; fpNext = null;
     const cur = fp = { id, path, info: null, text: '', base: '', full: false, indent: '  ', want: req && req.want, handler: null,
-      opts: { html: !!P.mdHtml, scripts: !!P.htmlScripts, live: !!P.htmlLive, split: false } };   // 这个预览自己的开关,默认来自设置 → 文件预览
+      opts: { html: !!P.mdHtml, scripts: !!P.htmlScripts || ![null, 'off'].includes(grantOf(path)), live: !!P.htmlLive, split: false } };   // 这个预览自己的开关,默认来自设置 → 文件预览;单独授权过连接的页面打开就跑脚本
     $('fp-body').innerHTML = '<div id="fp-media">载入中…</div>'; $('fp-state').textContent = ''; $('fp-more').hidden = true; fpBar(null);
     $('fp-save').style.display = 'none'; $('fp-with').innerHTML = ''; $('fp-remember').hidden = true;
     let info;
@@ -2036,7 +2128,7 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
         try { const cur = await api('/api/config?name=' + name); adoptCfg(name, cur); } catch { /* 下面再试 */ }
         return cfgSave(name, retry + 1);
       }
-      toast(`保存${name === 'settings' ? '设置' : '快捷键'}失败:${esc(e.message)}`, true);
+      toast(`保存${{ settings: '设置', keys: '快捷键', grants: '页面授权' }[name] || name}失败:${esc(e.message)}`, true);
     }
   }
   /** 采用一个新版本(实时推来的,或冲突后重新读的):还没存上的操作重放上去,再按新内容生效 */
@@ -2060,7 +2152,8 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
         for (const k of changed) P[k] = r.out[k] ?? PHYS[k].def;
         afterParams(changed);
       }
-    } else rebuildKeys();
+    } else if (name === 'keys') rebuildKeys();
+    else if (name === 'grants') grantsChanged();
     if (!$('physics').hidden) renderPhysics(true);
   }
   /** 程序里设一个参数(param 命令、面板、B 键……):生效并写回个人文件(等于默认值就从文件里删掉) */
@@ -2078,6 +2171,7 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
     if (keys.includes('follow')) scheduleFollow(selected); // 开:从当前镜头平滑锁到选中;关:就地解冻,不跳
     if (keys.includes('bg')) bgMode = Math.max(0, BG_MODES.indexOf(P.bg));
     if (keys.includes('bounds')) showBounds = !!P.bounds;
+    if (keys.includes('pageBridge')) grantsChanged();
     if (!$('physics').hidden && !(document.activeElement && document.activeElement.dataset && keys.includes(document.activeElement.dataset.k))) renderPhysics(true); // 正在拖的滑条不重绘
   }
 
@@ -3093,6 +3187,7 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
     for (const h of frameHits) {
       const rr = h.domain ? h.R + 3 : h.sr + 3, sev = issueByNode.get(h.n.id);
       if (sev === 'error' || sev === 'warn') { ctx.strokeStyle = sev === 'error' ? 'rgba(255,90,90,.9)' : 'rgba(255,179,71,.9)'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(h.sx, h.sy, rr, 0, TAU); ctx.stroke(); }
+      if (raw.get(h.n.id)?.attrs.status === 'proposed') { ctx.strokeStyle = 'rgba(255,210,74,.9)'; ctx.lineWidth = 1.3; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.arc(h.sx, h.sy, rr + 1.5, 0, TAU); ctx.stroke(); ctx.setLineDash([]); }   // 待确认的节点:黄色虚线环(同提议的边)
       if (replay && (replay.added.has(h.n.id) || replay.changed.has(h.n.id))) { ctx.strokeStyle = replay.added.has(h.n.id) ? 'rgba(123,224,160,.95)' : 'rgba(255,179,71,.95)'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(h.sx, h.sy, rr + 5, 0, TAU); ctx.stroke(); }
       if (h.n.id === selected && !h.domain) { ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(h.sx, h.sy, rr + 3, 0, TAU); ctx.stroke(); }
     }
@@ -3525,6 +3620,10 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
         ctx.strokeStyle = rgba(sev === 'error' ? [255, 90, 90] : [255, 179, 71], 0.9 * a); ctx.lineWidth = 1.4 / k;
         ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 1.5 + 3, 0, TAU); ctx.stroke();
       }
+      if (raw.get(n.id)?.attrs.status === 'proposed') {   // 待确认的节点:黄色虚线环(同提议的边)
+        ctx.strokeStyle = rgba([255, 210, 74], 0.9 * a); ctx.lineWidth = 1.3 / k; ctx.setLineDash([4 / k, 3 / k]);
+        ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 1.5 + 4.5, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+      }
       if (replay && (replay.added.has(n.id) || replay.changed.has(n.id))) {
         ctx.strokeStyle = replay.added.has(n.id) ? 'rgba(123,224,160,0.95)' : 'rgba(255,179,71,0.95)'; ctx.lineWidth = 1.6 / k;
         ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 1.5 + 9, 0, TAU); ctx.stroke();
@@ -3586,6 +3685,7 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
   // 按钮(data-cmd)、快捷键(KEYMAP)、控制台(`)、命令面板(Ctrl K)走同一张表,写法和 CLI 一样:`名字 参数… -选项 值`;
   // 写宇宙的命令(add / link / rm …)和 CLI 同名同参数。点按钮、按快捷键、点星图时,控制台里会灰显出等价的命令(回显),
   // 边用边学,也能直接拿去绑键。run 的返回值:false = "此时不适用"(比如没选中东西时按 E,按键就不吞掉);字符串 = 输出。
+  // effect:这个命令对页面(页面桥)来说算什么 —— read 读 / ui 界面 / write 写;不写 = 页面不能用(个人设置、保存文件、开项目……)
   const CMDS = new Map();
   const defCmd = (name, spec) => CMDS.set(name, { name, group: '其它', ...spec });
   /** 按空白切词;"…" 里可用 \" \\ 转义,'…' 原样 */
@@ -3626,29 +3726,41 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
   const nodeIds = (p) => { const r = []; for (const id of raw.keys()) if (id.startsWith(p) && !id.startsWith('~')) { r.push(id); if (r.length >= 60) break; } return r; };
   const nodeArg = (name = 'id') => ({ name, values: nodeIds });
 
-  /** 执行一行命令。src:console / palette(你敲的)、key / ui / mouse(界面操作,回显)、remote(stars ui 遥控)。
-   *  report(可选):执行完回报 { ok, out, error } —— 遥控用它把输出交回给 CLI */
-  function exec(line, src = 'console', report = null, from = '') {
-    line = String(line || '').trim(); if (!line) return;
+  /** 执行一行命令。src:console / palette(你敲的)、key / ui / mouse(界面操作,回显)、remote(stars ui 遥控)、
+   *  page(侧栏预览里的页面,经页面桥;from = page:<路径>,level = 它的连接级别,执行前按命令的 effect 检查)。
+   *  report(可选):执行完回报 { ok, out, data, error } —— 遥控用它把输出交回给 CLI,页面桥交回给页面。
+   *  run 的返回值可以是字符串(输出),也可以是 { out, data }(data 给程序用:页面、遥控) */
+  function exec(line, src = 'console', report = null, from = '', level = 'off') {
+    line = String(line || '').trim();
+    if (!line) { if (report) report({ ok: false, error: '空命令' }); return; }
     const toks = tokenize(line), spec = CMDS.get(toks[0]);
-    const typed = src === 'console' || src === 'palette';
+    const typed = src === 'console' || src === 'palette', page = src === 'page';
+    let echoed = false;   // 页面的这条命令已经在控制台里显示了(被拒绝时要跟一行说明)
     if (typed) conLog(line, 'in');
     if (src === 'remote') { conLog(line + (from ? `   ← ${from}` : ''), 'remote'); if ($('console').hidden) toast(`遥控${from ? '(' + esc(from) + ')' : ''}:<code>${esc(line)}</code>`, false, 2500); }
     const fail = (e) => {
-      const m = String((e && e.message) || e); conLog(m, 'err');
-      if (!typed && $('console').hidden) toast(esc(m), true);
+      const m = String((e && e.message) || e);
       if (report) report({ ok: false, error: m });
+      if (page) { if (echoed) conLog('  ✗ ' + m, 'dim'); return; }   // 页面自己处理错误,不打扰你
+      conLog(m, 'err');
+      if (!typed && $('console').hidden) toast(esc(m), true);
     };
     if (!spec) { fail(`没有这个命令:${toks[0]}(help 看全部)`); return null; }
+    if (page && !bridgeAllows(spec.effect, level)) {
+      const need = { read: 'read', ui: 'ui', write: 'propose' }[spec.effect];
+      fail(need ? `这个页面的连接级别是「${LEVEL_NAMES[level]}」,${toks[0]} 至少要「${LEVEL_NAMES[need]}」` : `页面不能用 ${toks[0]}(个人设置、保存文件、开项目这类命令只给你自己用)`);
+      return null;
+    }
+    if (page && spec.effect !== 'read') { conLog(line + `   ← ${from}`, 'remote'); echoed = true; }   // 页面做的界面操作和写入,控制台里都看得到
     let r;
-    try { const { a, o } = parseArgs(spec, toks.slice(1)); r = spec.run(a, o, { src }); }
+    try { const { a, o } = parseArgs(spec, toks.slice(1)); r = spec.run(a, o, { src, from, level, author: page ? from : 'viewer' }); }
     catch (e) { fail(e); return null; }
     if (r === false) { if (typed || src === 'remote') conLog('(此时不适用)', 'dim'); if (report) report({ ok: false, error: '此时不适用' }); return false; }
-    if (!typed && src !== 'remote') conLog(line, 'echo');
+    if (!typed && src !== 'remote' && !page) conLog(line, 'echo');
     const show = (v) => {
-      const out = typeof v === 'string' ? v : '';
-      if (out) { conLog(out); if ($('console').hidden && src !== 'remote') toggleConsole(true); }   // 有输出就把控制台拉出来(遥控的输出交回 CLI,不打扰)
-      if (report) report({ ok: true, out });
+      const out = typeof v === 'string' ? v : v && typeof v.out === 'string' ? v.out : '';
+      if (out && !page) { conLog(out); if ($('console').hidden && src !== 'remote') toggleConsole(true); }   // 有输出就把控制台拉出来(遥控的输出交回 CLI,页面的交回页面,不打扰)
+      if (report) report({ ok: true, out, data: v && typeof v === 'object' && 'data' in v ? v.data : undefined });
     };
     if (r && typeof r.then === 'function') r.then(show, fail); else show(r);
     return r === undefined ? true : r;
@@ -3675,7 +3787,7 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
   };
   try { if (localStorage.getItem('stars.chips') === '1') PANEL_DEFS.types.set(true); } catch { /* 隐私模式 */ }
   defCmd('panel', {
-    group: '面板', title: '打开 / 关闭面板', usage: 'panel <名字> [on|off|toggle]',
+    group: '面板', effect: 'ui', title: '打开 / 关闭面板', usage: 'panel <名字> [on|off|toggle]',
     args: [{ name: '名字', values: () => Object.keys(PANEL_DEFS) }, { name: '开关', values: () => ['on', 'off', 'toggle'] }],
     palette: () => Object.entries(PANEL_DEFS).map(([k, d]) => ({ line: 'panel ' + k, title: '开 / 关 ' + d.label })),
     run: ([name, v]) => {
@@ -3688,7 +3800,7 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
 
   // ---- 视图与导航 ----
   defCmd('view', {
-    group: '视图', title: '切换视图(名字或序号)', usage: 'view <名字|序号>', args: [{ name: '视图', values: () => viewNames }],
+    group: '视图', effect: 'ui', title: '切换视图(名字或序号)', usage: 'view <名字|序号>', args: [{ name: '视图', values: () => viewNames }],
     palette: () => viewNames.map((v) => ({ line: 'view ' + quoteArg(v), title: '切换到视图 ' + v })),
     run: ([v]) => {
       if (!v) return `当前:${currentView}\n可用:${viewNames.join('  ')}`;
@@ -3698,24 +3810,24 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
     },
   });
   defCmd('filter', {
-    group: '视图', title: '过滤节点(不带参数 = 把光标放进过滤框)', usage: 'filter [文字…]',
+    group: '视图', effect: 'ui', title: '过滤节点(不带参数 = 把光标放进过滤框)', usage: 'filter [文字…]',
     run: (a) => { if (!a.length) { $('q').focus(); return; } $('q').value = a.join(' '); $('q').dispatchEvent(new Event('input')); },
   });
   defCmd('type', {
-    group: '视图', title: '显示 / 隐藏某个类型的节点', usage: 'type <类型> [on|off|toggle]',
+    group: '视图', effect: 'ui', title: '显示 / 隐藏某个类型的节点', usage: 'type <类型> [on|off|toggle]',
     args: [{ name: '类型', values: () => [...new Set(data.nodes.map((n) => typeOf(n.id)))] }, { name: '开关', values: () => ['on', 'off', 'toggle'] }],
     run: ([t, v], o, c) => { if (!t) throw new Error('用法:type <类型> [on|off|toggle]'); setTypeShown(t, onOff(v, !hiddenTypes.has(t))); },
   });
   defCmd('tag', {
-    group: '视图', title: '点亮 / 熄灭一个 tag(tags 视图);不带参数 = 全部清除', usage: 'tag [id]', args: [nodeArg('tag')],
+    group: '视图', effect: 'ui', title: '点亮 / 熄灭一个 tag(tags 视图);不带参数 = 全部清除', usage: 'tag [id]', args: [nodeArg('tag')],
     run: ([t]) => { toggleTag(t || ''); },
   });
   defCmd('select', {
-    group: '视图', title: '选中节点并让它出现在画面里(不带参数 = 取消选中)', usage: 'select [id]', args: [nodeArg()],
+    group: '视图', effect: 'ui', title: '选中节点并让它出现在画面里(不带参数 = 取消选中)', usage: 'select [id]', args: [nodeArg()],
     run: ([id]) => { if (id && !raw.has(id)) throw new Error(`节点不存在:${id}`); select(id || null, true); },
   });
   defCmd('cancel', {
-    group: '视图', title: '取消:关掉最上层的浮层,或清空过滤与选中',
+    group: '视图', effect: 'ui', title: '取消:关掉最上层的浮层,或清空过滤与选中',
     run: () => {
       const ae = document.activeElement;
       if (ae && ['INPUT', 'TEXTAREA', 'SELECT'].includes(ae.tagName)) { ae.blur(); return; }
@@ -3725,10 +3837,11 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
       if (replay) { exitReplay(); return; }
       if (!$('projects').hidden) { toggleProjects(false); return; }
       if (!$('physics').hidden) { togglePhysics(false); return; }
+      if (!selected && !$('q').value && fp && fp.pinned) { fp.pinned = false; syncFile(null); fpState(); return; }   // 什么都没选时再按一次 Esc:取消固定、收起
       $('q').value = ''; query = ''; select(null);
     },
   });
-  defCmd('fit', { group: '镜头', title: '适应窗口', run: () => fit() });
+  defCmd('fit', { group: '镜头', effect: 'ui', title: '适应窗口', run: () => fit() });
   defCmd('bg', {
     group: '显示', title: '背景:星系 / 星点 / 无', usage: 'bg [galaxy|dots|none|next]', args: [{ name: '背景', values: () => ['galaxy', 'dots', 'none', 'next'] }],
     palette: () => BG_MODES.map((m, i) => ({ line: 'bg ' + m, title: '背景:' + PHYS.bg.names[i] })),
@@ -3746,15 +3859,15 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
 
   // ---- 空间 ----
   defCmd('expand', {
-    group: '空间', title: '就地展开 / 收起(默认是选中的)', usage: 'expand [id]', args: [nodeArg()],
+    group: '空间', effect: 'ui', title: '就地展开 / 收起(默认是选中的)', usage: 'expand [id]', args: [nodeArg()],
     run: ([id]) => { id = id || selected; if (!id) return false; if (isSpaces()) toggleExpandSpace(id); else toggleExpand(id); },
   });
   defCmd('collapse-all', {
-    group: '空间', title: '全部收起',
+    group: '空间', effect: 'ui', title: '全部收起',
     run: () => { if (isSpaces()) { expandedSet.clear(); spaceVer++; renderStatus(); } else { manual.clear(); auto.clear(); recompute(false); } },
   });
   defCmd('enter', {
-    group: '空间', title: '进入选中的空间;选中的是文件就打开它(= open)', usage: 'enter [id]', args: [nodeArg()],
+    group: '空间', effect: 'ui', title: '进入选中的空间;选中的是文件就打开它(= open)', usage: 'enter [id]', args: [nodeArg()],
     run: ([id]) => {
       id = id || selected; if (!id) return false;
       if (isSpaces() && compiled.node(id)?.container) { if (!enterSpace(id, true)) jumpTo(id); return; }
@@ -3762,15 +3875,15 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
       return false;
     },
   });
-  defCmd('exit', { group: '空间', title: '回到上一层空间', run: () => { if (!isSpaces()) return false; exitSpace(true); } });
+  defCmd('exit', { group: '空间', effect: 'ui', title: '回到上一层空间', run: () => { if (!isSpaces()) return false; exitSpace(true); } });
   defCmd('jump', {
-    group: '空间', title: '跳到某个空间(不带参数 = 最外层)', usage: 'jump [id]', args: [nodeArg()],
+    group: '空间', effect: 'ui', title: '跳到某个空间(不带参数 = 最外层)', usage: 'jump [id]', args: [nodeArg()],
     run: ([id]) => { if (id && !raw.has(id)) throw new Error(`节点不存在:${id}`); jumpTo(id || null); },
   });
 
   // ---- 文件 ----
   defCmd('open', {
-    group: '文件', title: '打开节点的文件:侧栏里按它的种类显示(--with 指定视图;--remember / --forget 记住或忘掉这类扩展名的打开方式;--full 全屏看图)',
+    group: '文件', effect: 'ui', title: '打开节点的文件:侧栏里按它的种类显示(--with 指定视图;--remember / --forget 记住或忘掉这类扩展名的打开方式;--full 全屏看图)',
     usage: 'open [id|文件路径] [--with text|markdown|form|image|universe|info] [--remember|--forget] [--full]',
     flags: { with: 'with', w: 'with' }, bools: ['remember', 'forget', 'full'], args: [nodeArg()],
     palette: () => [{ line: 'open ', title: '打开一个文件', more: true }, ...(fp && fp.info ? handlersFor(fpDesc()).map(({ h }) => ({ line: `open ${quoteArg(fp.id)} --with ${h.id}`, title: `用「${h.label}」看 ${fp.path}` })) : [])],
@@ -3792,11 +3905,12 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
         return;
       }
       fpNext = { id, want: o.with, focus };
+      if (fp && fp.pinned) fp.pinned = false;   // 明确要打开别的文件:固定让位
       select(id, true);
     },
   });
   defCmd('preview', {
-    group: '文件', title: '侧栏预览的开关:html(Markdown 渲染 HTML)、scripts(HTML 运行脚本)、live(HTML 实时)、split(并排编辑);reload 重新加载',
+    group: '文件', effect: 'ui', title: '侧栏预览的开关:html(Markdown 渲染 HTML)、scripts(HTML 运行脚本)、live(HTML 实时)、split(并排编辑);reload 重新加载',
     usage: 'preview <html|scripts|live|split> [on|off|toggle] · preview reload',
     args: [{ name: '开关', values: () => ['html', 'scripts', 'live', 'split', 'reload'] }, { name: '值', values: () => ['on', 'off', 'toggle'] }],
     palette: () => (fp && fp.info && ['markdown', 'html'].includes(fp.handler) ? [
@@ -3810,8 +3924,27 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
       if (k === 'split') renderFileBody(); else if (fp.renderView) fp.renderView();
     },
   });
+  defCmd('connect', {
+    group: '文件', title: '侧栏 HTML 预览的页面连接:页面里的 window.stars 能调哪些命令(按页面记在 ~/.config/stars/grants.llf;default = 用设置里的默认);不带参数列出',
+    usage: 'connect [off|read|ui|propose|write|default]', args: [{ name: '级别', values: () => [...BRIDGE_LEVELS, 'default'] }],
+    palette: () => (fp && fp.info && fp.handler === 'html' ? [...BRIDGE_LEVELS, 'default'].map((l) => ({ line: 'connect ' + l, title: `这个页面的连接:${LEVEL_NAMES[l] || '用默认'}` })) : []),
+    run: ([lv]) => {
+      if (!lv) {
+        const rows = [];
+        try {
+          const pages = llfFind(llfParseDoc(userCfg.grants.text, CFG_OPTS), ['pages']);
+          for (const d of pages && pages.kind === 'map' ? pages.entries : []) for (const e of d.kind === 'map' ? d.entries : []) rows.push(`  ${String(e.value ?? '').padEnd(8)} ${d.key}/${e.key}`);
+        } catch { /* 坏文件 */ }
+        const cur = fp && fp.info && fp.handler === 'html' ? `这个页面(${fp.path}):${LEVEL_NAMES[levelOf(fp.path)]}${grantOf(fp.path) ? '' : '(默认)'}${fp.opts.scripts ? '' : ';不过脚本没开,现在连不上'}\n` : '';
+        return cur + `默认:${LEVEL_NAMES[P.pageBridge] || P.pageBridge}(设置 → 文件预览 → 页面连接)\n` + (rows.length ? '单独授权过的页面:\n' + rows.join('\n') : '(还没有单独授权过的页面)');
+      }
+      if (lv !== 'default' && !bridgeIsLevel(lv)) throw new Error('应为 off / read / ui / propose / write / default');
+      if (!fp || !fp.info || fp.handler !== 'html') return false;
+      setGrant(fp.path, lv === 'default' ? null : lv);
+    },
+  });
   defCmd('edit', {
-    group: '文件', title: '在原文里编辑侧栏的文件(当前是别的视图就切到原文)',
+    group: '文件', effect: 'ui', title: '在原文里编辑侧栏的文件(当前是别的视图就切到原文)',
     run: () => {
       if (!fp || !fp.info || fp.info.kind !== 'text') return false;
       if (fp.handler !== 'text') { fp.want = 'text'; renderFileBody(); }
@@ -3830,6 +3963,16 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
       const line = cmd.length === 1 ? cmd[0] : cmd.map(quoteArg).join(' ');
       if (!CMDS.has(tokenize(line)[0])) throw new Error(`没有这个命令:${tokenize(line)[0]}`);
       setDbl(t, line);
+    },
+  });
+  defCmd('pin', {
+    group: '文件', effect: 'read', title: '固定侧栏里的文件:单击选中别的节点时不换(双击 / open 照样打开别的文件;什么都没选时按 Esc 取消固定)。页面也能固定自己',
+    usage: 'pin [on|off|toggle]', args: [{ name: '开关', values: () => ['on', 'off', 'toggle'] }],
+    run: ([v]) => {
+      if (!fp) return false;
+      fp.pinned = onOff(v, !!fp.pinned);
+      fpState();
+      if (!fp.pinned) { const n = selected && raw.get(selected); if (!n || n.id !== fp.id) syncFile(n || null); }   // 取消固定:侧栏回到跟着选中走
     },
   });
   defCmd('save', { group: '文件', title: '保存侧栏里的文件(Ctrl+S)', run: () => { if (!fp || !fp.full) return false; return saveFile(false); } });
@@ -3886,7 +4029,7 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
   // ---- 时间线 ----
   const TL_ACTS = { prev: '上一个提交', next: '下一个提交', first: '最早的提交', now: '回到现在', play: '播放 / 暂停', scope: '宇宙文件的历史 ↔ 文件夹的历史', more: '再往前载入一批' };
   defCmd('timeline', {
-    group: '时间线', title: '时间线操作(先 panel timeline 打开)', usage: 'timeline <' + Object.keys(TL_ACTS).join('|') + '>', args: [{ name: '动作', values: () => Object.keys(TL_ACTS) }],
+    group: '时间线', effect: 'ui', title: '时间线操作(先 panel timeline 打开)', usage: 'timeline <' + Object.keys(TL_ACTS).join('|') + '>', args: [{ name: '动作', values: () => Object.keys(TL_ACTS) }],
     palette: () => Object.entries(TL_ACTS).map(([k, t]) => ({ line: 'timeline ' + k, title: '时间线:' + t })),
     run: ([act]) => {
       if (act === 'now') { if (!replay) return false; exitReplay(); return; }
@@ -3910,118 +4053,166 @@ import { textDiff, textHash, textNormEol } from '/core/textsync.js';
 
   // ---- 审阅 ----
   defCmd('review', {
-    group: '审阅', title: '全部接受 / 全部拒绝待审阅的提议', usage: 'review <accept-all|reject-all>', args: [{ name: '动作', values: () => ['accept-all', 'reject-all'] }],
+    group: '审阅', effect: 'write', title: '全部接受 / 全部拒绝待审阅的提议', usage: 'review <accept-all|reject-all>', args: [{ name: '动作', values: () => ['accept-all', 'reject-all'] }],
     palette: () => [{ line: 'review accept-all', title: '接受全部提议' }, { line: 'review reject-all', title: '拒绝全部提议' }],
-    run: ([act]) => {
+    run: ([act], o, c) => {
+      noProposing(c, '批量确认 / 拒绝提议');
       const l = proposed();
-      if (act === 'accept-all') { if (!l.length) return '没有待审阅的提议'; return write({ op: 'batch', ops: l.map(acceptOp) }, `已接受全部 ${l.length} 条`); }
-      if (act === 'reject-all') { if (!l.length) return '没有待审阅的提议'; if (!confirm(`拒绝并删除全部 ${l.length} 条提议?(之后可以撤销)`)) return; return write({ op: 'batch', ops: l.map(rejectOp) }, `已拒绝全部 ${l.length} 条`); }
+      if (act === 'accept-all') { if (!l.length) return '没有待审阅的提议'; return write(batchOps(l, acceptOp), `已接受全部 ${l.length} 条`, c.author); }
+      if (act === 'reject-all') { if (!l.length) return '没有待审阅的提议'; if (c.src !== 'page' && !confirm(`拒绝并删除全部 ${l.length} 条提议?(之后可以撤销)`)) return; return write(batchOps(l, rejectOp), `已拒绝全部 ${l.length} 条`, c.author); }
       throw new Error('用法:review <accept-all|reject-all>');
     },
   });
 
-  // ---- 写宇宙:和 CLI 同名同参数(作者记为 viewer,都能 undo)----
+  // ---- 写宇宙:和 CLI 同名同参数(作者记为 viewer;页面写的记为 page:<路径>;都能 undo)----
+  // 「提议」级的页面(见 core/src/bridge.ts):新增的节点和边都落成 status=proposed,等你在审阅里确认;
+  // 改、删只能动它自己提的、还没被确认的;不能确认、不能撤销、不能动 status。
   const kvs = (list) => Object.fromEntries((list || []).map((it) => { const i = it.indexOf('='); if (i <= 0) throw new Error(`属性应写成 key=value,得到 "${it}"`); return [it.slice(0, i), it.slice(i + 1)]; }));
   const NODE_FLAGS = { t: 'type', s: 'summary', l: 'label', a: 'attr', ref: 'ref', unset: 'unset' };
   function nodeAttrs(o) { const at = kvs(o.attr); if (o.type !== undefined) at.type = o.type; if (o.summary !== undefined) at.summary = o.summary; if (o.ref !== undefined) at.file = o.ref; return at; }
-  async function commitOp(op, done) {
-    const r = await api('/api/op', { op, author: 'viewer' });
+  const proposing = (c) => !!c && c.src === 'page' && c.level === 'propose';
+  const pagePending = new Map();   // 页面刚提的(日志还没推回来):键 → { author, n }
+  function ownProposal(c, k, what) {
+    const p = (data.proposals || {})[k], q = pagePending.get(k);
+    if (p ? p.author === c.author : q && q.author === c.author && q.n > lastN) return;
+    throw new Error(`「提议」级的页面只能改、删自己提的还没被确认的东西,${what} 不是`);
+  }
+  const noProposing = (c, what) => { if (proposing(c)) throw new Error(`「提议」级的页面不能${what}(这要你来)`); };
+  async function commitOp(op, done, c, pendingKey) {
+    const r = await api('/api/op', { op, author: (c && c.author) || 'viewer' });
+    if (pendingKey) pagePending.set(pendingKey, { author: c.author, n: r.n });
     if (!$('review').hidden) rvMsg(`${done}(操作 #${r.n},可撤销)`);
-    return `${done}   #${r.n}`;
+    return { out: `${done}   #${r.n}`, data: { n: r.n } };
   }
   const edgeArgs = [nodeArg('from'), { name: '类型', values: () => [...new Set(data.edges.map((e) => e.type))] }, nodeArg('to')];
   defCmd('add', {
-    group: '宇宙', title: '新建节点', usage: 'add <id> [label] [-t 类型] [-s 摘要] [--ref 文件] [-a k=v …]', flags: NODE_FLAGS, multi: ['attr', 'unset'], more: true,
-    run: (a, o, c) => { need(a, 1, CMDS.get('add')); return commitOp({ op: 'addNode', id: a[0], label: a[1] ?? o.label ?? a[0], attrs: nodeAttrs(o) }, `+ ${a[0]}`); },
+    group: '宇宙', effect: 'write', title: '新建节点(--proposed 提议:等确认)', usage: 'add <id> [label] [-t 类型] [-s 摘要] [--ref 文件] [-a k=v …] [--proposed]', flags: NODE_FLAGS, multi: ['attr', 'unset'], bools: ['proposed'], more: true,
+    run: (a, o, c) => {
+      need(a, 1, CMDS.get('add'));
+      const attrs = nodeAttrs(o), prop = o.proposed || proposing(c);
+      if (prop) attrs.status = 'proposed';
+      return commitOp({ op: 'addNode', id: a[0], label: a[1] ?? o.label ?? a[0], attrs }, `+ ${a[0]}${prop ? '  (proposed)' : ''}`, c, prop && c.src === 'page' ? nodeProposalKey(a[0]) : null);
+    },
   });
   defCmd('set', {
-    group: '宇宙', title: '修改节点', usage: 'set <id> [-l 标签] [-t 类型] [-s 摘要] [-a k=v …] [--unset k …]', flags: NODE_FLAGS, multi: ['attr', 'unset'], args: [nodeArg()], more: true,
-    run: (a, o) => { need(a, 1, CMDS.get('set')); return commitOp({ op: 'setNode', id: a[0], label: o.label, set: nodeAttrs(o), unset: o.unset }, `~ ${a[0]}`); },
+    group: '宇宙', effect: 'write', title: '修改节点', usage: 'set <id> [-l 标签] [-t 类型] [-s 摘要] [-a k=v …] [--unset k …]', flags: NODE_FLAGS, multi: ['attr', 'unset'], args: [nodeArg()], more: true,
+    run: (a, o, c) => {
+      need(a, 1, CMDS.get('set'));
+      const set = nodeAttrs(o);
+      if (proposing(c)) {
+        ownProposal(c, nodeProposalKey(a[0]), `节点 ${a[0]}`);
+        if ('status' in set || (o.unset || []).includes('status')) throw new Error('「提议」级的页面不能改 status(确认要你来)');
+      }
+      return commitOp({ op: 'setNode', id: a[0], label: o.label, set, unset: o.unset }, `~ ${a[0]}`, c);
+    },
   });
   defCmd('rm', {
-    group: '宇宙', title: '删除节点(连带它的边)', usage: 'rm <id>', args: [nodeArg()], more: true,
-    run: (a) => { need(a, 1, CMDS.get('rm')); if (!confirm(`删除节点 ${a[0]} 和它的所有边?(之后可以 undo)`)) return; return commitOp({ op: 'removeNode', id: a[0] }, `- ${a[0]}`); },
+    group: '宇宙', effect: 'write', title: '删除节点(连带它的边)', usage: 'rm <id>', args: [nodeArg()], more: true,
+    run: (a, o, c) => {
+      need(a, 1, CMDS.get('rm'));
+      if (proposing(c)) ownProposal(c, nodeProposalKey(a[0]), `节点 ${a[0]}`);
+      else if (c.src !== 'page' && !confirm(`删除节点 ${a[0]} 和它的所有边?(之后可以 undo)`)) return;   // 页面已经被你授权「写」,不弹框(照样能 undo)
+      return commitOp({ op: 'removeNode', id: a[0] }, `- ${a[0]}`, c);
+    },
   });
   defCmd('link', {
-    group: '宇宙', title: '建边', usage: 'link <from> <type> <to> [--proposed] [-a k=v …]', flags: { a: 'attr' }, multi: ['attr'], bools: ['proposed'], args: edgeArgs, more: true,
-    run: (a, o) => {
+    group: '宇宙', effect: 'write', title: '建边', usage: 'link <from> <type> <to> [--proposed] [-a k=v …]', flags: { a: 'attr' }, multi: ['attr'], bools: ['proposed'], args: edgeArgs, more: true,
+    run: (a, o, c) => {
       need(a, 3, CMDS.get('link'));
-      const attrs = kvs(o.attr); if (o.proposed) attrs.status = 'proposed';
-      return commitOp({ op: 'addEdge', from: a[0], type: a[1], to: a[2], attrs }, `+ ${a[0]} -${a[1]}-> ${a[2]}${o.proposed ? '  (proposed)' : ''}`);
+      const attrs = kvs(o.attr), prop = o.proposed || proposing(c);
+      if (prop) attrs.status = 'proposed';
+      return commitOp({ op: 'addEdge', from: a[0], type: a[1], to: a[2], attrs }, `+ ${a[0]} -${a[1]}-> ${a[2]}${prop ? '  (proposed)' : ''}`, c, prop && c.src === 'page' ? `${a[0]}|${a[1]}|${a[2]}` : null);
     },
   });
   defCmd('unlink', {
-    group: '宇宙', title: '删边', usage: 'unlink <from> <type> <to>', args: edgeArgs, more: true,
-    run: (a) => { need(a, 3, CMDS.get('unlink')); return commitOp({ op: 'removeEdge', from: a[0], type: a[1], to: a[2] }, `- ${a[0]} -${a[1]}-> ${a[2]}`); },
+    group: '宇宙', effect: 'write', title: '删边', usage: 'unlink <from> <type> <to>', args: edgeArgs, more: true,
+    run: (a, o, c) => {
+      need(a, 3, CMDS.get('unlink'));
+      if (proposing(c)) ownProposal(c, `${a[0]}|${a[1]}|${a[2]}`, `边 ${a[0]} -${a[1]}-> ${a[2]}`);
+      return commitOp({ op: 'removeEdge', from: a[0], type: a[1], to: a[2] }, `- ${a[0]} -${a[1]}-> ${a[2]}`, c);
+    },
   });
   defCmd('accept', {
-    group: '宇宙', title: '确认一条 proposed 边', usage: 'accept <from> <type> <to>', args: edgeArgs, more: true,
-    run: (a) => { need(a, 3, CMDS.get('accept')); return commitOp({ op: 'setEdge', from: a[0], type: a[1], to: a[2], unset: ['status'] }, `✓ ${a[0]} -${a[1]}-> ${a[2]}`); },
+    group: '宇宙', effect: 'write', title: '确认一条 proposed 边;只给 id 就是确认 proposed 节点', usage: 'accept <from> <type> <to> · accept <id>', args: edgeArgs, more: true,
+    run: (a, o, c) => {
+      noProposing(c, '确认提议');
+      if (a.length === 1) return commitOp({ op: 'setNode', id: a[0], unset: ['status'] }, `✓ ${a[0]}`, c);
+      need(a, 3, CMDS.get('accept'));
+      return commitOp({ op: 'setEdge', from: a[0], type: a[1], to: a[2], unset: ['status'] }, `✓ ${a[0]} -${a[1]}-> ${a[2]}`, c);
+    },
   });
   defCmd('undo', {
-    group: '宇宙', title: '撤销最近一次写入',
-    run: async () => { const r = await api('/api/undo', {}); if (!$('review').hidden) rvMsg(`已撤销(操作 #${r.n})`); return `已撤销   #${r.n}`; },
+    group: '宇宙', effect: 'write', title: '撤销最近一次写入',
+    run: async (a, o, c) => {
+      noProposing(c, '撤销');
+      const r = await api('/api/undo', {}); if (!$('review').hidden) rvMsg(`已撤销(操作 #${r.n})`);
+      return { out: `已撤销   #${r.n}`, data: { n: r.n } };
+    },
   });
 
-  // ---- 读宇宙(在浏览器里算,不用等服务端)----
-  const descNode = (id) => { const n = uni.nodes.get(id); return n ? `${n.id}${n.attrs.type ? ` [${n.attrs.type}]` : ''}  ${n.label}` : `${id}  (不存在)`; };
+  // ---- 读宇宙(在浏览器里算,不用等服务端)。输出给人看;data 给页面和遥控用 ----
+  const descNode = (id) => { const n = uni.nodes.get(id); return n ? `${n.id}${n.attrs.type ? ` [${n.attrs.type}]` : ''}  ${n.label}${n.attrs.status === 'proposed' ? '  (proposed)' : ''}` : `${id}  (不存在)`; };
   const needUni = () => { if (!uni) throw new Error('宇宙还没载入'); return uni; };
   defCmd('show', {
-    group: '查询', title: '节点详情及其所有边', usage: 'show <id>', args: [nodeArg()], more: true,
+    group: '查询', effect: 'read', title: '节点详情及其所有边', usage: 'show <id>', args: [nodeArg()], more: true,
     run: (a) => {
       need(a, 1, CMDS.get('show'));
       const id = a[0], u = needUni(), n = u.nodes.get(id); if (!n) throw new Error(`节点不存在:${id}`);
-      const lines = [descNode(id)];
+      const lines = [descNode(id)], out = [], inn = [];
+      for (const e of u.edges.values()) { if (e.from === id) out.push(e); if (e.to === id) inn.push(e); }
       for (const [k, v] of Object.entries(n.attrs)) if (k !== 'type') lines.push(`  ${k}: ${v}`);
-      for (const e of u.edges.values()) if (e.from === id) lines.push(`  → -${e.type}-> ${e.to}${e.attrs.status ? ` (${e.attrs.status})` : ''}`);
-      for (const e of u.edges.values()) if (e.to === id) lines.push(`  ← ${e.from} -${e.type}->`);
-      return lines.join('\n');
+      for (const e of out) lines.push(`  → -${e.type}-> ${e.to}${e.attrs.status ? ` (${e.attrs.status})` : ''}`);
+      for (const e of inn) lines.push(`  ← ${e.from} -${e.type}->`);
+      return { out: lines.join('\n'), data: { node: n, out, in: inn } };
     },
   });
   defCmd('nb', {
-    group: '查询', title: '邻域', usage: 'nb <id> [--depth N] [--dir out|in|both] [-t 边类型]', flags: { depth: 'depth', dir: 'dir', t: 'type' }, args: [nodeArg()], more: true,
+    group: '查询', effect: 'read', title: '邻域', usage: 'nb <id> [--depth N] [--dir out|in|both] [-t 边类型]', flags: { depth: 'depth', dir: 'dir', t: 'type' }, args: [nodeArg()], more: true,
     run: (a, o) => {
       need(a, 1, CMDS.get('nb'));
       const id = a[0], u = needUni(); if (!u.nodes.has(id)) throw new Error(`节点不存在:${id}`);
       const nb = neighborhood(u, id, { depth: Number(o.depth ?? 1), dir: o.dir ?? 'both', type: o.type });
-      return [...nb.dist].sort((x, y) => x[1] - y[1]).map(([nid, d]) => '  '.repeat(d) + descNode(nid)).join('\n');
+      const list = [...nb.dist].sort((x, y) => x[1] - y[1]);
+      return { out: list.map(([nid, d]) => '  '.repeat(d) + descNode(nid)).join('\n'), data: list.map(([nid, d]) => ({ id: nid, depth: d })) };
     },
   });
   defCmd('path', {
-    group: '查询', title: '最短路径', usage: 'path <a> <b> [-t 边类型]', flags: { t: 'type' }, args: [nodeArg('a'), nodeArg('b')], more: true,
+    group: '查询', effect: 'read', title: '最短路径', usage: 'path <a> <b> [-t 边类型]', flags: { t: 'type' }, args: [nodeArg('a'), nodeArg('b')], more: true,
     run: (a, o) => {
       need(a, 2, CMDS.get('path'));
       const p = shortestPath(needUni(), a[0], a[1], { type: o.type });
-      return p === null ? '不可达' : [a[0], ...p.map((st) => `${st.forward ? `-${st.edge.type}->` : `<-${st.edge.type}-`} ${st.to}`)].join(' ');
+      if (p === null) return { out: '不可达', data: null };
+      return { out: [a[0], ...p.map((st) => `${st.forward ? `-${st.edge.type}->` : `<-${st.edge.type}-`} ${st.to}`)].join(' '),
+        data: { from: a[0], steps: p.map((st) => ({ type: st.edge.type, forward: st.forward, to: st.to })) } };
     },
   });
   defCmd('ls', {
-    group: '查询', title: '列节点', usage: 'ls [-t 类型] [-q 文本] [-w k=v …] [--orphans]', flags: { t: 'type', q: 'q', w: 'where' }, multi: ['where'], bools: ['orphans'],
+    group: '查询', effect: 'read', title: '列节点', usage: 'ls [-t 类型] [-q 文本] [-w k=v …] [--orphans]', flags: { t: 'type', q: 'q', w: 'where' }, multi: ['where'], bools: ['orphans'],
     run: (a, o) => {
       const u = needUni(), ns = filterNodes(u, { type: o.type, where: kvs(o.where), orphans: o.orphans, text: o.q ?? (a.join(' ') || undefined) });
-      return (ns.slice(0, 300).map((n) => descNode(n.id)).join('\n') || '(空)') + (ns.length > 300 ? `\n… 共 ${ns.length} 个,只列前 300` : '');
+      return { out: (ns.slice(0, 300).map((n) => descNode(n.id)).join('\n') || '(空)') + (ns.length > 300 ? `\n… 共 ${ns.length} 个,只列前 300` : ''), data: ns };
     },
   });
   defCmd('log', {
-    group: '查询', title: '操作日志', usage: 'log [-n 20]', flags: { n: 'n' },
-    run: (a, o) => data.log.slice(-Number(o.n ?? 20)).map((e) => `#${e.n} ${e.author.padEnd(8)} ${summ(e)}`).join('\n') || '(无记录)',
+    group: '查询', effect: 'read', title: '操作日志', usage: 'log [-n 20]', flags: { n: 'n' },
+    run: (a, o) => { const l = data.log.slice(-Number(o.n ?? 20)); return { out: l.map((e) => `#${e.n} ${e.author.padEnd(8)} ${summ(e)}`).join('\n') || '(无记录)', data: l }; },
   });
   defCmd('lint', {
-    group: '查询', title: '体检结果', run: () => data.issues.map((i) => `${i.severity.padEnd(5)} ${i.rule.padEnd(20)} ${i.message}`).join('\n') || '✓ 没有问题',
+    group: '查询', effect: 'read', title: '体检结果', run: () => ({ out: data.issues.map((i) => `${i.severity.padEnd(5)} ${i.rule.padEnd(20)} ${i.message}`).join('\n') || '✓ 没有问题', data: data.issues }),
   });
-  defCmd('views', { group: '查询', title: '列出视图', run: () => viewNames.map((v, i) => `${i + 1}. ${v}${v === currentView ? '   ← 当前' : ''}`).join('\n') });
+  defCmd('views', { group: '查询', effect: 'read', title: '列出视图', run: () => ({ out: viewNames.map((v, i) => `${i + 1}. ${v}${v === currentView ? '   ← 当前' : ''}`).join('\n'), data: { current: currentView, names: viewNames } }) });
 
   // ---- 控制台自己 ----
   defCmd('help', {
-    group: '控制台', title: '列出全部命令;help <命令> 看用法', usage: 'help [命令]', args: [{ name: '命令', values: () => [...CMDS.keys()] }],
+    group: '控制台', effect: 'read', title: '列出全部命令;help <命令> 看用法', usage: 'help [命令]', args: [{ name: '命令', values: () => [...CMDS.keys()] }],
     run: ([name]) => {
       if (name) { const c = CMDS.get(name); if (!c) throw new Error(`没有这个命令:${name}`); const ks = keysOf(name); return `${c.usage || c.name}\n  ${c.title}${ks.length ? '\n  快捷键:' + ks.join(' / ') : ''}`; }
       const groups = new Map(); for (const c of CMDS.values()) { if (!groups.has(c.group)) groups.set(c.group, []); groups.get(c.group).push(c); }
       return [...groups].map(([g, cs]) => `【${g}】\n` + cs.map((c) => `  ${c.name.padEnd(13)} ${c.title}`).join('\n')).join('\n') + '\n写法和 CLI 一样;Tab 补全,↑↓ 翻历史。';
     },
   });
-  defCmd('clear', { group: '控制台', title: '清空控制台', run: () => { $('con-out').innerHTML = ''; } });
-  defCmd('palette', { group: '控制台', title: '命令面板:搜索全部命令', run: () => togglePalette(true) });
+  defCmd('clear', { group: '控制台', effect: 'ui', title: '清空控制台', run: () => { $('con-out').innerHTML = ''; } });
+  defCmd('palette', { group: '控制台', effect: 'ui', title: '命令面板:搜索全部命令', run: () => togglePalette(true) });
 
   // ---------- 键位(KEYMAP / keyMap 由 core/keys.llf + 个人 keys.llf 合成,见「快捷键」一节)----------
   const KEY_LABEL = { escape: 'Esc', enter: '⏎', backspace: '⌫', arrowleft: '←', arrowright: '→', arrowup: '↑', arrowdown: '↓', space: '空格', ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift' };

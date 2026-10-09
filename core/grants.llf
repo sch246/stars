@@ -1,0 +1,14 @@
+# 页面连接的授权 —— 默认为空。侧栏里开了脚本的 HTML 页面可以通过 window.stars 调星罗的命令(见 core/src/bridge.ts),
+# 能调哪些由这里的级别决定;没写的页面用设置 → 文件预览 →「页面连接」的默认值。
+#   off 关:没有 window.stars
+#   read 读:show / nb / path / ls / log / lint、整个图谱的快照、订阅变化
+#   ui 界面:再加上选中、镜头、视图、过滤、展开、打开文件……
+#   propose 提议:再加上写命令,但新增的节点和边都是 proposed,等你在审阅里确认;只能改、删自己还没被确认的提议
+#   write 写:写命令直接生效(都记在日志里,作者是 page:<路径>,能 undo)
+# 你的授权写在 ~/.config/stars/grants.llf(在预览栏上选「连接」就会写),不要改这个文件:
+#   pages {}
+#     /home/me/notes {}
+#       tools/agent.html - propose
+#
+pages {}
+--LLF-END

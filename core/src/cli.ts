@@ -26,12 +26,12 @@ const HELP = `stars —— 关系编辑器(内核 CLI)
 
 写入
   init                               用创世文件新建 universe.stars
-  add <id> [label]                   新建节点   [-t 类型] [-s 摘要] [--ref 文件路径] [-a k=v ...]
+  add <id> [label]                   新建节点   [-t 类型] [-s 摘要] [--ref 文件路径] [-a k=v ...] [--proposed]
   set <id>                           修改节点   [-l 标签] [-a k=v ...] [--unset k ...]
   rm <id>                            删除节点(连带其所有边)
   link <from> <type> <to>            建边       [--proposed] [-a k=v ...]
   unlink <from> <type> <to>          删边
-  accept <from> <type> <to>          确认一条 proposed 边
+  accept <from> <type> <to>          确认一条 proposed 边(只给 <id> 就是确认 proposed 节点)
   scan [dir]                         把目录铺成 dir/file 节点 + contains 边   [--under 根节点id]
   undo                               撤销最近一次操作
 
@@ -152,8 +152,10 @@ function run(): void {
     }
     case 'add': {
       need(1, 'add <id> [label]');
-      store.commit({ op: 'addNode', id: args[0]!, label: args[1] ?? o.label ?? args[0]!, attrs: nodeAttrs() }, ctx);
-      console.log(`+ ${args[0]}`);
+      const attrs = nodeAttrs();
+      if (o.proposed) attrs.status = 'proposed';
+      store.commit({ op: 'addNode', id: args[0]!, label: args[1] ?? o.label ?? args[0]!, attrs }, ctx);
+      console.log(`+ ${args[0]}${o.proposed ? '  (proposed)' : ''}`);
       return;
     }
     case 'set': {
@@ -183,6 +185,11 @@ function run(): void {
       return;
     }
     case 'accept': {
+      if (args.length === 1) {   // 确认一个 proposed 节点
+        store.commit({ op: 'setNode', id: args[0]!, unset: ['status'] }, ctx);
+        console.log(`✓ ${args[0]}`);
+        return;
+      }
       need(3, 'accept <from> <type> <to>');
       store.commit({ op: 'setEdge', from: args[0]!, type: args[1]!, to: args[2]!, unset: ['status'] }, ctx);
       console.log(`✓ ${args[0]} -${args[1]}-> ${args[2]}`);

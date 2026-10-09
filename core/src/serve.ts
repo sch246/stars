@@ -15,6 +15,7 @@ import { homedir } from 'node:os';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { invalidateSignals, loadSignals, type LiveSignals } from './activity.ts';
+import { bridgeInject, bridgeNonceOk, bridgeShim } from './bridge.ts';
 import { configDir, isConfigName, pageConfig, readUserConfig, registerServer, unregisterServer, writeUserConfig } from './config.ts';
 import { FileConflict, IMAGE_TYPES, PREVIEW_TYPES, patchProjectFile, readProjectFile, resolveInside, writeProjectFile } from './files.ts';
 import { diffUniverses, gitFirstParent, gitHistory, gitParentSnapshot, gitSnapshot, gitTreeUniverse, type HistoryScope } from './history.ts';
@@ -30,7 +31,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const viewerDir = resolve(here, '..', 'viewer');
 
 /** 浏览器能直接 import 的共享模块(都不依赖 Node)。 */
-const SHARED = new Set(['model', 'view', 'expr', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync']);
+const SHARED = new Set(['model', 'view', 'expr', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync', 'bridge']);
 
 function sharedModule(name: string): string {
   const ts = readFileSync(resolve(here, `${name}.ts`), 'utf8');
@@ -216,6 +217,8 @@ export interface ServerOptions {
 
 export interface ServerHandle {
   token: string;
+  /** 只用于 /preview 的 token:预览页能从自己的地址读到它,所以它什么也写不了 */
+  previewToken: string;
   close: () => void;
   /** 下面三个作用于启动时的主项目(其它项目在服务内部各自管理) */
   pushLive: (live: LiveSignals) => void;
@@ -230,6 +233,7 @@ export function startServer(
   extraHosts: string[] = [], options: ServerOptions = {},
 ): ServerHandle {
   const token = randomBytes(16).toString('hex');
+  const previewToken = randomBytes(16).toString('hex');
   process.removeAllListeners('warning'); // stripTypeScriptTypes 的实验性提示对用户是噪音
   const genesis = readFileSync(resolve(here, '..', 'genesis.stars'), 'utf8');
 
@@ -323,7 +327,7 @@ export function startServer(
       }
       if (req.method === 'GET' && url.pathname === '/api/config') {
         const name = url.searchParams.get('name');
-        if (!isConfigName(name)) return json(res, 400, { error: '需要 name(settings / keys)' });
+        if (!isConfigName(name)) return json(res, 400, { error: '需要 name(settings / keys / grants)' });
         return json(res, 200, readUserConfig(name));
       }
       if (req.method === 'GET' && url.pathname === '/api/ls') {
@@ -388,7 +392,7 @@ export function startServer(
           }
         }
         if (url.pathname === '/api/config') {
-          if (!isConfigName(body.name) || typeof body.content !== 'string') return json(res, 400, { error: '需要 name(settings / keys)与 content' });
+          if (!isConfigName(body.name) || typeof body.content !== 'string') return json(res, 400, { error: '需要 name(settings / keys / grants)与 content' });
           try { return json(res, 200, writeUserConfig(body.name, body.content, typeof body.mtime === 'number' ? body.mtime : null)); }
           catch (err) { if (err instanceof FileConflict) return json(res, 409, { error: err.message, mtime: err.mtime }); throw err; }
         }
@@ -442,13 +446,14 @@ export function startServer(
       req.on('close', () => proj.clients.delete(res));
       return;
     }
-    // 预览(侧栏的 HTML 预览、新标签页打开):/preview/<token>/<项目 id 或 _>/<路径>。iframe 带不了请求头,token 放在路径里,
-    // 页面里的相对路径(css / js / 图片)自然落在同一个前缀下。HTML / SVG 带 CSP sandbox:就算在新标签页里直接打开也是不同源的,
-    // 碰不到查看器和 token;允许跨源读(预览里的脚本 fetch 同目录的 json),反正要先知道 token 才能拼出地址。
+    // 预览(侧栏的 HTML 预览、新标签页打开):/preview/<预览 token>/<项目 id 或 _>/<路径>。iframe 带不了请求头,token 放在路径里,
+    // 页面里的相对路径(css / js / 图片)自然落在同一个前缀下。预览 token 和 /api 的 token 是两个:页面能从自己的地址读到它,
+    // 但它只能读项目里的文件。HTML / SVG 带 CSP sandbox:就算在新标签页里直接打开也是不同源的,碰不到查看器;
+    // 允许跨源读(预览里的脚本 fetch 同目录的 json)。?bridge=<暗号>:往 HTML 里注入 window.stars(页面桥,见 bridge.ts)。
     const pv = /^\/preview\/([0-9a-f]+)\/([0-9a-f]+|_)\/(.*)$/.exec(path);
     if (pv) {
       const proj = pv[2] === '_' ? main : projects.get(pv[2]!);
-      if (pv[1] !== token) { res.writeHead(403).end('forbidden'); return; }
+      if (pv[1] !== previewToken) { res.writeHead(403).end('forbidden'); return; }
       if (!proj) { res.writeHead(404).end('没有这个项目'); return; }
       try {
         let abs = resolveInside(proj.baseDir, decodeURIComponent(pv[3]!));
@@ -457,8 +462,8 @@ export function startServer(
         const type = PREVIEW_TYPES[extname(abs).toLowerCase()] ?? 'application/octet-stream';
         const headers: Record<string, string> = { 'content-type': type, 'cache-control': 'no-cache', 'access-control-allow-origin': '*', 'x-content-type-options': 'nosniff' };
         if (/html|svg|xml/.test(type)) headers['content-security-policy'] = 'sandbox allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox';
-        const body = readFileSync(abs);
-        res.writeHead(200, headers).end(body);
+        const body = readFileSync(abs), nonce = url.searchParams.get('bridge');
+        res.writeHead(200, headers).end(type.startsWith('text/html') && bridgeNonceOk(nonce) ? bridgeInject(body.toString('utf8'), bridgeShim(nonce)) : body);
       } catch { res.writeHead(404).end('not found'); }
       return;
     }
@@ -469,7 +474,7 @@ export function startServer(
       return;
     }
     if (path === '/') {
-      const html = readFileSync(resolve(viewerDir, 'index.html'), 'utf8').replace('__STARS_TOKEN__', token)
+      const html = readFileSync(resolve(viewerDir, 'index.html'), 'utf8').replace('__STARS_TOKEN__', token).replace('__STARS_PREVIEW__', previewToken)
         .replace('__STARS_CONFIG__', () => pageConfig(true));
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
       res.end(html);
@@ -501,6 +506,7 @@ export function startServer(
   });
   return {
     token,
+    previewToken,
     close: () => {
       clearInterval(keepalive); cfgWatcher?.close();
       onExit(); process.off('exit', onExit);

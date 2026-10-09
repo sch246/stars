@@ -8,7 +8,7 @@ import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Universe } from './model.ts';
 import { type Op } from './ops.ts';
-import { type Proposal, trackProposals } from './proposals.ts';
+import { type Proposal, nodeProposalKey, trackProposals } from './proposals.ts';
 import { type LogEntry } from './store.ts';
 
 export interface Signals {
@@ -114,13 +114,14 @@ export interface LiveSignals { size: Record<string, number>; changed: Record<str
 
 export type { Proposal } from './proposals.ts';
 
-/** 当前仍待确认的边 -> 是谁、何时提议的(从操作日志里回溯)。 */
+/** 当前仍待确认的边和节点 -> 是谁、何时提议的(从操作日志里回溯)。 */
 export function proposalsFromLog(log: LogEntry[], u: Universe): Record<string, Proposal> {
   const out: Record<string, Proposal> = {};
   for (const e of log) trackProposals(out, e);
   // 只保留宇宙里仍然是 proposed 的
   const live = new Set<string>();
   for (const e of u.edges.values()) if (e.attrs.status === 'proposed') live.add(`${e.from}|${e.type}|${e.to}`);
+  for (const n of u.nodes.values()) if (n.attrs.status === 'proposed') live.add(nodeProposalKey(n.id));
   for (const k of Object.keys(out)) if (!live.has(k)) delete out[k];
   return out;
 }

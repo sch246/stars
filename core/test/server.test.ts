@@ -355,7 +355,7 @@ test('共享模块:浏览器拿到的 /core/*.js 去掉了类型、能直接 imp
   await new Promise((r) => setTimeout(r, 150));
   const out = mkdtempSync(join(tmpdir(), 'stars-js-'));
   try {
-    for (const name of ['model', 'expr', 'view', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync']) {
+    for (const name of ['model', 'expr', 'view', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync', 'bridge']) {
       const r = await fetch(`http://127.0.0.1:${port}/core/${name}.js`);
       assert.equal(r.status, 200, name);
       const js = await r.text();

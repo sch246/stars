@@ -147,14 +147,18 @@ const orphan: Rule = (u) => {
     .map((n): Issue => ({ rule: 'orphan', severity: 'info', nodes: [n.id], message: `孤儿节点 ${n.id}(没有任何关系)` }));
 };
 
-const proposed: Rule = (u) =>
-  [...u.edges.values()]
+const proposed: Rule = (u) => [
+  ...[...u.nodes.values()]
+    .filter((n) => n.attrs.status === 'proposed')
+    .map((n): Issue => ({ rule: 'proposed', severity: 'info', nodes: [n.id], message: `待确认的节点: ${n.id}` })),
+  ...[...u.edges.values()]
     .filter((e) => e.attrs.status === 'proposed')
     .map((e): Issue => ({
       rule: 'proposed', severity: 'info', nodes: [e.from, e.to],
       edge: { from: e.from, type: e.type, to: e.to },
       message: `待确认: ${e.from} -${e.type}-> ${e.to}`,
-    }));
+    })),
+];
 
 export const RULES: Record<string, Rule> = {
   'dangling-edge': dangling,

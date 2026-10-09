@@ -1,4 +1,4 @@
-// 个人配置(~/.config/stars,遵守 XDG_CONFIG_HOME):设置与快捷键是 LLF 文件,查看器把它们显示成表单。
+// 个人配置(~/.config/stars,遵守 XDG_CONFIG_HOME):设置、快捷键、页面连接的授权都是 LLF 文件,查看器把前两个显示成表单。
 //   · 默认值在 core/settings.llf、core/keys.llf(带类型标签,本身就是表单的 schema);个人文件只记改过的项
 //   · 写入带"读到时的修改时间",别处改过就拒绝(409),由查看器合并后重试
 //   · 正在运行的服务登记在 servers/<端口>.json(含 token,仅本人可读),`stars ui` 靠它找到服务、把命令发给打开着的页面
@@ -15,7 +15,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const configDir = () => join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'stars');
 
 /** 查看器能读写的个人配置 */
-export const CONFIG_NAMES = ['settings', 'keys'] as const;
+export const CONFIG_NAMES = ['settings', 'keys', 'grants'] as const;
 export type ConfigName = (typeof CONFIG_NAMES)[number];
 export const isConfigName = (n: unknown): n is ConfigName => CONFIG_NAMES.includes(n as ConfigName);
 
@@ -26,6 +26,7 @@ export const defaultConfigText = (name: ConfigName) => readFileSync(resolve(here
 export const USER_HEADER: Record<ConfigName, string> = {
   settings: '# 星罗的个人设置:只记你改过的项,结构与默认设置(core/settings.llf)相同。\n# 直接改这个文件也行,保存后打开着的查看器立即生效。\n#\n--LLF-END\n',
   keys: '# 星罗的个人快捷键:同名的键覆盖默认(core/keys.llf),写成 _ 表示取消这个键。\n# 直接改这个文件也行,保存后打开着的查看器立即生效。\n#\nbindings {}\n--LLF-END\n',
+  grants: '# 星罗的页面连接授权:项目目录 → 页面路径 → 级别(off / read / ui / propose / write),见 core/grants.llf。\n# 存在这里而不在项目里:克隆来的仓库不能给自己开权限。直接改这个文件也行。\n#\npages {}\n--LLF-END\n',
 };
 
 export interface UserConfig { name: ConfigName; content: string | null; mtime: number | null; path: string }
