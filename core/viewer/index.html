@@ -32,7 +32,18 @@
   .chip:not(.on) i { opacity: .25; }
   #status { margin-top: 8px; color: var(--muted); font-size: 12px; }
   #status b { color: var(--text); font-weight: 600; }
-  #side { top: 12px; right: 12px; width: 320px; max-height: calc(100vh - 24px); overflow: auto; }
+  #side { top: 12px; right: 12px; width: var(--side-w, 320px); max-height: calc(100vh - 24px); overflow: auto; }
+  /* 选中文件时:侧栏上半是属性,下半是文件内容(像原版星罗的侧栏) */
+  #side.file { width: var(--side-fw, min(600px, 44vw)); bottom: 34px; max-height: none; overflow: hidden; display: flex; flex-direction: column; }
+  #side.file #side-info { flex: 0 1 auto; overflow: auto; max-height: 42%; }
+  #side-file { display: none; }
+  #side.file #side-file { display: flex; flex: 1; min-height: 140px; flex-direction: column; gap: 6px; margin-top: 10px; }
+  #side-grip { position: absolute; left: -5px; top: 10px; bottom: 10px; width: 10px; cursor: ew-resize; z-index: 2; }
+  #side-grip::after { content: ''; position: absolute; left: 4px; top: 0; bottom: 0; width: 2px; border-radius: 2px; transition: background .15s; }
+  #side-grip:hover::after, body.resizing #side-grip::after { background: var(--accent); }
+  body.resizing, body.resizing * { cursor: ew-resize !important; user-select: none; }
+  #toast { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); background: #10223a; border: 1px solid #2a4a7a; color: #cfe0ff; border-radius: 8px; padding: 6px 12px; font-size: 12px; display: flex; gap: 8px; align-items: center; z-index: 30; }
+  #toast[hidden] { display: none; } #toast.bad { background: #3a2a10; border-color: #7a5a20; color: #ffd9a0; }
   #side h3 { margin: 0 0 4px; font-size: 14px; }
   #side .sub { color: var(--muted); font-size: 12px; word-break: break-all; }
   #side .sec { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
@@ -116,21 +127,19 @@
   .ph-toggle .sw::after { content: ''; position: absolute; left: 2px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: #ccd; transition: left .15s; }
   .ph-toggle.on .sw { background: #4a6fd0; } .ph-toggle.on .sw::after { left: 16px; background: #fff; }
   .ph-toggle span:last-child { color: var(--muted); font-size: 12px; }
-  #filepane { right: 12px; top: 12px; bottom: 34px; width: min(820px, calc(100vw - 340px)); display: flex; flex-direction: column; gap: 6px; padding: 10px; }
-  #filepane[hidden] { display: none; }
   #fp-head { display: flex; gap: 8px; align-items: center; min-width: 0; }
-  #fp-head b { color: #fff; white-space: nowrap; } #fp-path { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; flex: 1; }
-  #fp-state { font-size: 12px; color: var(--muted); white-space: nowrap; } #fp-state .dirty { color: var(--warn); }
+  #fp-state { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; } #fp-state .dirty { color: var(--warn); }
   #fp-bar { font-size: 12px; padding: 5px 8px; border-radius: 7px; background: #3a2a10; border: 1px solid #7a5a20; color: #ffd9a0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   #fp-bar[hidden] { display: none; } #fp-bar.info { background: #10223a; border-color: #2a4a7a; color: #b8d4ff; }
   #fp-body { flex: 1; min-height: 0; display: flex; border: 1px solid var(--line); border-radius: 8px; background: #06060d; overflow: hidden; }
   #fp-gutter { margin: 0; padding: 8px 6px 8px 10px; color: #4a4a68; text-align: right; user-select: none; overflow: hidden; font: 12.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; min-width: 38px; }
   #fp-text { flex: 1; resize: none; border: 0; outline: none; background: transparent; color: #d6dcff; padding: 8px 10px; white-space: pre; overflow: auto; tab-size: 2;
     font: 12.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
-  #fp-media { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; padding: 16px; color: var(--muted);
+  #fp-text[readonly] { color: #aab2dd; }
+  #fp-media { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; padding: 16px; color: var(--muted); text-align: center;
     background: repeating-conic-gradient(#0d0d18 0 25%, #121220 0 50%) 0 0 / 20px 20px; }
   #fp-media img { max-width: 100%; max-height: 100%; image-rendering: auto; }
-  body.file-open #side { display: none; }
+  #fp-more { font-size: 11px; color: var(--muted); } #fp-more[hidden] { display: none; }
   #replaybar { left: 50%; top: 58px; transform: translateX(-50%); border-color: #4a6fd0; background: #101a3acc; display: flex; gap: 10px; align-items: center; }
 </style>
 </head>
@@ -191,7 +200,7 @@
   <div id="tl-head">
     <span class="btn" id="tl-first" title="最早">⏮</span><span class="btn" id="tl-prev" title="上一步 ←">◀</span>
     <span class="btn pri" id="tl-play" title="播放">▶</span><span class="btn" id="tl-next" title="下一步 →">▶</span>
-    <span class="btn" id="tl-now" title="回到现在 Esc">现在</span><span class="info" id="tl-info"></span><span class="btn" id="tl-more" hidden title="再往前载入一批提交">更早 …</span>
+    <span class="btn" id="tl-now" title="回到现在 Esc">现在</span><span class="info" id="tl-info"></span><span class="btn" id="tl-scope" title="宇宙文件自己的提交历史 ↔ 所在文件夹的 git 历史(每个提交的宇宙由那时的文件树长出来)"></span><span class="btn" id="tl-more" hidden title="再往前载入一批提交">更早 …</span>
   </div>
   <div id="tl-wrap"><svg id="tl-svg"></svg></div>
 </div>
@@ -199,12 +208,15 @@
 <div class="panel" id="replaybar" hidden></div>
 <div class="panel" id="crumbs" hidden></div>
 <div class="panel" id="tagbar" hidden></div>
-<div class="panel" id="side"></div>
-<div class="panel" id="filepane" hidden>
-  <div id="fp-head"><b id="fp-name"></b><span id="fp-path"></span><span id="fp-state"></span>
-    <span class="btn pri" id="fp-save" title="Ctrl/⌘ + S">保存</span><a class="btn" id="fp-code" title="用本机的 VS Code 打开(查看器和文件在同一台机器上时)" style="text-decoration:none">VS Code ↗</a><span class="btn" id="fp-close" title="Esc">✕</span></div>
-  <div id="fp-bar" hidden></div>
-  <div id="fp-body"></div>
+<div class="panel" id="side"><div id="side-grip" title="拖动调整宽度 · 双击恢复默认"></div><div id="side-info"></div>
+  <div id="side-file">
+    <div id="fp-head"><span id="fp-state"></span><span class="btn pri" id="fp-save" title="Ctrl/⌘ + S;切走时也会自动保存">保存</span><a class="btn" id="fp-code" title="用本机的 VS Code 打开(查看器和文件在同一台机器上时)" style="text-decoration:none">VS Code ↗</a></div>
+    <div id="fp-bar" hidden></div>
+    <div id="fp-body"></div>
+    <div id="fp-more" hidden></div>
+  </div>
+</div>
+<div id="toast" hidden></div>
 </div>
 <div id="hint"><kbd>/</kbd> 过滤 · <kbd>Esc</kbd> 取消 · 点击节点聚焦 · 滚轮缩放 · 拖动平移/拖节点 · <kbd>F</kbd> 适应窗口 · 放大进入空间 / 缩小或 <kbd>⌫</kbd> 返回 · 双击/<kbd>E</kbd> 就地展开 · <kbd>⏎</kbd> 进入选中的 · <kbd>B</kbd> 背景 · <kbd>P</kbd> 切换文件夹 · <kbd>1</kbd>–<kbd>6</kbd> 视图</div>
 <script src="/d3.js"></script>
@@ -281,6 +293,9 @@ import { trackProposals } from '/core/proposals.js';
   try { const saved = JSON.parse(localStorage.getItem('stars.phys') || '{}'); for (const k in P) if (typeof saved[k] === 'number') P[k] = saved[k]; } catch { /* 隐私模式 */ }
   const heatOn = () => P.heat > 0;
   const heatLevel = () => (heatOn() ? P.heatLevel : 0);
+  // 自定义的力(域之间互推、公转)也按温度缩放(以平时的热量为 1),这样平衡点与温度无关:
+  // 刚切换视图时温度高,一两秒内就到位,而不是冷下来以后再花几十秒慢慢胀开。封顶 8 倍,免得起步太猛。
+  const heatScale = (alpha) => Math.min(8, alpha / Math.max(P.heatLevel, 0.02));
 
   // ---------- 力导向 ----------
   const simulation = d3.forceSimulation()
@@ -301,15 +316,25 @@ import { trackProposals } from '/core/proposals.js';
   }
   applyFlatForces();
 
+  // 拖动 = 施加一个力:被拖的节点被拉向指针(弹簧),和别的自定义力一样按温度缩放 —— 不钉住、不改温度,
+  // 周围的节点通过平常的力去响应它。拉力的平衡点也和温度无关。
+  const pullTo = (sim) => (alpha) => {
+    if (!drag || !drag.moved || drag.sim !== sim) return;
+    const n = drag.n, k = 0.35 * heatScale(alpha);
+    n.vx += (drag.tx - n.x) * k; n.vy += (drag.ty - n.y) * k;
+  };
+  simulation.force('pointer', pullTo(simulation));
+
   // 轨道关系:给"子"一个切向速度,像行星绕恒星转。转速随轨道半径衰减。
-  simulation.force('swirl', () => {
+  simulation.force('swirl', (alpha) => {
+    const hs = heatScale(alpha);
     for (const l of links) {
       const spin = l.spin ?? (l.mode === 'orbit' ? 1 : 0);
       if (!spin || (l.mode !== 'orbit' && l.mode !== 'region')) continue;
       const s = l.source, t = l.target;
       if (t.fx != null) continue;
       const dx = t.x - s.x, dy = t.y - s.y, d = Math.hypot(dx, dy) || 1;
-      const w = 0.07 * spin * P.spin * Math.sqrt(40 / d);
+      const w = 0.07 * spin * P.spin * Math.sqrt(40 / d) * hs;
       t.vx += (-dy / d) * w; t.vy += (dx / d) * w;
     }
   });
@@ -349,7 +374,8 @@ import { trackProposals } from '/core/proposals.js';
   }
 
   // 域与域之间互相推开(祖孙除外),让每个域保持独立的疆界
-  simulation.force('regions', () => {
+  simulation.force('regions', (alpha) => {
+    const hs = heatScale(alpha);
     for (const r of regions) {
       let cx = 0, cy = 0;
       for (const m of r.members) { cx += m.x; cy += m.y; }
@@ -361,7 +387,7 @@ import { trackProposals } from '/core/proposals.js';
       if (a.ancestors.has(b.id) || b.ancestors.has(a.id)) continue;
       const dx = b.cx - a.cx, dy = b.cy - a.cy, d = Math.hypot(dx, dy) || 1, gap = a.rad + b.rad + 24 - d;
       if (gap <= 0) continue;
-      const f = Math.min(gap * 0.012, 2.5), ux = dx / d, uy = dy / d;
+      const f = Math.min(gap * 0.012, 2.5) * hs, ux = dx / d, uy = dy / d;
       for (const m of a.members) { m.vx -= ux * f; m.vy -= uy * f; }
       for (const m of b.members) { m.vx += ux * f; m.vy += uy * f; }
     }
@@ -667,8 +693,9 @@ import { trackProposals } from '/core/proposals.js';
   };
 
   function renderSide() {
-    const el = $('side');
+    const el = $('side-info');
     const n = selected && raw.get(selected);
+    syncFile(n || null);
     const sn = selected && (isSpaces() ? compiled.node(selected) : sim.get(selected));
     if (!n) {
       const feed = data.log.slice().reverse().slice(0, 14).map((e) =>
@@ -696,7 +723,6 @@ import { trackProposals } from '/core/proposals.js';
     el.innerHTML = `<h3 style="color:${sn ? sn.color : '#fff'}">${esc(n.label)}</h3>
       <div class="sub">${esc(n.id)}${n.attrs.type ? ' · ' + esc(n.attrs.type) : ''}${sn && sn.value !== undefined ? ' · 视图值 ' + esc(sn.value) : ''}</div>
       ${n.attrs.summary ? `<p>${esc(n.attrs.summary)}</p>` : ''}
-      ${fileOf(n) && !window.__STARS_STATIC__ ? `<div class="btns" style="margin-top:8px"><span class="btn pri" data-act="openfile" data-id="${esc(n.id)}">打开文件(双击 / ⏎)</span></div>` : ''}
       ${sn && sn.container ? (isSpaces()
         ? `<div class="sec"><div class="row"><span class="tag">空间</span><span>${sn.children} 个直接子项 · ${sn.descendants} 个后代${expandedSet.has(sn.id) ? ' · 已就地展开' : ''}${curSpaceId === sn.id ? ' · 你在这里' : ''}</span></div>`
           + `<div class="btns" style="margin-top:6px"><span class="btn pri" data-act="enter" data-id="${esc(sn.id)}">进入 ⏎</span><span class="btn" data-act="inplace" data-id="${esc(sn.id)}">${expandedSet.has(sn.id) ? '收起' : '就地展开'}(双击 / E)</span></div></div>`
@@ -704,8 +730,8 @@ import { trackProposals } from '/core/proposals.js';
       ${sn && sn.tags && sn.tags.length ? `<div class="sec"><div class="t">tag</div><div style="display:flex;flex-wrap:wrap;gap:5px">${sn.tags.map((t) => `<span class="tagc ${activeTags.has(t) ? 'on' : ''}" data-sidetag="${esc(t)}"><i style="background:${tagColor.get(t) || '#888'}"></i>${esc(t.replace(/\/$/, ''))}</span>`).join('')}</div></div>` : ''}
       ${attrs ? `<div class="sec">${attrs}</div>` : ''}
       ${!replay && data.signals ? `<div class="sec"><div class="t">最近编辑</div><div class="row"><span class="tag">图里</span><span>${ago((data.signals.touched || {})[n.id])}</span></div>${(data.signals.fileChanged || {})[n.id] ? `<div class="row"><span class="tag">文件</span><span>${ago(data.signals.fileChanged[n.id])}</span></div>` : ''}</div>` : ''}
-      <div class="sec"><div class="t">出边 ${out.length}</div>${out.map((e) => edgeRow(e, e.to, '→')).join('') || '<span class="tag">无</span>'}</div>
-      <div class="sec"><div class="t">入边 ${inn.length}</div>${inn.map((e) => edgeRow(e, e.from, '←')).join('') || '<span class="tag">无</span>'}</div>
+      ${out.length || !fileOf(n) ? `<div class="sec"><div class="t">出边 ${out.length}</div>${out.map((e) => edgeRow(e, e.to, '→')).join('') || '<span class="tag">无</span>'}</div>` : ''}
+      ${inn.length || !fileOf(n) ? `<div class="sec"><div class="t">入边 ${inn.length}</div>${inn.map((e) => edgeRow(e, e.from, '←')).join('') || '<span class="tag">无</span>'}</div>` : ''}
       ${sn && sn.container && (isSpaces() || !sn.expanded) ? liftedSection(n.id) : ''}
       ${myIssues.length ? `<div class="sec"><div class="t">问题</div>${myIssues.map((i) => `<div class="row sev-${i.severity}">${esc(i.message)}</div>`).join('')}</div>` : ''}`;
   }
@@ -761,30 +787,39 @@ import { trackProposals } from '/core/proposals.js';
       }
     });
   d3.select(canvas).call(zoom).on('dblclick.zoom', null);
+  // 按下和拖动都不改变温度与动力学:按下什么都不做;指针挪动超过 3px 才算拖动,拖动只是给被拖的节点加一个
+  // 指向指针的拉力(见 pullTo),不钉住它。(温度一变平衡点就变:斥力/引力随温度缩放而碰撞不随,
+  // 以前按住时整张图会收缩、松开又弹回去。)唯一的例外:热量关着时模拟是停的,力推不动任何东西,
+  // 这时拖动临时升到热量设定值,松手后冷却。
+  let drag = null;   // { sx, sy, h, n, sim, moved, warmed, tx, ty }
   d3.select(canvas).call(d3.drag()
     .subject((ev) => {
       if (isSpaces()) { const h = pickHit(ev.x, ev.y); return h && !h.domain ? { h, x: ev.x, y: ev.y } : null; }
       return find(ev.x, ev.y);
     })
     .on('start', (ev) => {
-      if (ev.subject.h) { const n = ev.subject.h.n; n.fx = n.x; n.fy = n.y; ev.subject.moved = false; return; }
-      ev.subject.fx = ev.subject.x; ev.subject.fy = ev.subject.y; ev.subject.moved = false;
-      simulation.alphaTarget(Math.max(heatLevel(), 0.25)).restart();
+      const h = ev.subject.h;
+      drag = { sx: ev.sourceEvent.offsetX, sy: ev.sourceEvent.offsetY, h, n: h ? h.n : ev.subject, sim: h ? h.sp.sim : simulation, moved: false, warmed: false };
     })
     .on('drag', (ev) => {
-      if (ev.subject.h) { // 拖动只影响这个节点所在的空间(物理独立)
-        const { h } = ev.subject, n = h.n;
-        n.fx = (ev.sourceEvent.offsetX - h.tx) / h.s; n.fy = (ev.sourceEvent.offsetY - h.ty) / h.s;
-        if (!ev.subject.moved) { h.sp.dragging = true; h.sp.sim.alphaTarget(0.25).restart(); }
-        ev.subject.moved = true; return;
+      if (!drag) return;
+      const px = ev.sourceEvent.offsetX, py = ev.sourceEvent.offsetY;
+      if (!drag.moved) {
+        if (Math.hypot(px - drag.sx, py - drag.sy) < 3) return;   // 手抖不算拖动
+        drag.moved = true;
+        const running = drag.h ? heated.has(drag.h.sp) : heatOn(); // 拖动只影响这个节点所在的空间(物理独立)
+        if (!running) { drag.warmed = true; if (drag.h) drag.h.sp.dragging = true; drag.sim.alpha(Math.max(drag.sim.alpha(), P.heatLevel)).alphaTarget(P.heatLevel).restart(); }
       }
-      const [x, y] = transform.invert([ev.sourceEvent.offsetX, ev.sourceEvent.offsetY]); ev.subject.fx = x; ev.subject.fy = y; ev.subject.moved = true;
+      if (drag.h) { drag.tx = (px - drag.h.tx) / drag.h.s; drag.ty = (py - drag.h.ty) / drag.h.s; }
+      else { [drag.tx, drag.ty] = transform.invert([px, py]); }
     })
-    .on('end', (ev) => {
-      if (ev.subject.h) { const { h } = ev.subject; h.n.fx = null; h.n.fy = null; h.sp.dragging = false; h.sp.sim.alphaTarget(heated.has(h.sp) ? heatLevel() : 0); if (!ev.subject.moved) select(h.n.id, false); return; }
-      ev.subject.fx = null; ev.subject.fy = null; simulation.alphaTarget(heatLevel()); if (!ev.subject.moved) select(ev.subject.id, false);
+    .on('end', () => {
+      const d = drag; drag = null;
+      if (!d) return;
+      if (!d.moved) { select(d.n.id, false); return; }
+      if (d.warmed) { if (d.h) d.h.sp.dragging = false; d.sim.alphaTarget(d.h ? (heated.has(d.h.sp) ? heatLevel() : 0) : heatLevel()); }
     }));
-  canvas.addEventListener('mousemove', (ev) => { hovered = find(ev.offsetX, ev.offsetY) || null; canvas.style.cursor = hovered ? 'pointer' : 'default'; });
+  canvas.addEventListener('mousemove', (ev) => { pointerXY = [ev.offsetX, ev.offsetY]; hovered = find(ev.offsetX, ev.offsetY) || null; canvas.style.cursor = hovered ? 'pointer' : 'default'; });
   canvas.addEventListener('click', (ev) => {
     if (isSpaces()) { const h = pickHit(ev.offsetX, ev.offsetY); if (!h) select(null); else if (h.domain) select(h.n.id); return; }
     if (!find(ev.offsetX, ev.offsetY)) select(null);
@@ -796,7 +831,6 @@ import { trackProposals } from '/core/proposals.js';
     else if (ev.key === 'Escape') {
       if (typing) { document.activeElement.blur(); return; }
       if (replay) { exitReplay(); return; }
-      if (!$('filepane').hidden) { closeFile(); return; }
       if (!$('projects').hidden) { toggleProjects(false); return; }
       if (!$('physics').hidden) { togglePhysics(false); return; }
       $('q').value = ''; query = ''; select(null);
@@ -804,9 +838,9 @@ import { trackProposals } from '/core/proposals.js';
     else if (!typing && !$('timeline').hidden && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')) { ev.preventDefault(); stepCommit(ev.key === 'ArrowLeft' ? -1 : 1); }
     else if (!typing && (ev.key === 'f' || ev.key === 'F')) fit();
     else if (!typing && (ev.key === 'e' || ev.key === 'E') && selected) { if (isSpaces()) toggleExpandSpace(selected); else toggleExpand(selected); }
-    else if (!typing && isSpaces() && ev.key === 'Enter' && selected && compiled.node(selected)?.container) { if (!enterSpace(selected)) jumpTo(selected); }
-    else if (!typing && ev.key === 'Enter' && selected && fileOf(raw.get(selected))) openFile(selected);
-    else if (!typing && isSpaces() && (ev.key === 'Backspace' || ev.key === 'u' || ev.key === 'U')) { ev.preventDefault(); exitSpace(); }
+    else if (!typing && isSpaces() && ev.key === 'Enter' && selected && compiled.node(selected)?.container) { if (!enterSpace(selected, true)) jumpTo(selected); }
+    else if (!typing && ev.key === 'Enter' && selected && fileOf(raw.get(selected))) { ev.preventDefault(); focusEditor(); }
+    else if (!typing && isSpaces() && (ev.key === 'Backspace' || ev.key === 'u' || ev.key === 'U')) { ev.preventDefault(); exitSpace(true); }
     else if (!typing && (ev.key === 'b' || ev.key === 'B')) setBg(bgMode + 1);
     else if (!typing && (ev.key === 'p' || ev.key === 'P')) toggleProjects($('projects').hidden);
     else if (!typing && ev.key === '0') { if (isSpaces()) { expandedSet.clear(); spaceVer++; renderStatus(); } else { manual.clear(); auto.clear(); recompute(false); } }
@@ -928,8 +962,7 @@ import { trackProposals } from '/core/proposals.js';
     const b = ev.target.closest('[data-act]'); if (!b) return;
     ev.stopPropagation();
     const e = { from: b.dataset.from, type: b.dataset.type, to: b.dataset.to };
-    if (b.dataset.act === 'openfile') { openFile(b.dataset.id); return; }
-    if (b.dataset.act === 'enter' || b.dataset.act === 'inplace') { if (b.dataset.act === 'enter') { if (!enterSpace(b.dataset.id)) jumpTo(b.dataset.id); } else toggleExpandSpace(b.dataset.id); return; }
+    if (b.dataset.act === 'enter' || b.dataset.act === 'inplace') { if (b.dataset.act === 'enter') { if (!enterSpace(b.dataset.id, true)) jumpTo(b.dataset.id); } else toggleExpandSpace(b.dataset.id); return; }
     if (b.dataset.act === 'accept') write(acceptOp(e), '已接受');
     else if (b.dataset.act === 'reject') write(rejectOp(e), '已拒绝');
     else if (b.dataset.act === 'enter') { if (!enterSpace(b.dataset.id)) jumpTo(b.dataset.id); }
@@ -963,9 +996,8 @@ import { trackProposals } from '/core/proposals.js';
     rememberDir(info.id, info.dir);
     toggleProjects(false);
     if (project && info.id === project.id) return;
-    if (fp && fp.dirty && !confirm(`${fp.path} 有未保存的修改,切换项目会丢弃它们。继续吗?`)) return;
-    closeFile(true);
-    stopPlay(); replay = null; liveSnap = null; staleLive = false; hist = null; histLimit = 300; renderReplayBar();
+    if (fp) releaseFile();   // 有修改会先自动保存
+    stopPlay(); replay = null; liveSnap = null; staleLive = false; hist = null; histLimit = 300; histScope = 'auto'; renderReplayBar();
     $('timeline').hidden = true; $('btn-time').classList.remove('on');
     draftSpec = null; editorDirty = false; toggleEditor(false);
     selected = null; hovered = null; hiddenTypes.clear(); manual.clear(); auto.clear(); activeTags.clear();
@@ -1032,22 +1064,37 @@ import { trackProposals } from '/core/proposals.js';
   $('pj-path').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') ls($('pj-path').value.trim()); });
   $('pj-here').addEventListener('click', () => { if (lsCur) openDir(lsCur.dir, !lsCur.hasUniverse); });
 
-  // ---------- 文件:不依赖 VS Code,直接在查看器里看和改 ----------
-  // 打开时记下修改时间;磁盘上变了(实时信号 / 每 3 秒查一次):没改过就直接载入,改过就提示冲突,由你决定。
+  // ---------- 文件:选中文件节点,侧栏下半就是它的内容(不依赖 VS Code,像原版星罗)----------
+  // 点一下就打开,所以要轻:先只要开头 24 KB(只读预览),点进编辑框或滚到底才载入全文、变成可编辑。
+  // 切走(点别处 / 选别的节点)时有未保存的修改就自动保存;保存被拒(别处改过)就留着修改,提示你回去处理。
+  // 磁盘上变了(实时信号 / 每 3 秒查一次修改时间):没改过就直接载入,改过就提示冲突。
   const fileOf = (n) => (n && typeof n.attrs.file === 'string' && n.attrs.type !== 'dir' && !n.attrs.file.endsWith('/') ? n.attrs.file : null);
-  let fp = null;   // { id, path, info, dirty, eol }
-  let fpPoll = null;
-  let barSeq = 0;   // 每条提示一个序号:定时消失只清掉自己,不清后来的提示
+  const HEAD = 24 << 10;
+  let fp = null;          // { id, path, info, dirty, full, indent }
+  let fpPoll = null, fpOrphan = null;
+  let barSeq = 0;          // 每条提示一个序号:定时消失只清掉自己,不清后来的提示
   const fpBar = (html, kind) => { barSeq++; const b = $('fp-bar'); b.hidden = !html; b.className = kind || ''; b.innerHTML = html || ''; };
   const fpFlash = (html) => { fpBar(html, 'info'); const n = barSeq; setTimeout(() => { if (barSeq === n) fpBar(null); }, 2500); };
+  let toastTimer = null;
+  function toast(html, bad, ms = 4000) {
+    const t = $('toast'); t.innerHTML = html; t.className = bad ? 'bad' : ''; t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, ms);
+  }
+  $('toast').addEventListener('click', (ev) => { const b = ev.target.closest('[data-sel]'); if (b) { $('toast').hidden = true; select(b.dataset.sel, true); } });
+  const enc = encodeURIComponent;
+
   function fpState() {
-    if (!fp) return;
+    if (!fp || !fp.info) return;
     const i = fp.info;
-    $('fp-state').innerHTML = (fp.dirty ? '<span class="dirty">● 未保存</span> · ' : '') + `${fmtBytes(i.size)} · 改于 ${ago(i.mtime)}` + (i.readonly ? ' · 只读' : '');
-    $('fp-save').style.display = i.kind === 'text' && !i.readonly ? '' : 'none';
+    $('fp-state').innerHTML = (fp.dirty ? '<span class="dirty">● 未保存</span> · ' : '') + `${fmtBytes(i.size)} · 改于 ${ago(i.mtime)}`
+      + (i.readonly ? ' · 只读' : i.kind === 'text' && !i.editable ? ' · 超过 2 MB,只读' : '');
+    $('fp-save').style.display = fp.full && i.editable ? '' : 'none';
+    const more = $('fp-more');
+    more.hidden = !(i.kind === 'text' && !fp.full);
+    if (!more.hidden) more.textContent = `只显示了开头 ${fmtBytes(new Blob([i.content || '']).size)} / ${fmtBytes(i.size)}` + (i.editable ? ' · 点进编辑框或滚到底载入全部' : '');
   }
   function gutter() {
-    const t = $('fp-text'); if (!t) return;
+    const t = $('fp-text'); if (!t || !fp) return;
     const lines = t.value.split('\n').length;
     if (lines !== fp.lines) { fp.lines = lines; $('fp-gutter').textContent = Array.from({ length: lines }, (_, i) => i + 1).join('\n'); }
     $('fp-gutter').scrollTop = t.scrollTop;
@@ -1058,49 +1105,81 @@ import { trackProposals } from '/core/proposals.js';
     if (i.kind === 'text') {
       body.innerHTML = '<pre id="fp-gutter"></pre><textarea id="fp-text" spellcheck="false" autocomplete="off"></textarea>';
       const t = $('fp-text');
-      t.value = i.content; t.readOnly = i.readonly; fp.lines = 0; gutter();
-      t.addEventListener('scroll', () => { $('fp-gutter').scrollTop = t.scrollTop; });
+      t.value = i.content; t.readOnly = !fp.full || !i.editable; fp.lines = 0; gutter();
+      t.addEventListener('focus', () => loadFull());
+      t.addEventListener('scroll', () => { $('fp-gutter').scrollTop = t.scrollTop; if (!fp.full && t.scrollTop + t.clientHeight > t.scrollHeight - 120) loadFull(); });
       t.addEventListener('input', () => { if (!fp.dirty) { fp.dirty = true; fpState(); } gutterSoon(); });
       t.addEventListener('keydown', (ev) => {
         if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') { ev.preventDefault(); saveFile(false); }
         else if (ev.key === 'Tab' && !ev.shiftKey && !t.readOnly) { ev.preventDefault(); document.execCommand('insertText', false, fp.indent); }
       });
     } else if (i.kind === 'image') {
-      body.innerHTML = `<div id="fp-media"><img alt="${esc(i.path)}" src="${withP('/api/raw?path=' + encodeURIComponent(i.path) + '&t=' + token)}&v=${i.mtime}"></div>`;
+      body.innerHTML = `<div id="fp-media"><img alt="${esc(i.path)}" src="${withP('/api/raw?path=' + enc(i.path) + '&t=' + token)}&v=${i.mtime}"></div>`;
     } else {
-      body.innerHTML = `<div id="fp-media">${i.kind === 'large' ? `文件太大(${fmtBytes(i.size)}),查看器只打开 2 MB 以内的文本` : '二进制文件,无法以文本显示'}</div>`;
+      body.innerHTML = `<div id="fp-media">${i.kind === 'large' ? `文件太大(${fmtBytes(i.size)})` : '二进制文件,无法以文本显示'}</div>`;
     }
   }
-  async function openFile(id) {
-    const n = raw.get(id), path = fileOf(n);
-    if (!path || window.__STARS_STATIC__) return false;
-    if (fp && fp.dirty && fp.id !== id && !confirm(`${fp.path} 有未保存的修改,丢弃并打开 ${path}?`)) return true;
+  /** 侧栏跟着选中走:选中的是文件就显示它,不是就收起(有修改先自动保存) */
+  function syncFile(n) {
+    const id = n && fileOf(n) && !window.__STARS_STATIC__ ? n.id : null;
+    if (fp && fp.id === id) return;
+    if (fp) releaseFile();
+    $('side').classList.toggle('file', !!id);
+    if (id) loadFile(id);
+  }
+  async function loadFile(id) {
+    const path = fileOf(raw.get(id));
+    const cur = fp = { id, path, info: null, dirty: false, full: false, indent: '  ' };
+    $('fp-body').innerHTML = '<div id="fp-media">载入中…</div>'; $('fp-state').textContent = ''; $('fp-more').hidden = true; fpBar(null);
+    $('fp-save').style.display = 'none';
     let info;
-    try { info = await api('/api/file?path=' + encodeURIComponent(path)); }
-    catch (e) { banner('打不开文件:' + e.message); setTimeout(() => banner(null), 3000); return true; }
-    fp = { id, path, info, dirty: false, indent: info.content && /\n\t/.test(info.content) ? '\t' : '  ' };
-    $('fp-name').textContent = n.label; $('fp-path').textContent = info.path;
+    try { info = await api('/api/file?head=' + HEAD + '&path=' + enc(path)); }
+    catch (e) { if (fp === cur) $('fp-body').innerHTML = `<div id="fp-media">打不开:${esc(e.message)}</div>`; return; }
+    if (fp !== cur) return;
+    cur.info = info; cur.full = info.kind === 'text' && !info.partial;
+    cur.indent = info.content && /\n\t/.test(info.content) ? '\t' : '  ';
     $('fp-code').href = 'vscode://file/' + info.abs.replace(/\\/g, '/');
-    $('filepane').hidden = false; document.body.classList.add('file-open');
-    fpBar(null); renderFileBody(); fpState();
-    if (selected !== id) select(id, false);
+    renderFileBody(); fpState();
     clearInterval(fpPoll); fpPoll = setInterval(checkDisk, 3000);
-    if (info.kind === 'text') $('fp-text').focus();
-    return true;
+    const orphan = fpOrphan && fpOrphan.id === id ? fpOrphan : null;
+    if (orphan) { // 上次切走时没能保存的修改:放回来,让你决定
+      fpOrphan = null;
+      await loadFull(); if (fp !== cur || !$('fp-text')) return;
+      $('fp-text').value = orphan.content; cur.dirty = true; gutter(); fpState();
+      fpBar(`你上次切走时的修改没能保存:文件在你打开之后被别处改过了。<span class="btn" data-fp="load">载入磁盘版本(丢弃我的)</span><span class="btn" data-fp="force">用我的覆盖</span>`);
+    }
   }
-  function closeFile(force) {
-    if (!fp) return;
-    if (!force && fp.dirty && !confirm(`${fp.path} 有未保存的修改,丢弃吗?`)) return;
-    fp = null; clearInterval(fpPoll);
-    $('filepane').hidden = true; document.body.classList.remove('file-open'); $('fp-body').innerHTML = '';
-    renderSide();
+  /** 预览 → 全文(可编辑);保留光标与滚动位置 */
+  async function loadFull() {
+    const cur = fp;
+    if (!cur || cur.full || cur.loading || !cur.info || cur.info.kind !== 'text' || !cur.info.editable) return;
+    cur.loading = true;
+    let info;
+    try { info = await api('/api/file?path=' + enc(cur.path)); } catch (e) { cur.loading = false; fpBar('载入全文失败:' + esc(e.message)); return; }
+    cur.loading = false;
+    if (fp !== cur) return;
+    const t = $('fp-text'), focused = document.activeElement === t, keep = t ? [t.selectionStart, t.selectionEnd, t.scrollTop] : null;
+    cur.info = info; cur.full = true;
+    if (t) { t.value = info.content; t.readOnly = false; gutter(); [t.selectionStart, t.selectionEnd, t.scrollTop] = keep; if (focused) t.focus(); }
+    fpState();
   }
+  /** 收起文件;有未保存的修改就在后台保存,失败了把修改留下来,提示你回去处理 */
+  function releaseFile() {
+    const cur = fp; fp = null; clearInterval(fpPoll);
+    const t = $('fp-text'), content = t ? t.value : null;
+    $('side').classList.remove('file'); $('fp-body').innerHTML = ''; fpBar(null);
+    if (!cur || !cur.dirty || content === null) return;
+    api('/api/file', { path: cur.path, content, mtime: cur.info.mtime })
+      .then(() => toast(`已保存 ${esc(cur.path)}`))
+      .catch((e) => { fpOrphan = { id: cur.id, content }; toast(`${esc(cur.path)} 的修改没能保存:${esc(e.message)} <span class="btn" data-sel="${esc(cur.id)}">回去处理</span>`, true, 15000); });
+  }
+  function focusEditor() { const t = $('fp-text'); if (t) t.focus(); }
   /** 磁盘上的文件变了吗?没改过就静默载入(保留光标与滚动),改过就提示 */
   async function checkDisk() {
-    if (!fp || document.hidden) return;
+    if (!fp || !fp.info || document.hidden) return;
     const cur = fp;
     let st;
-    try { st = await api('/api/file?stat=1&path=' + encodeURIComponent(cur.path)); } catch { return; }
+    try { st = await api('/api/file?stat=1&path=' + enc(cur.path)); } catch { return; }
     if (fp !== cur || Math.abs(st.mtime - cur.info.mtime) <= 1) return;
     if (cur.dirty) { fpBar(`磁盘上的文件在 ${ago(st.mtime)} 被改过了,和你未保存的修改冲突。<span class="btn" data-fp="load">载入磁盘版本</span><span class="btn" data-fp="force">用我的覆盖</span>`); return; }
     await reloadFile(`已载入磁盘上的新版本(${ago(st.mtime)})`);
@@ -1108,16 +1187,16 @@ import { trackProposals } from '/core/proposals.js';
   async function reloadFile(note) {
     const cur = fp; if (!cur) return;
     let info;
-    try { info = await api('/api/file?path=' + encodeURIComponent(cur.path)); } catch (e) { fpBar('重新载入失败:' + esc(e.message)); return; }
+    try { info = await api('/api/file?' + (cur.full ? '' : 'head=' + HEAD + '&') + 'path=' + enc(cur.path)); } catch (e) { fpBar('重新载入失败:' + esc(e.message)); return; }
     if (fp !== cur) return;
     const t = $('fp-text'), keep = t ? [t.selectionStart, t.selectionEnd, t.scrollTop] : null;
-    cur.info = info; cur.dirty = false;
-    if (t && info.kind === 'text') { t.value = info.content; t.readOnly = info.readonly; gutter(); [t.selectionStart, t.selectionEnd, t.scrollTop] = keep; }
+    cur.info = info; cur.dirty = false; cur.full = info.kind === 'text' && !info.partial;
+    if (t && info.kind === 'text') { t.value = info.content; t.readOnly = !cur.full || !info.editable; gutter(); [t.selectionStart, t.selectionEnd, t.scrollTop] = keep; }
     else renderFileBody();
     fpState(); if (note) fpFlash(esc(note)); else fpBar(null);
   }
   async function saveFile(force) {
-    if (!fp || fp.info.kind !== 'text' || fp.info.readonly) return;
+    if (!fp || !fp.full || !fp.info.editable) return;
     const cur = fp, content = $('fp-text').value;
     try {
       const r = await api('/api/file', { path: cur.path, content, mtime: force ? null : cur.info.mtime });
@@ -1130,12 +1209,46 @@ import { trackProposals } from '/core/proposals.js';
     fpState();
   }
   $('fp-save').addEventListener('click', () => saveFile(false));
-  $('fp-close').addEventListener('click', () => closeFile());
   $('fp-bar').addEventListener('click', (ev) => {
     const b = ev.target.closest('[data-fp]'); if (!b) return;
     if (b.dataset.fp === 'load') reloadFile('已载入磁盘版本'); else saveFile(true);
   });
   addEventListener('beforeunload', (ev) => { if (fp && fp.dirty) { ev.preventDefault(); ev.returnValue = ''; } });
+
+  // ---------- 侧栏宽度:拖左边缘调整(看文件时和平时各记各的),双击恢复默认 ----------
+  (() => {
+    const grip = $('side-grip'), root = document.documentElement;
+    let widths = {};
+    try { widths = JSON.parse(localStorage.getItem('stars.sideW') || '{}'); } catch { /* 隐私模式 */ }
+    const apply = () => { for (const [k, v] of [['--side-w', widths.info], ['--side-fw', widths.file]]) v ? root.style.setProperty(k, v + 'px') : root.style.removeProperty(k); };
+    const save = () => { try { localStorage.setItem('stars.sideW', JSON.stringify(widths)); } catch { /* 隐私模式 */ } };
+    apply();
+    let drag = null;
+    grip.addEventListener('pointerdown', (ev) => { drag = $('side').classList.contains('file') ? 'file' : 'info'; grip.setPointerCapture(ev.pointerId); document.body.classList.add('resizing'); ev.preventDefault(); });
+    grip.addEventListener('pointermove', (ev) => {
+      if (!drag) return;
+      widths[drag] = Math.round(Math.max(240, Math.min(innerWidth - 330, innerWidth - ev.clientX - 12)));
+      apply();
+    });
+    grip.addEventListener('pointerup', () => { if (!drag) return; drag = null; document.body.classList.remove('resizing'); save(); });
+    grip.addEventListener('dblclick', () => { delete widths[$('side').classList.contains('file') ? 'file' : 'info']; apply(); save(); });
+  })();
+
+  // ---------- 点别处就关:项目 / 参数 / 审阅;视图规则编辑器只在没有未保存的草稿时关 ----------
+  // (平移、缩放不算点击 —— d3 会吞掉拖动之后的那次 click;时间线是一种模式,不在此列)
+  const dismissible = [
+    ['projects', 'proj', () => toggleProjects(false)],
+    ['physics', 'btn-phys', () => togglePhysics(false)],
+    ['review', 'btn-review', () => toggleReview(false)],
+    ['editor', 'btn-edit', () => { if (!editorDirty) toggleEditor(false); }],
+  ];
+  document.addEventListener('click', (ev) => {
+    const path = ev.composedPath(); // 点击时的路径:里面的元素就算随后被重绘移除了也认得出
+    for (const [pid, bid, close] of dismissible) {
+      if ($(pid).hidden || path.includes($(pid)) || path.includes($(bid))) continue;
+      close();
+    }
+  });
 
   // ---------- 宇宙参数面板 ----------
   const fmtP = (k, v) => (PHYS[k].toggle ? '' : k === 'enterAt' && !v ? '跟随视图' : PHYS[k].step < 0.01 ? v.toFixed(3) : PHYS[k].step < 1 ? v.toFixed(2) : String(v));
@@ -1181,12 +1294,20 @@ import { trackProposals } from '/core/proposals.js';
   // 长历史:先载入最近的一批,"更早 …"再往前翻;复杂历史:连线沿着自己的泳道走,只在分出/汇入时拐弯,
   // 泳道用完就回收,不会出现横跨整张图的斜线。
   const laneColor = (i) => ['#7aa7ff', '#ffb347', '#7be0a0', '#d98cff', '#ff7a90', '#5fd4e8'][i % 6];
-  let playTimer = null, histLimit = 300;
+  let playTimer = null, histLimit = 300, histScope = 'auto';   // auto:宇宙文件有历史就看它,没有就看所在文件夹的
   async function loadHistory() {
-    try { hist = await api('/api/history?limit=' + histLimit); } catch (e) { $('tl-info').textContent = '读取历史失败:' + e.message; return false; }
+    try { hist = await api('/api/history?limit=' + histLimit + '&scope=' + histScope); } catch (e) { $('tl-info').textContent = '读取历史失败:' + e.message; return false; }
     $('tl-more').hidden = !hist.more;
+    $('tl-scope').textContent = hist.scope === 'repo' ? '📁 文件夹的历史' : '✦ 宇宙文件的历史';
     return true;
   }
+  $('tl-scope').addEventListener('click', async () => {
+    stopPlay(); if (replay) exitReplay();
+    histScope = hist && hist.scope === 'repo' ? 'file' : 'repo'; histLimit = 300;
+    if (!(await loadHistory())) return;
+    renderTimeline();
+    const w = $('tl-wrap'); w.scrollLeft = w.scrollWidth;
+  });
   async function toggleTimeline(on) {
     $('timeline').hidden = !on; $('btn-time').classList.toggle('on', on);
     if (!on) { stopPlay(); if (replay) exitReplay(); return; }
@@ -1232,7 +1353,11 @@ import { trackProposals } from '/core/proposals.js';
     const svg = $('tl-svg');
     if (!hist) return;
     const cs = hist.commits;
-    if (!cs.length) { svg.innerHTML = ''; $('tl-info').textContent = '这个宇宙文件还没有 git 历史(先 git commit)'; return; }
+    if (!cs.length) {
+      svg.innerHTML = ''; svg.setAttribute('width', 0); svg.setAttribute('height', 0);
+      $('tl-info').textContent = hist.scope === 'repo' ? '这个文件夹还没有 git 提交' : '宇宙文件还没有提交过 —— 点「宇宙文件的历史」切到文件夹的 git 历史看看';
+      return;
+    }
     const { lane, edges, n: nLanes } = laneLayout(cs);
     const dx = 24, pad = 26, lh = 17, top = 30, N = cs.length + (hist.dirty ? 1 : 0);
     const X = (i) => pad + (N - 1 - i - (hist.dirty ? 1 : 0)) * dx;  // 新的在右
@@ -1299,7 +1424,9 @@ import { trackProposals } from '/core/proposals.js';
     const commit = hist.commits.find((c) => c.hash === hash);
     if (!commit) return;
     let st;
-    try { st = await api('/api/state?commit=' + hash); } catch (e) { $('tl-info').textContent = '读取失败:' + e.message; return; }
+    $('tl-info').textContent = '载入中…';
+    try { st = await api('/api/state?commit=' + hash + '&scope=' + hist.scope); } catch (e) { $('tl-info').textContent = '读取失败:' + e.message; return; }
+    if (!hist || !hist.commits.some((c) => c.hash === hash)) return; // 等待期间切换了范围
     replay = { hash, commit, added: new Set(st.diff.addedNodes), changed: new Set(st.diff.changedNodes), removed: st.diff.removedNodes.length };
     applyData({ ...(liveSnap || data), nodes: st.nodes, edges: st.edges, issues: [], signals: {} });
     const t = performance.now();
@@ -1333,6 +1460,7 @@ import { trackProposals } from '/core/proposals.js';
   }
   function stopPlay() { clearInterval(playTimer); playTimer = null; $('tl-play').textContent = '▶'; }
   $('tl-play').addEventListener('click', () => {
+    if (!hist || !hist.commits.length) return;
     if (playTimer) { stopPlay(); return; }
     $('tl-play').textContent = '⏸';
     if (!replay) { const oldest = hist.commits.filter((c) => !c.parents.length).sort((a, b) => a.time - b.time)[0] || hist.commits[hist.commits.length - 1]; openCommit(oldest.hash); }
@@ -1341,7 +1469,7 @@ import { trackProposals } from '/core/proposals.js';
   $('tl-prev').addEventListener('click', () => stepCommit(-1));
   $('tl-next').addEventListener('click', () => stepCommit(1));
   $('tl-now').addEventListener('click', exitReplay);
-  $('tl-first').addEventListener('click', () => { const o = hist.commits.filter((c) => !c.parents.length).sort((a, b) => a.time - b.time)[0]; if (o) openCommit(o.hash); });
+  $('tl-first').addEventListener('click', () => { if (!hist) return; const o = hist.commits.filter((c) => !c.parents.length).sort((a, b) => a.time - b.time)[0]; if (o) openCommit(o.hash); });
 
   function toggleExpand(id) {
     const n = sim.get(id);
@@ -1350,8 +1478,8 @@ import { trackProposals } from '/core/proposals.js';
     recompute(false);
   }
   canvas.addEventListener('dblclick', (ev) => {
-    if (isSpaces()) { const h = pickHit(ev.offsetX, ev.offsetY); if (h && h.n.container) toggleExpandSpace(h.n.id); else if (h) openFile(h.n.id); return; }
-    const n = find(ev.offsetX, ev.offsetY); if (n && n.container) toggleExpand(n.id); else if (n) openFile(n.id);
+    if (isSpaces()) { const h = pickHit(ev.offsetX, ev.offsetY); if (h && h.n.container) toggleExpandSpace(h.n.id); else if (h) { select(h.n.id, false); focusEditor(); } return; }
+    const n = find(ev.offsetX, ev.offsetY); if (n && n.container) toggleExpand(n.id); else if (n) { select(n.id, false); focusEditor(); }
   });
 
   // ======================= 嵌套空间 =======================
@@ -1359,6 +1487,13 @@ import { trackProposals } from '/core/proposals.js';
   //  · 放大越过阈值 = 切换到子空间(像 cd 进目录),外面不再画;缩小 = 回到父空间。有来源有目的,所以有连续的过渡动画。
   //  · 双击 / E = 显式的就地展开:把子空间以同样的尺度画在原地(内部物理仍独立),父空间给它让出位置。
   const isSpaces = () => !!compiled && compiled.layout === 'spaces';
+  // 缩放时的交叉淡入淡出:只由 ρ(容器在屏幕上的盘半径;在子空间里时用子空间的范围折算)决定,
+  // 所以切换前后是同一幅画面 —— 切换本身(进入 ρ ≥ T、退出 ρ < 0.54T,有滞后)只改变"当前空间"是谁。
+  const smooth = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
+  const enterT = () => (P.enterAt > 0 ? P.enterAt : compiled.enterAt) * Math.min(innerWidth, innerHeight);
+  const innerAlpha = (r) => smooth((r - 0.4) / 0.6);                                          // r = ρ / T
+  const outerAlpha = (r) => (1 - 0.85 * smooth((r - 0.6) / 1.6)) * (1 - smooth(r - 3));
+  let pointerXY = null, stickyFocus = null;
   const spaces = new Map();          // 容器 id('' = 顶层)→ 空间
   let spaceVer = 0;
   let curSpaceId = null;             // 当前所在的空间,null = 顶层
@@ -1423,6 +1558,7 @@ import { trackProposals } from '/core/proposals.js';
       .force('collide', d3.forceCollide().strength(0.9).iterations(2)) // 半径差很大(展开的疆域 vs 叶子)时一次迭代推不干净
       .stop();
     if (old) old.sim.stop();
+    sim.force('pointer', pullTo(sim));
     const sp = { key, id, ver: spaceVer, nodes, byId, links, external: sd.external, sim, E: 24, warm: false };
     sim.force('swirl', () => {
       if (!sp.warm || !heatOn()) return;
@@ -1556,15 +1692,33 @@ import { trackProposals } from '/core/proposals.js';
     }
   }
 
-  function drawSpace(sp, tx, ty, s, alpha, depth, now, skipId) {
-    drawnSpaces.add(sp);
+  /** mode:'' 正常;'context' 当前空间外面的衬底(不参与交互、不保持热量);'preview' 正在放大的容器的内部 */
+  function drawSpace(sp, tx, ty, s, alpha, depth, now, skipId, mode = '') {
+    if (!mode) drawnSpaces.add(sp);
     if (alpha <= 0.01 || depth > 8) return;
     const dpr = devicePixelRatio || 1, W = innerWidth, H = innerHeight;
     const setT = () => { ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * tx, dpr * ty); curK = s; };
     setT();
     const onScr = (n, rad) => { const x = tx + n.x * s, y = ty + n.y * s, m = rad * s + 30; return x > -m && x < W + m && y > -m && y < H + m; };
+    const hitsOn = mode !== 'context' && !(mode === 'preview' && alpha < 0.5);
+    const hit = (h) => { if (!hitsOn) return; if (mode) h.pv = true; frameHits.push(h); }; // pv:预览里的东西可以点选,但不能作为"放大进入"的目标
+    // 焦点容器:放大时正被钻进去的那个(指针所在、盘最大;刚从它里面退出来时优先它)。
+    // 它的内部随 ρ 淡入、外面的东西随 ρ 淡出
+    let focus = null, aIn = 0, aOutF = 1;
+    if (depth === 0 && !mode) {
+      const T = enterT(), [px, py] = pointerXY || [W / 2, H / 2];
+      for (const n of sp.nodes) {
+        if (!n.container || expandedSet.has(n.id) || n.id === skipId) continue;
+        const R = n.D * s; if (R < 0.4 * T) continue;
+        const d = Math.hypot(tx + n.x * s - px, ty + n.y * s - py);
+        if (n.id === stickyFocus && d <= R * 1.6) { focus = n; break; }
+        if (d <= R && (!focus || R > focus.D * s)) focus = n;
+      }
+      if (focus) { const r = focus.D * s / T; aIn = innerAlpha(r); aOutF = outerAlpha(r); }
+      else stickyFocus = null;
+    }
     const focusSet = selected && sp.byId.has(selected) ? neighborsIn(sp, selected) : null;
-    const aOf = (n) => alpha * (query && !qOK(n) ? 0.12 : focusSet && !focusSet.has(n.id) ? 0.3 : 1);
+    const aOf = (n) => alpha * (n === focus ? 1 - aIn : aOutF) * (query && !qOK(n) ? 0.12 : focusSet && !focusSet.has(n.id) ? 0.3 : 1);
     ctx.globalCompositeOperation = look === 'galaxy' ? 'lighter' : 'source-over';
     drawSpaceEdges(sp, tx, ty, s, aOf);
 
@@ -1576,10 +1730,10 @@ import { trackProposals } from '/core/proposals.js';
       const R = n.D * s, sx = tx + n.x * s, sy = ty + n.y * s;
       if (n.r * s < 1.2) { ctx.fillStyle = rgba(n.core, 0.8 * aOf(n)); ctx.fillRect(n.x - 1 / s, n.y - 1 / s, 2 / s, 2 / s); }
       else drawNode(n, now, aOf(n) * (n === hovered ? 1.25 : 1));
-      frameHits.push({ n, sp, depth, sx, sy, sr: Math.max(R * 0.75, 6), R, tx, ty, s });
+      hit({ n, sp, depth, sx, sy, sr: Math.max(R * 0.75, 6), R, tx, ty, s });
       if (R >= 10 || mustLabel(n) || (query && matchAnc.has(n.id))) {
         const cnt = query && matchAnc.has(n.id) ? `  ·${matchAnc.get(n.id)} 处匹配` : '';
-        frameLabels.push({ text: n.label + cnt, sx, sy: sy + Math.max(R * 0.55, 6) + 3, prio: mustLabel(n) ? 1e9 : 1e5 + R, color: '#dfe3ff', alpha: aOf(n) });
+        frameLabels.push({ text: n.label + cnt, sx, sy: sy + Math.max(R * 0.55, 6) + 3, prio: mustLabel(n) ? 1e9 : 1e5 + R, color: '#dfe3ff', alpha: aOf(n), fade: alpha * (n === focus ? 1 - aIn : aOutF) });
       }
     }
     flushParticles();
@@ -1590,8 +1744,8 @@ import { trackProposals } from '/core/proposals.js';
       else drawNode(n, now, aOf(n) * (n === hovered ? 1.25 : 1));
       const age = now - (n.born || -1e9);
       if (age < 1800) { const p = age / 1800; ctx.strokeStyle = rgba(n.rgb, (1 - p) * 0.9 * alpha); ctx.lineWidth = 2 / s; ctx.beginPath(); ctx.arc(n.x, n.y, n.r + 4 + p * 50, 0, TAU); ctx.stroke(); }
-      frameHits.push({ n, sp, depth, sx, sy, sr: Math.max(sr * 1.4, 5), R: sr, tx, ty, s });
-      if (sr >= 4 || mustLabel(n) || sp.nodes.length <= 16) frameLabels.push({ text: n.label, sx, sy: sy + sr * 1.3 + 3, prio: mustLabel(n) ? 1e9 : sr, color: '#e8e8f6', alpha: aOf(n) });
+      hit({ n, sp, depth, sx, sy, sr: Math.max(sr * 1.4, 5), R: sr, tx, ty, s });
+      if (sr >= 4 || mustLabel(n) || sp.nodes.length <= 16) frameLabels.push({ text: n.label, sx, sy: sy + sr * 1.3 + 3, prio: mustLabel(n) ? 1e9 : sr, color: '#e8e8f6', alpha: aOf(n), fade: alpha * aOutF });
     }
     flushParticles();
     for (const n of inPlace) { // 就地展开:疆界 + 子空间(同一尺度,物理独立)
@@ -1602,11 +1756,16 @@ import { trackProposals } from '/core/proposals.js';
       ctx.beginPath(); ctx.arc(n.x, n.y, E, 0, TAU);
       ctx.fillStyle = rgba(n.rgb, 0.05 * aOf(n)); ctx.fill();
       ctx.strokeStyle = rgba(n.rgb, (n.id === selected ? 0.65 : 0.32) * aOf(n)); ctx.lineWidth = 1.2 / s; ctx.setLineDash([6 / s, 5 / s]); ctx.stroke(); ctx.setLineDash([]);
-      frameLabels.push({ text: n.label, sx: cx, sy: cy - R - 16, prio: 6e5 + R, color: '#cfd6ff', alpha: aOf(n) });
-      frameHits.push({ n, sp, depth, sx: cx, sy: cy, sr: R, R, tx, ty, s, domain: true });
-      drawSpace(child, cx, cy, s, alpha, depth + 1, now, null);
+      frameLabels.push({ text: n.label, sx: cx, sy: cy - R - 16, prio: 6e5 + R, color: '#cfd6ff', alpha: aOf(n), fade: alpha * aOutF });
+      hit({ n, sp, depth, sx: cx, sy: cy, sr: R, R, tx, ty, s, domain: true });
+      drawSpace(child, cx, cy, s, alpha * aOutF, depth + 1, now, null, mode);
       setT();
-      drawInnerLinks(child, n, sp, s, alpha);
+      drawInnerLinks(child, n, sp, s, alpha * aOutF);
+    }
+    if (focus && aIn > 0.01) { // 正在钻进去的容器:内部按同样的几何画在盘里,随 ρ 淡入
+      const child = getSpace(focus.id);
+      drawSpace(child, tx + focus.x * s, ty + focus.y * s, s * scOf(focus, child), alpha * aIn, depth + 1, now, null, 'preview');
+      setT();
     }
   }
 
@@ -1674,28 +1833,31 @@ import { trackProposals } from '/core/proposals.js';
   }
   function setTransformNow(x, y, k) { d3.select(canvas).call(zoom.transform, d3.zoomIdentity.translate(x, y).scale(k)); }
 
-  function enterSpace(id) {
+  /** fly:显式进入(回车、按钮)—— 切换后再缩放动画到适应窗口,画面随 ρ 连续地从外面过渡到里面 */
+  function enterSpace(id, fly = false) {
     const path = pathWithin(curSpaceId, id);
     if (!path) return false;
     let ox = 0, oy = 0;
     for (const n of path) { ox += n.x; oy += n.y; } // 穿过就地展开的祖先,尺度都是 1
     const target = path[path.length - 1], child = getSpace(id), sc = scOf(target, child);
     const { x, y, k } = transform;
-    fade = { kind: 'enter', fromId: curSpaceId, skip: path[0].id, ox, oy, sc, t0: performance.now() };
-    curSpaceId = id; lastSwitchAt = performance.now();
+    fade = path.length > 1 ? { kind: 'jump', fromId: curSpaceId, oldT: transform, t0: performance.now() } : null; // 穿过就地展开的几层:几何不连续,用淡入淡出
+    curSpaceId = id; lastSwitchAt = performance.now(); stickyFocus = null;
     setTransformNow(x + k * ox, y + k * oy, k * sc);
     afterSwitch();
+    if (fly) fitSpace(true);
     return true;
   }
-  function exitSpace() {
+  function exitSpace(fly = false) {
     if (curSpaceId === null) return false;
     const ps = holderOf(curSpaceId), n = ps.byId.get(curSpaceId), cur = getSpace(curSpaceId);
     if (!n) { jumpTo(ps.id); return true; }
     const sc = scOf(n, cur), { x, y, k } = transform, k2 = k / sc;
-    fade = { kind: 'exit', fromId: curSpaceId, node: n, sc, t0: performance.now() };
-    curSpaceId = ps.id; lastSwitchAt = performance.now();
+    fade = null;
+    curSpaceId = ps.id; lastSwitchAt = performance.now(); stickyFocus = n.id; // 刚出来:它的内部继续按 ρ 淡出,不因指针不在它上面而突然消失
     setTransformNow(x - k2 * n.x, y - k2 * n.y, k2);
     afterSwitch();
+    if (fly) fitSpace(true);
     return true;
   }
   /** 跨多级的跳转(面包屑、搜索结果):淡出旧空间,适应窗口地显示新空间 */
@@ -1734,13 +1896,13 @@ import { trackProposals } from '/core/proposals.js';
   /** 缩放手势触发的空间切换:放大且指针落在一个已经占据小半屏幕的容器上 → 进入;当前空间缩到很小 → 退出 */
   function maybeSwitch(se, dir) {
     if (!dir || fade || performance.now() - lastSwitchAt < 450) return;
-    const T = (P.enterAt > 0 ? P.enterAt : compiled.enterAt) * Math.min(innerWidth, innerHeight);
+    const T = enterT();
     if (dir > 0) {
       let px = innerWidth / 2, py = innerHeight / 2;
       try { [px, py] = d3.pointer(se, canvas); } catch { /* 触摸等 */ }
       let best = null;
       for (const h of frameHits) {
-        if (!h.n.container || h.R < T || Math.hypot(px - h.sx, py - h.sy) > h.R) continue;
+        if (h.pv || !h.n.container || h.R < T || Math.hypot(px - h.sx, py - h.sy) > h.R) continue;
         if (!best || h.depth > best.depth || (h.depth === best.depth && h.R < best.R)) best = h;
       }
       if (best) requestAnimationFrame(() => enterSpace(best.n.id));
@@ -1782,8 +1944,17 @@ import { trackProposals } from '/core/proposals.js';
       frameHits = []; frameLabels = []; // 旧空间不参与交互
     }
     const cur = getSpace(curSpaceId);
-    drawSpace(cur, x, y, k, fade ? Math.max(0.05, ease) : 1, 0, now, null);
-    drawStubs(cur, x, y, k, fade ? ease : 1);
+    let curAlpha = 1;
+    if (!fade && curSpaceId !== null) { // 外面:父空间按"来源—目的"的几何画在下面,随 ρ 淡出
+      const ps = holderOf(curSpaceId), c = ps.byId.get(curSpaceId);
+      if (c && !expandedSet.has(c.id)) {
+        const r = cur.E * k / 0.92 / enterT(), sc = scOf(c, cur), kP = k / sc, aOut = outerAlpha(r);
+        if (aOut > 0.01) { drawSpace(ps, x - kP * c.x, y - kP * c.y, kP, aOut, 0, now, c.id, 'context'); frameLabels = frameLabels.filter((L) => (L.fade ?? 1) >= 0.25); }
+        curAlpha = Math.max(0.04, innerAlpha(r));
+      }
+    }
+    drawSpace(cur, x, y, k, fade ? Math.max(0.05, ease) : curAlpha, 0, now, null);
+    drawStubs(cur, x, y, k, fade ? ease : curAlpha);
     if (fade && p >= 1) fade = null;
     heatSpaces();
 
@@ -1813,7 +1984,9 @@ import { trackProposals } from '/core/proposals.js';
       const box = [x0 - 2, L.sy - 1, x0 + w + 2, L.sy + fs + 2];
       if (L.prio < 1e9 && placed.some((q) => box[0] < q[2] && box[2] > q[0] && box[1] < q[3] && box[3] > q[1])) continue;
       placed.push(box); n++;
-      ctx.globalAlpha = Math.max(0.3, Math.min(1, L.alpha ?? 1));
+      const la = Math.max(0.3 * (L.fade ?? 1), Math.min(1, L.alpha ?? 1));
+      if (la < 0.06) continue;
+      ctx.globalAlpha = la;
       if (!L.small) { ctx.strokeStyle = 'rgba(2,2,10,0.85)'; ctx.lineWidth = 3; ctx.strokeText(L.text, x0, L.sy); }
       ctx.fillStyle = L.color || '#e8e8f6'; ctx.fillText(L.text, x0, L.sy);
     }
@@ -2230,7 +2403,7 @@ import { trackProposals } from '/core/proposals.js';
   }
   requestAnimationFrame(draw);
 
-  window.__stars = { nodes: () => simulation.nodes(), transform: () => transform, scene: () => scene, regions: () => regions, perf, hits: () => frameHits, space: () => curSpaceId, enter: (id) => enterSpace(id), exit: () => exitSpace(), expand: (id) => toggleExpandSpace(id), expanded: () => [...expandedSet], getSpace: (id) => getSpace(id ?? null), hasNode: (id) => !!uni && uni.nodes.has(id), project: () => project, P, heated: () => [...heated].map((sp) => sp.key), flatTarget: () => simulation.alphaTarget(), openFile: (id) => openFile(id), select: (id) => select(id, false), nodeCount: () => uni.nodes.size, lastN: () => lastN, recompute, manual, auto, compiled: () => compiled }; // 调试/自动化用
+  window.__stars = { nodes: () => simulation.nodes(), transform: () => transform, scene: () => scene, regions: () => regions, perf, hits: () => frameHits, space: () => curSpaceId, enter: (id) => enterSpace(id, true), exit: () => exitSpace(true), rho: () => (curSpaceId === null ? null : getSpace(curSpaceId).E * transform.k / 0.92 / enterT()), expand: (id) => toggleExpandSpace(id), expanded: () => [...expandedSet], getSpace: (id) => getSpace(id ?? null), hasNode: (id) => !!uni && uni.nodes.has(id), project: () => project, P, heated: () => [...heated].map((sp) => sp.key), flatTarget: () => simulation.alphaTarget(), spaceTarget: (id) => getSpace(id ?? null).sim.alphaTarget(), select: (id) => select(id, false), file: () => fp && { id: fp.id, full: fp.full, dirty: fp.dirty, kind: fp.info && fp.info.kind }, nodeCount: () => uni.nodes.size, lastN: () => lastN, recompute, manual, auto, compiled: () => compiled }; // 调试/自动化用
   connect();
 })();
 </script>
