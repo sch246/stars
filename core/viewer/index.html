@@ -165,6 +165,7 @@
   .st-in { background: #07070f; border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 1px 6px; font: inherit; outline: none; }
   .kb-list { display: flex; flex-direction: column; gap: 2px; }
   .kb-row { display: grid; grid-template-columns: 64px 1fr 40px 20px 20px; gap: 6px; align-items: center; }
+  .kb-row.dbl { grid-template-columns: 76px 1fr 40px 20px 20px; }
   .kb-row kbd { text-align: center; white-space: nowrap; overflow: hidden; } .kb-row.off kbd { text-decoration: line-through; opacity: .5; }
   .kb-cmd { background: transparent; border: 1px solid transparent; color: var(--text); border-radius: 6px; padding: 1px 6px; font: 12px ui-monospace, Menlo, Consolas, monospace; outline: none; min-width: 0; }
   .kb-cmd:hover { border-color: var(--line); } .kb-cmd:focus { border-color: var(--accent); background: #07070f; }
@@ -213,6 +214,27 @@
   #keys .grp { break-inside: avoid; margin-bottom: 10px; } #keys .grp > b { color: var(--muted); font-size: 11px; letter-spacing: .06em; font-weight: 500; }
   #keys .k { display: grid; grid-template-columns: 96px 1fr; gap: 8px; padding: 1px 0; } #keys .k span:first-child { text-align: right; white-space: nowrap; }
   #keys .k code { color: #8a90b8; font-size: 11px; margin-left: 6px; }
+  /* 文件视图:打开方式、Markdown 预览、LLF 表单、宇宙概况、全屏看图 */
+  #fp-with:empty { display: none; } #fp-with { font-size: 12px; flex: none; }
+  #fp-remember { font-size: 11px; color: var(--muted); flex: none; } #fp-remember.on { color: #fff; border-color: var(--accent); background: #7aa7ff33; }
+  #fp-md, #fp-form, #fp-uni { flex: 1; overflow: auto; padding: 10px 14px; min-width: 0; }
+  .md { line-height: 1.65; color: #d6dcff; word-break: break-word; }
+  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { color: #fff; margin: 1.1em 0 .45em; line-height: 1.3; } .md h1 { font-size: 1.5em; } .md h2 { font-size: 1.3em; border-bottom: 1px solid var(--line); padding-bottom: .2em; } .md h3 { font-size: 1.12em; }
+  .md > :first-child { margin-top: 0; } .md p, .md ul, .md ol, .md table, .md pre, .md blockquote { margin: .55em 0; } .md ul, .md ol { padding-left: 1.5em; }
+  .md code { font: .92em ui-monospace, Menlo, Consolas, monospace; background: #ffffff12; padding: .1em .35em; border-radius: 4px; }
+  .md pre { background: #0d0d1a; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; overflow: auto; } .md pre code { background: none; padding: 0; }
+  .md blockquote { border-left: 3px solid #4a6fd0; padding-left: 10px; color: #aab2dd; } .md hr { border: 0; border-top: 1px solid var(--line); }
+  .md table { border-collapse: collapse; } .md th, .md td { border: 1px solid var(--line); padding: 3px 8px; } .md th { background: #ffffff0a; }
+  .md img { max-width: 100%; } .md a { color: var(--accent); cursor: pointer; text-decoration: none; } .md a:hover { text-decoration: underline; } .md .md-more { color: var(--muted); font-size: 12px; }
+  #fp-form .fm-row { display: grid; grid-template-columns: minmax(70px, 30%) 1fr auto; gap: 8px; align-items: center; min-height: 26px; }
+  #fp-form .fm-row label { color: var(--text); cursor: help; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #fp-form .fm-ctl { display: flex; align-items: center; gap: 8px; min-width: 0; } #fp-form .fm-ctl input[type=range] { flex: 1; accent-color: var(--accent); } #fp-form .fm-ctl output { color: var(--muted); font-size: 12px; min-width: 40px; text-align: right; }
+  #fp-form .fm-ctl .seg { grid-column: auto; justify-self: start; } #fp-form .fm-text { flex: 1; min-width: 0; width: 100%; } #fp-form textarea.fm-text { font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; resize: vertical; }
+  #fp-form .fm-sub { padding-left: 10px; border-left: 1px solid var(--line); } #fp-form .fm-tag { color: #8a90b8; font-size: 11px; margin-left: 6px; } #fp-form .sg-h .fm-del { margin-left: auto; }
+  #fp-form .fm-add { margin: 4px 0; font-size: 12px; } #fp-form.ro { opacity: .75; }
+  #fp-uni .chip { cursor: default; }
+  #lightbox { position: fixed; inset: 0; z-index: 30; background: #000000d8; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
+  #lightbox[hidden] { display: none; } #lightbox img { max-width: 94vw; max-height: 94vh; box-shadow: 0 0 60px #000; }
 </style>
 </head>
 <body>
@@ -288,13 +310,14 @@
 <div class="panel" id="tagbar" hidden></div>
 <div class="panel" id="side"><div id="side-grip" title="拖动调整宽度 · 双击恢复默认"></div><div id="side-info"></div>
   <div id="side-file">
-    <div id="fp-head"><span id="fp-state"></span><span class="btn pri" id="fp-save" data-cmd="save" title="Ctrl/⌘ + S;切走时也会自动保存">保存</span><a class="btn" id="fp-code" title="用本机的 VS Code 打开(查看器和文件在同一台机器上时)" style="text-decoration:none">VS Code ↗</a></div>
+    <div id="fp-head"><span id="fp-state"></span><span class="seg" id="fp-with" title="打开方式"></span><span class="mini" id="fp-remember" hidden>记住</span><span class="btn pri" id="fp-save" data-cmd="save" title="Ctrl/⌘ + S;切走时也会自动保存">保存</span><a class="btn" id="fp-code" title="用本机的 VS Code 打开(查看器和文件在同一台机器上时)" style="text-decoration:none">VS Code ↗</a></div>
     <div id="fp-bar" hidden></div>
     <div id="fp-body"></div>
     <div id="fp-more" hidden></div>
   </div>
 </div>
 <div id="toast" hidden></div>
+<div id="lightbox" hidden title="点一下关闭(Esc)"><img alt=""></div>
 </div>
 <div class="panel" id="console" hidden><div id="con-out"></div><div id="con-sug"></div><div id="con-row"><span>›</span><input id="con-in" autocomplete="off" spellcheck="false" placeholder="输入命令 · Tab 补全 · ↑↓ 历史 · help 看全部 · Esc 关闭"></div></div>
 <div id="palette" hidden><div class="panel" id="pal-box"><input id="pal-in" autocomplete="off" spellcheck="false" placeholder="搜索命令…(视图、面板、参数、时间线、写入宇宙……)"><div id="pal-list"></div></div></div>
@@ -309,6 +332,7 @@ import { apply } from '/core/ops.js';
 import { trackProposals } from '/core/proposals.js';
 import { filterNodes, neighborhood, shortestPath } from '/core/query.js';
 import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '/core/llf.js';
+import { parse } from '/core/format.js';
 (() => {
   const TAU = Math.PI * 2;
   const canvas = document.getElementById('c');
@@ -1100,12 +1124,10 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
   // 点击统一入口(选中 + 原地双击)。canvas 的 click 只在"没有真正拖动"时触发,所以拖动不会被误当成点击。
   let lastTap = null;                        // 第一次点击:{ id, x, y, t }
   const TAP_MS = 500, TAP_PX = 10;           // 原地双击:同一屏幕位置,500ms 以内(和系统双击阈值一致)
-  function performDouble(id) {   // 双击动作(容器就地展开/收起,叶子选中并进编辑)
+  function performDouble(id) {   // 双击 = 执行这类节点的双击命令(设置 → 快捷键 → 双击,keys.llf 的 dblclick)
     if (id == null) return;
-    if (isSpaces()) { const n = compiled.node(id); if (n && n.container) { did('expand ' + quoteArg(id), 'mouse'); toggleExpandSpace(id); return; } }
-    else { const n = sim.get(id); if (n && n.container) { did('expand ' + quoteArg(id), 'mouse'); toggleExpand(id); return; } }
-    if (fileOf(raw.get(id))) did('enter ' + quoteArg(id), 'mouse');
-    select(id, false); focusEditor();
+    const line = dblLine(id);
+    if (line) exec(line, 'mouse');
   }
   function handleTap(px, py, hit) {
     const now = performance.now();
@@ -1384,15 +1406,46 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
   $('toast').addEventListener('click', (ev) => { const b = ev.target.closest('[data-sel]'); if (b) { $('toast').hidden = true; select(b.dataset.sel, true); } });
   const enc = encodeURIComponent;
 
+  // ---------- 文件类型处理器:每类文件有自己的侧栏视图;文本文件的「原文」视图始终可用 ----------
+  // 处理器自己判断能不能接这个文件:{ role: 'default' | 'available', priority } 或 false。
+  // 选哪个:这次指定的(打开方式 / open --with)> 记住的(按扩展名,open --remember)> 优先级最高的默认 > 原文。
+  // 所有视图共用同一份文本缓冲 fp.text:在表单里改、切到原文看,改动都在;保存、冲突检测、切走自动保存都按它来。
+  const extOf = (p) => ((/\.([^./]+)$/.exec(p) || [])[1] || '').toLowerCase();
+  const IMG_EXT = /^(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/, MD_EXT = /^(md|markdown|mdown|mkd)$/;
+  /** 不读文件就能判断的种类(双击、选默认视图用):image / markdown / form / universe / file */
+  const fileTypeOf = (path) => { const e = extOf(path); return IMG_EXT.test(e) ? 'image' : MD_EXT.test(e) ? 'markdown' : e === 'llf' ? 'form' : e === 'stars' ? 'universe' : 'file'; };
+  const FILE_HANDLERS = [
+    { id: 'text', label: '原文', match: (d) => (d.kind === 'text' ? { role: 'available' } : false), mount: mountText },
+    { id: 'image', label: '图片', match: (d) => (d.kind === 'image' ? { role: 'default', priority: 10 } : false), mount: mountImage },
+    { id: 'markdown', label: '预览', match: (d) => (d.kind === 'text' && MD_EXT.test(d.ext) ? { role: 'default', priority: 10 } : false), mount: mountMarkdown },
+    { id: 'form', label: '表单', match: (d) => (d.kind === 'text' && d.ext === 'llf' ? { role: 'default', priority: 10 } : false), mount: mountForm },
+    { id: 'universe', label: '宇宙', match: (d) => (d.kind === 'text' && d.ext === 'stars' ? { role: 'default', priority: 10 } : false), mount: mountUniverse },
+    { id: 'info', label: '信息', match: (d) => (d.kind === 'binary' || d.kind === 'large' ? { role: 'default' } : false), mount: mountInfo },
+  ];
+  let openWith = {};
+  try { openWith = JSON.parse(localStorage.getItem('stars.openWith') || '{}'); } catch { /* 隐私模式 */ }
+  const saveOpenWith = () => { try { localStorage.setItem('stars.openWith', JSON.stringify(openWith)); } catch { /* 隐私模式 */ } };
+  const fpDesc = () => ({ path: fp.path, ext: extOf(fp.path), kind: fp.info.kind, size: fp.info.size });
+  function handlersFor(d) {
+    return FILE_HANDLERS.map((h) => ({ h, m: h.match(d) })).filter((x) => x.m)
+      .sort((a, b) => ((b.m.role === 'default') - (a.m.role === 'default')) || ((b.m.priority || 0) - (a.m.priority || 0)));
+  }
+  function pickHandler(d, want) {
+    const list = handlersFor(d), has = (id) => list.some((x) => x.h.id === id);
+    if (want && has(want)) return want;
+    if (openWith[d.ext] && has(openWith[d.ext])) return openWith[d.ext];
+    return list.length ? list[0].h.id : null;
+  }
+
   function fpState() {
     if (!fp || !fp.info) return;
     const i = fp.info;
     $('fp-state').innerHTML = (fp.dirty ? '<span class="dirty">● 未保存</span> · ' : '') + `${fmtBytes(i.size)} · 改于 ${ago(i.mtime)}`
       + (i.readonly ? ' · 只读' : i.kind === 'text' && !i.editable ? ' · 超过 2 MB,只读' : '');
-    $('fp-save').style.display = fp.full && i.editable ? '' : 'none';
+    $('fp-save').style.display = fp.full && i.editable && (fp.dirty || fp.handler === 'text') ? '' : 'none';
     const more = $('fp-more');
     more.hidden = !(i.kind === 'text' && !fp.full);
-    if (!more.hidden) more.textContent = `只显示了开头 ${fmtBytes(new Blob([i.content || '']).size)} / ${fmtBytes(i.size)}` + (i.editable ? ' · 点进编辑框或滚到底载入全部' : '');
+    if (!more.hidden) more.textContent = `只显示了开头 ${fmtBytes(new Blob([fp.text || '']).size)} / ${fmtBytes(i.size)}` + (i.editable ? ' · 点进编辑框或滚到底载入全部' : '');
   }
   function gutter() {
     const t = $('fp-text'); if (!t || !fp) return;
@@ -1401,25 +1454,277 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     $('fp-gutter').scrollTop = t.scrollTop;
   }
   const gutterSoon = debounce(gutter, 120);
+  const markDirty = () => { if (!fp.dirty) { fp.dirty = true; fpState(); } };
+
+  /** 按当前文件挑视图并挂上去;「打开方式」不止一个时显示成分段按钮,旁边的「记住」= 以后这类扩展名都用它 */
   function renderFileBody() {
-    const i = fp.info, body = $('fp-body');
-    if (i.kind === 'text') {
-      body.innerHTML = '<pre id="fp-gutter"></pre><textarea id="fp-text" spellcheck="false" autocomplete="off"></textarea>';
-      const t = $('fp-text');
-      t.value = i.content; t.readOnly = !fp.full || !i.editable; fp.lines = 0; gutter();
-      t.addEventListener('focus', () => loadFull());
-      t.addEventListener('scroll', () => { $('fp-gutter').scrollTop = t.scrollTop; if (!fp.full && t.scrollTop + t.clientHeight > t.scrollHeight - 120) loadFull(); });
-      t.addEventListener('input', () => { if (!fp.dirty) { fp.dirty = true; fpState(); } gutterSoon(); });
-      t.addEventListener('keydown', (ev) => {
-        if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') { ev.preventDefault(); saveFile(false); }
-        else if (ev.key === 'Tab' && !ev.shiftKey && !t.readOnly) { ev.preventDefault(); document.execCommand('insertText', false, fp.indent); }
-      });
-    } else if (i.kind === 'image') {
-      body.innerHTML = `<div id="fp-media"><img alt="${esc(i.path)}" src="${withP('/api/raw?path=' + enc(i.path) + '&t=' + token)}&v=${i.mtime}"></div>`;
+    const d = fpDesc(), list = handlersFor(d);
+    fp.handler = pickHandler(d, fp.want);
+    const id = esc(quoteArg(fp.id)), remembered = openWith[d.ext] === fp.handler;
+    $('fp-with').innerHTML = list.length > 1 ? list.map(({ h }) => `<span class="${h.id === fp.handler ? 'on' : ''}" data-cmd="open ${id} --with ${h.id}" title="用「${esc(h.label)}」看">${esc(h.label)}</span>`).join('') : '';
+    $('fp-remember').hidden = list.length < 2 || !d.ext;
+    $('fp-remember').classList.toggle('on', remembered);
+    $('fp-remember').dataset.cmd = `open ${quoteArg(fp.id)} --with ${fp.handler} ${remembered ? '--forget' : '--remember'}`;
+    $('fp-remember').title = remembered ? `已记住:.${d.ext} 文件用「${FILE_HANDLERS.find((h) => h.id === fp.handler).label}」打开(再点取消)` : `以后 .${d.ext} 文件都用「${(FILE_HANDLERS.find((h) => h.id === fp.handler) || {}).label}」打开`;
+    const body = $('fp-body');
+    body.className = 'h-' + (fp.handler || 'none'); body.innerHTML = '';
+    const h = FILE_HANDLERS.find((x) => x.id === fp.handler);
+    if (h) h.mount(body); else body.innerHTML = '<div id="fp-media">没有能打开它的视图</div>';
+    fpState();
+  }
+  /** 内容变了(载入全文 / 磁盘上的新版本):原文视图就地更新(保留光标与滚动),别的视图重画 */
+  function refreshBody() {
+    const t = $('fp-text');
+    if (fp.handler === 'text' && t) {
+      const focused = document.activeElement === t, keep = [t.selectionStart, t.selectionEnd, t.scrollTop];
+      t.value = fp.text; t.readOnly = !fp.full || !fp.info.editable; gutter();
+      [t.selectionStart, t.selectionEnd, t.scrollTop] = keep; if (focused) t.focus();
+      fpState();
     } else {
-      body.innerHTML = `<div id="fp-media">${i.kind === 'large' ? `文件太大(${fmtBytes(i.size)})` : '二进制文件,无法以文本显示'}</div>`;
+      const sc = $('fp-body').firstElementChild ? $('fp-body').firstElementChild.scrollTop : 0;
+      renderFileBody();
+      if ($('fp-body').firstElementChild) $('fp-body').firstElementChild.scrollTop = sc;
     }
   }
+  /** 打开后把光标放到该放的地方:原文 → 编辑框;表单 → 第一个输入 */
+  function focusPrimary() {
+    if (!fp) return;
+    if (fp.handler === 'text') { focusEditor(); return; }
+    const el = $('fp-body').querySelector('input:not([type=range]):not([disabled]), textarea:not([disabled])');
+    if (el) el.focus();
+  }
+
+  // ---- 原文 ----
+  function mountText(body) {
+    body.innerHTML = '<pre id="fp-gutter"></pre><textarea id="fp-text" spellcheck="false" autocomplete="off"></textarea>';
+    const t = $('fp-text');
+    t.value = fp.text; t.readOnly = !fp.full || !fp.info.editable; fp.lines = 0; gutter();
+    t.addEventListener('focus', () => loadFull());
+    t.addEventListener('scroll', () => { $('fp-gutter').scrollTop = t.scrollTop; if (!fp.full && t.scrollTop + t.clientHeight > t.scrollHeight - 120) loadFull(); });
+    t.addEventListener('input', () => { fp.text = t.value; markDirty(); gutterSoon(); });
+    t.addEventListener('keydown', (ev) => {
+      if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') { ev.preventDefault(); saveFile(false); }
+      else if (ev.key === 'Tab' && !ev.shiftKey && !t.readOnly) { ev.preventDefault(); document.execCommand('insertText', false, fp.indent); }
+    });
+  }
+  // ---- 图片(点一下全屏看)----
+  const rawUrl = (path, v) => withP('/api/raw?path=' + enc(path) + '&t=' + token) + (v ? '&v=' + v : '');
+  function mountImage(body) {
+    body.innerHTML = `<div id="fp-media"><img alt="${esc(fp.path)}" title="点一下全屏看" style="cursor:zoom-in" src="${rawUrl(fp.path, fp.info.mtime)}" data-cmd="open ${esc(quoteArg(fp.id))} --full"></div>`;
+  }
+  function showLightbox(path) {
+    const lb = $('lightbox');
+    lb.querySelector('img').src = rawUrl(path, Date.now()); lb.hidden = false;
+  }
+  $('lightbox').addEventListener('click', () => { $('lightbox').hidden = true; });
+  // ---- 二进制 / 太大 ----
+  function mountInfo(body) {
+    body.innerHTML = `<div id="fp-media">${fp.info.kind === 'large' ? `文件太大(${fmtBytes(fp.info.size)}),不在这里显示` : `二进制文件(${fmtBytes(fp.info.size)}),无法以文本显示`}<br><span class="tag">可以用右上角的 VS Code 打开</span></div>`;
+  }
+
+  // ---- Markdown 预览:零依赖的小渲染器。先整体转义,不放行任何原始 HTML;项目里的相对链接点了就在星图里打开那个文件 ----
+  function mountMarkdown(body) {
+    body.innerHTML = `<div id="fp-md" class="md">${renderMarkdown(fp.text, fp.path)}${fp.full ? '' : '<p class="md-more">…(只载入了开头,滚到底载入全部)</p>'}</div>`;
+    const md = $('fp-md');
+    md.addEventListener('scroll', () => { if (!fp.full && md.scrollTop + md.clientHeight > md.scrollHeight - 80) loadFull(); });
+  }
+  function mdResolve(base, rel) {   // 相对 base 文件所在目录解析成项目里的路径
+    const parts = (rel.startsWith('/') ? [] : base.split('/').slice(0, -1));
+    for (const seg of rel.replace(/^\//, '').split('/')) { if (seg === '..') parts.pop(); else if (seg && seg !== '.') parts.push(seg); }
+    return parts.join('/');
+  }
+  const mdSlug = (t) => t.toLowerCase().replace(/<[^>]*>/g, '').replace(/[^\p{L}\p{N}\s-]/gu, '').trim().replace(/\s+/g, '-');
+  function mdHref(href, base, img) {
+    const u = href.replace(/&amp;/g, '&');
+    if (/^(javascript|data|vbscript):/i.test(u)) return null;
+    if (/^(https?:|mailto:)/i.test(u)) return { ext: u };
+    if (u.startsWith('#')) return { anchor: mdSlug(decodeURIComponent(u.slice(1))) };
+    const path = mdResolve(base, decodeURIComponent(u.split(/[?#]/)[0]));
+    return img ? { ext: rawUrl(path) } : { open: path };
+  }
+  function mdInline(s, base) {   // s 已转义
+    const codes = [];
+    s = s.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
+    s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^)]*&quot;)?\)/g, (all, alt, src) => { const h = mdHref(src, base, true); return h && h.ext ? `<img alt="${alt}" src="${esc(h.ext)}">` : all; });
+    s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+&quot;[^)]*&quot;)?\)/g, (all, t, href) => {
+      const h = mdHref(href, base, false);
+      if (!h) return t;
+      if (h.ext) return `<a href="${esc(h.ext)}" target="_blank" rel="noopener noreferrer">${t}</a>`;
+      if (h.anchor !== undefined) return `<a data-anchor="${esc(h.anchor)}">${t}</a>`;
+      return `<a data-open="${esc(h.open)}" title="${esc(h.open)}">${t}</a>`;
+    });
+    s = s.replace(/&lt;(https?:\/\/[^\s&]+)&gt;/g, (_, u) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`);
+    s = s.replace(/\*\*(.+?)\*\*|__(.+?)__/g, (_, a, b) => `<strong>${a ?? b}</strong>`);
+    s = s.replace(/(^|[^*\w])\*(?!\s)(.+?)\*(?!\w)/g, '$1<em>$2</em>').replace(/(^|[^_\w])_(?!\s)(.+?)_(?!\w)/g, '$1<em>$2</em>');
+    s = s.replace(/~~(.+?)~~/g, '<del>$1</del>');
+    return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[+i]}</code>`);
+  }
+  const MD_ITEM = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+  function renderMarkdown(src, base) {
+    const lines = src.replace(/\r\n?/g, '\n').split('\n'), para = [];
+    let out = '', i = 0;
+    const flush = () => { if (para.length) { out += `<p>${mdInline(esc(para.join('\n')), base).replace(/ {2,}\n/g, '<br>').replace(/\n/g, ' ')}</p>`; para.length = 0; } };
+    const cells = (l) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+    while (i < lines.length) {
+      const l = lines[i];
+      let m;
+      if ((m = /^\s*(```+|~~~+)\s*([\w+#.-]*)/.exec(l))) {
+        flush(); const fence = m[1], buf = []; i++;
+        while (i < lines.length && !lines[i].trimStart().startsWith(fence)) buf.push(lines[i++]);
+        i++; out += `<pre><code${m[2] ? ` class="lang-${esc(m[2])}"` : ''}>${esc(buf.join('\n'))}</code></pre>`; continue;
+      }
+      if ((m = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(l))) { flush(); const inner = mdInline(esc(m[2]), base); out += `<h${m[1].length} id="${esc(mdSlug(m[2]))}">${inner}</h${m[1].length}>`; i++; continue; }
+      if (/^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(l)) { flush(); out += '<hr>'; i++; continue; }
+      if (/^\s*>/.test(l)) {
+        flush(); const buf = [];
+        while (i < lines.length && /^\s*>/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, ''));
+        out += `<blockquote>${renderMarkdown(buf.join('\n'), base)}</blockquote>`; continue;
+      }
+      if (/\|/.test(l) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(lines[i + 1])) {
+        flush();
+        const head = cells(l), al = cells(lines[i + 1]).map((c) => (c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : ''));
+        i += 2; const rows = [];
+        while (i < lines.length && /\|/.test(lines[i]) && lines[i].trim()) rows.push(cells(lines[i++]));
+        const td = (tag, c, k) => `<${tag}${al[k] ? ` style="text-align:${al[k]}"` : ''}>${mdInline(esc(c), base)}</${tag}>`;
+        out += `<table><thead><tr>${head.map((c, k) => td('th', c, k)).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c, k) => td('td', c, k)).join('')}</tr>`).join('')}</tbody></table>`;
+        continue;
+      }
+      if (MD_ITEM.test(l)) {   // 列表:连续的项、比项缩进更深的续行、夹在中间的空行
+        flush(); const start = i, base0 = MD_ITEM.exec(l)[1].length, ord = /\d/.test(MD_ITEM.exec(l)[2]);
+        i++;
+        while (i < lines.length) {
+          const x = lines[i], ind = /^\s*/.exec(x)[0].length, mi = MD_ITEM.exec(x);
+          if (mi && ind <= base0 + 1 && /\d/.test(mi[2]) !== ord) break;   // 同一层换了列表种类(- → 1.):另起一个列表
+          if (mi && ind >= base0) { i++; continue; }
+          if (x.trim() && ind > base0) { i++; continue; }
+          if (!x.trim() && i + 1 < lines.length && (MD_ITEM.test(lines[i + 1]) || /^\s*/.exec(lines[i + 1])[0].length > base0) && /^\s*/.exec(lines[i + 1])[0].length >= base0 && lines[i + 1].trim()) { i++; continue; }
+          break;
+        }
+        out += mdList(lines.slice(start, i), base0, base); continue;
+      }
+      if (!l.trim()) { flush(); i++; continue; }
+      para.push(l.trim()); i++;
+    }
+    flush();
+    return out;
+  }
+  function mdList(lines, base0, base) {
+    const items = [];
+    for (const l of lines) {
+      const m = MD_ITEM.exec(l);
+      if (m && m[1].length <= base0 + 1) items.push({ head: m[3], rest: [], ordered: /\d/.test(m[2]) });
+      else if (items.length) items[items.length - 1].rest.push(l.slice(Math.min(/^\s*/.exec(l)[0].length, base0 + 2)));
+    }
+    const tag = items[0] && items[0].ordered ? 'ol' : 'ul';
+    return `<${tag}>` + items.map((it) => {
+      const task = /^\[([ xX])\]\s+/.exec(it.head);
+      const head = (task ? `<input type="checkbox" disabled${task[1] !== ' ' ? ' checked' : ''}> ` : '') + mdInline(esc(task ? it.head.slice(task[0].length) : it.head), base);
+      return `<li>${head}${it.rest.join('\n').trim() ? renderMarkdown(it.rest.join('\n'), base) : ''}</li>`;
+    }).join('') + `</${tag}>`;
+  }
+  $('fp-body').addEventListener('click', (ev) => {   // 预览里的链接:项目里的文件 → 在星图里打开;#锚点 → 滚过去
+    const a = ev.target.closest('#fp-md a[data-open], #fp-md a[data-anchor]'); if (!a) return;
+    ev.preventDefault();
+    if (a.dataset.anchor !== undefined) { const h = $('fp-md').querySelector(`[id="${CSS.escape(a.dataset.anchor)}"]`); if (h) h.scrollIntoView({ behavior: 'smooth' }); return; }
+    exec('open ' + quoteArg(a.dataset.open), 'ui');
+  });
+
+  // ---- LLF 表单:文件里的类型标签就是 schema(和设置面板同一套控件);改动按路径写回同一份缓冲,停手 0.6 秒自动保存 ----
+  const exprStr = (e) => e.name + (e.types.length ? `<${e.types.map(exprStr).join(',')}>` : '') + (e.args.length ? `(${e.args.join(',')})` : '');
+  function mountForm(body) {
+    if (!fp.full && fp.info.editable) { body.innerHTML = '<div id="fp-media">载入全文…</div>'; loadFull().then(() => { if (fp && fp.handler === 'form' && fp.full) renderFileBody(); }); return; }
+    let doc;
+    try { doc = llfParseDoc(fp.text, CFG_OPTS); }
+    catch (e) { body.innerHTML = `<div id="fp-media">这还不是合法的 LLF:${esc(e.message)}<br><span class="btn" data-cmd="open ${esc(quoteArg(fp.id))} --with text">到原文里改</span></div>`; return; }
+    const ro = !fp.full || !fp.info.editable;
+    body.innerHTML = `<div id="fp-form" class="${ro ? 'ro' : ''}">${formNode(doc.root, [], null, ro, false) || '<span class="tag">(空)</span>'}</div>`;
+  }
+  const defaultFor = (w) => (w.kind === 'bool' ? 'false' : w.kind === 'range' ? String(w.min) : w.kind === 'choice' ? w.choices[0] || '' : w.kind === 'color' ? '#ffffff' : '');
+  function formNode(node, path, elemTag, ro, removable) {
+    const P = esc(JSON.stringify(path)), del = removable && !ro ? `<span class="mini no fm-del" data-path="${P}" title="删掉这一项">✗</span>` : '';
+    const label = node.key !== undefined ? labelOf(node) : `#${path[path.length - 1] ?? ''}`, hint = node.key !== undefined ? hintOf(node) : '';
+    if (node.kind === 'map' || node.kind === 'list') {
+      let te = null;
+      try { te = node.tag ? llfParseTagExpr(node.tag) : null; } catch { /* 不认识的写法 */ }
+      const coll = te && (te.name === 'list' || te.name === 'map') ? te : null;
+      const childTag = coll && coll.types[0] ? exprStr(coll.types[0]) : null;
+      const kids = node.kind === 'map' ? node.entries : node.items;
+      const rows = kids.map((k, i) => formNode(k, [...path, node.kind === 'map' ? k.key : i], childTag, ro, !!coll)).join('');
+      const add = coll && !ro ? `<span class="btn fm-add" data-path="${P}" data-kind="${node.kind}" data-elem="${esc(childTag || '')}">+ 添加${coll.name === 'map' ? '一项' : ''}</span>` : '';
+      if (!path.length) return rows + add;
+      return `<div class="sg" data-sg="${P}"><div class="sg-h"><span title="${esc(hint)}">${esc(label)}</span>${node.tag ? `<code class="fm-tag">!${esc(node.tag)}</code>` : ''}${del}</div><div class="sg-b fm-sub">${rows || '<span class="tag">(空)</span>'}${add}</div></div>`;
+    }
+    const tag = node.tag || elemTag, w = widgetOf(tag), val = node.kind === 'null' ? null : node.value, dis = ro ? ' disabled' : '';
+    const lab = `<label title="${esc(hint || (tag ? '!' + tag : '字符串'))}">${esc(label)}</label>`;
+    const v = parseSetting(w, val ?? '');
+    let ctl;
+    if (w.kind === 'bool') ctl = `<div class="st-tog fm-tog ${v ? 'on' : ''}" data-path="${P}" data-on="${v ? 1 : 0}"><span class="sw"></span></div>`;
+    else if (w.kind === 'range') { const x = v ?? w.min; ctl = `<input type="range" data-path="${P}" data-tag="${esc(tag)}" min="${w.min}" max="${w.max}" step="${w.step}" value="${x}"${dis}><output>${esc(w.zero !== undefined && x === w.min ? w.zero : Number(x).toFixed(decimals(w.step)))}</output>`; }
+    else if (w.kind === 'choice') ctl = `<span class="seg">${w.choices.map((c, i) => `<span class="${val === c ? 'on' : ''}" data-path="${P}" data-v="${esc(c)}">${esc(w.names[i])}</span>`).join('')}</span>`;
+    else if (w.kind === 'color') ctl = `<input type="color" data-path="${P}" value="${esc(/^#[0-9a-f]{6}$/i.test(val || '') ? val : '#000000')}"${dis}><code>${esc(val ?? '')}</code>`;
+    else if (node.block) ctl = `<textarea class="st-in fm-text" data-path="${P}" rows="${Math.min(8, (val || '').split('\n').length + 1)}" spellcheck="false"${dis}>${esc(val ?? '')}</textarea>`;
+    else ctl = `<input class="st-in fm-text" data-path="${P}" value="${esc(val ?? '')}" placeholder="${val === null ? '_(空)' : ''}" spellcheck="false"${w.kind === 'number' ? ` type="number" min="${w.min}" max="${w.max}" step="${w.step}"` : ''}${dis}>`;
+    return `<div class="fm-row fm-${w.kind}">${lab}<span class="fm-ctl">${ctl}</span>${del}</div>`;
+  }
+  let formSaveTimer = null;
+  function formEdit(fn, rerender) {
+    if (!fp || !fp.full || !fp.info.editable) return;
+    try { fp.text = fn(fp.text); } catch (e) { fpBar('改不了:' + esc(e.message)); return; }
+    markDirty();
+    clearTimeout(formSaveTimer); formSaveTimer = setTimeout(() => { if (fp && fp.dirty) saveFile(false); }, 600);
+    if (rerender) refreshBody();
+  }
+  const pathOf = (el) => JSON.parse(el.dataset.path);
+  $('fp-body').addEventListener('click', (ev) => {
+    if (!$('fp-form')) return;
+    const t = ev.target;
+    const tog = t.closest('.fm-tog'); if (tog) { formEdit((s) => llfSetString(s, pathOf(tog), tog.dataset.on === '1' ? 'false' : 'true', CFG_OPTS), true); return; }
+    const seg = t.closest('.seg [data-v][data-path]'); if (seg) { formEdit((s) => llfSetString(s, pathOf(seg), seg.dataset.v, CFG_OPTS), true); return; }
+    const del = t.closest('.fm-del'); if (del) { formEdit((s) => llfDelete(s, pathOf(del), CFG_OPTS), true); return; }
+    const add = t.closest('.fm-add');
+    if (add) {
+      const path = pathOf(add), w = widgetOf(add.dataset.elem || null);
+      let key;
+      if (add.dataset.kind === 'map') { key = prompt('新的键名'); if (!key) return; }
+      else key = llfFind(llfParseDoc(fp.text, CFG_OPTS), path).items.length;
+      formEdit((s) => llfSetString(s, [...path, key], defaultFor(w), CFG_OPTS), true);
+      return;
+    }
+    const h = t.closest('#fp-form .sg-h'); if (h && !t.closest('.fm-del')) h.parentElement.classList.toggle('fold');
+  });
+  $('fp-body').addEventListener('input', (ev) => {
+    const t = ev.target; if (!t.closest('#fp-form') || t.type !== 'range') return;
+    const w = widgetOf(t.dataset.tag);
+    t.nextElementSibling.textContent = w.zero !== undefined && Number(t.value) === w.min ? w.zero : Number(t.value).toFixed(decimals(w.step));
+  });
+  $('fp-body').addEventListener('change', (ev) => {
+    const t = ev.target; if (!t.closest('#fp-form') || !t.dataset.path) return;
+    const v = t.type === 'range' ? formatSetting(widgetOf(t.dataset.tag), Number(t.value)) : t.value;
+    formEdit((s) => llfSetString(s, pathOf(t), v, CFG_OPTS), t.type === 'color');
+  });
+
+  // ---- 宇宙文件(.stars):概况;是别处的 universe.stars 就可以作为项目打开 ----
+  function mountUniverse(body) {
+    if (!fp.full) {
+      if (fp.info.editable) { body.innerHTML = '<div id="fp-media">载入全文…</div>'; loadFull().then(() => { if (fp && fp.handler === 'universe' && fp.full) renderFileBody(); }); }
+      else body.innerHTML = '<div id="fp-media">文件太大,只能在「原文」里看开头</div>';
+      return;
+    }
+    let u;
+    try { u = parse(fp.text); }
+    catch (e) { body.innerHTML = `<div id="fp-media">解析失败:${esc(e.message)}<br><span class="btn" data-cmd="open ${esc(quoteArg(fp.id))} --with text">看原文</span></div>`; return; }
+    const count = (xs, f) => { const m = new Map(); for (const x of xs) { const k = f(x) || '(无)'; m.set(k, (m.get(k) || 0) + 1); } return [...m].sort((a, b) => b[1] - a[1]); };
+    const chips = (rows) => rows.map(([k, n]) => `<span class="chip on">${esc(k)} ${n}</span>`).join(' ');
+    const nodes = [...u.nodes.values()].filter((n) => !n.id.startsWith('~')), edges = [...u.edges.values()];
+    const dir = fp.info.abs.replace(/[\\/][^\\/]*$/, '');
+    const isUni = /(^|\/)universe\.stars$/.test(fp.path), here = project && dir === project.dir;
+    body.innerHTML = `<div id="fp-uni"><div class="row"><span class="tag">节点</span><b>${nodes.length}</b></div><div style="display:flex;flex-wrap:wrap;gap:5px;margin:4px 0 10px">${chips(count(nodes, (n) => n.attrs.type))}</div>`
+      + `<div class="row"><span class="tag">边</span><b>${edges.length}</b></div><div style="display:flex;flex-wrap:wrap;gap:5px;margin:4px 0 10px">${chips(count(edges, (e) => e.type))}</div>`
+      + (isUni ? (here ? '<div class="tag">这就是当前项目的宇宙</div>' : `<span class="btn pri" data-cmd="project ${esc(quoteArg(dir))}">作为项目打开 ↗</span>`) : '')
+      + '</div>';
+  }
+
+  // ---- 文件的载入、保存、冲突 ----
   /** 侧栏跟着选中走:选中的是文件就显示它,不是就收起(有修改先自动保存) */
   function syncFile(n) {
     const id = n && fileOf(n) && !window.__STARS_STATIC__ ? n.id : null;
@@ -1428,29 +1733,32 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     $('side').classList.toggle('file', !!id);
     if (id) loadFile(id);
   }
+  let fpNext = null;   // open 命令给下一次载入的要求:{ id, want, focus }
   async function loadFile(id) {
     const path = fileOf(raw.get(id));
-    const cur = fp = { id, path, info: null, dirty: false, full: false, indent: '  ' };
+    const req = fpNext && fpNext.id === id ? fpNext : null; fpNext = null;
+    const cur = fp = { id, path, info: null, text: '', dirty: false, full: false, indent: '  ', want: req && req.want, handler: null };
     $('fp-body').innerHTML = '<div id="fp-media">载入中…</div>'; $('fp-state').textContent = ''; $('fp-more').hidden = true; fpBar(null);
-    $('fp-save').style.display = 'none';
+    $('fp-save').style.display = 'none'; $('fp-with').innerHTML = ''; $('fp-remember').hidden = true;
     let info;
     try { info = await api('/api/file?head=' + HEAD + '&path=' + enc(path)); }
     catch (e) { if (fp === cur) $('fp-body').innerHTML = `<div id="fp-media">打不开:${esc(e.message)}</div>`; return; }
     if (fp !== cur) return;
-    cur.info = info; cur.full = info.kind === 'text' && !info.partial;
+    cur.info = info; cur.text = info.content ?? ''; cur.full = info.kind === 'text' && !info.partial;
     cur.indent = info.content && /\n\t/.test(info.content) ? '\t' : '  ';
     $('fp-code').href = 'vscode://file/' + info.abs.replace(/\\/g, '/');
-    renderFileBody(); fpState();
+    renderFileBody();
     clearInterval(fpPoll); fpPoll = setInterval(checkDisk, 3000);
     const orphan = fpOrphan && fpOrphan.id === id ? fpOrphan : null;
     if (orphan) { // 上次切走时没能保存的修改:放回来,让你决定
       fpOrphan = null;
-      await loadFull(); if (fp !== cur || !$('fp-text')) return;
-      $('fp-text').value = orphan.content; cur.dirty = true; gutter(); fpState();
+      await loadFull(); if (fp !== cur) return;
+      cur.text = orphan.content; cur.dirty = true; refreshBody();
       fpBar(`你上次切走时的修改没能保存:文件在你打开之后被别处改过了。<span class="btn" data-fp="load">载入磁盘版本(丢弃我的)</span><span class="btn" data-fp="force">用我的覆盖</span>`);
     }
+    if (req && req.focus) focusPrimary();
   }
-  /** 预览 → 全文(可编辑);保留光标与滚动位置 */
+  /** 开头 → 全文(可编辑);保留光标与滚动位置 */
   async function loadFull() {
     const cur = fp;
     if (!cur || cur.full || cur.loading || !cur.info || cur.info.kind !== 'text' || !cur.info.editable) return;
@@ -1459,17 +1767,15 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     try { info = await api('/api/file?path=' + enc(cur.path)); } catch (e) { cur.loading = false; fpBar('载入全文失败:' + esc(e.message)); return; }
     cur.loading = false;
     if (fp !== cur) return;
-    const t = $('fp-text'), focused = document.activeElement === t, keep = t ? [t.selectionStart, t.selectionEnd, t.scrollTop] : null;
-    cur.info = info; cur.full = true;
-    if (t) { t.value = info.content; t.readOnly = false; gutter(); [t.selectionStart, t.selectionEnd, t.scrollTop] = keep; if (focused) t.focus(); }
-    fpState();
+    cur.info = info; cur.full = true; cur.text = info.content;
+    refreshBody();
   }
   /** 收起文件;有未保存的修改就在后台保存,失败了把修改留下来,提示你回去处理 */
   function releaseFile() {
-    const cur = fp; fp = null; clearInterval(fpPoll);
-    const t = $('fp-text'), content = t ? t.value : null;
+    const cur = fp; fp = null; clearInterval(fpPoll); clearTimeout(formSaveTimer);
     $('side').classList.remove('file'); $('fp-body').innerHTML = ''; fpBar(null);
-    if (!cur || !cur.dirty || content === null) return;
+    if (!cur || !cur.dirty || !cur.full) return;
+    const content = cur.text;
     api('/api/file', { path: cur.path, content, mtime: cur.info.mtime })
       .then(() => toast(`已保存 ${esc(cur.path)}`))
       .catch((e) => { fpOrphan = { id: cur.id, content }; toast(`${esc(cur.path)} 的修改没能保存:${esc(e.message)} <span class="btn" data-sel="${esc(cur.id)}">回去处理</span>`, true, 15000); });
@@ -1490,18 +1796,17 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     let info;
     try { info = await api('/api/file?' + (cur.full ? '' : 'head=' + HEAD + '&') + 'path=' + enc(cur.path)); } catch (e) { fpBar('重新载入失败:' + esc(e.message)); return; }
     if (fp !== cur) return;
-    const t = $('fp-text'), keep = t ? [t.selectionStart, t.selectionEnd, t.scrollTop] : null;
-    cur.info = info; cur.dirty = false; cur.full = info.kind === 'text' && !info.partial;
-    if (t && info.kind === 'text') { t.value = info.content; t.readOnly = !cur.full || !info.editable; gutter(); [t.selectionStart, t.selectionEnd, t.scrollTop] = keep; }
-    else renderFileBody();
-    fpState(); if (note) fpFlash(esc(note)); else fpBar(null);
+    cur.info = info; cur.text = info.content ?? ''; cur.dirty = false; cur.full = info.kind === 'text' && !info.partial;
+    refreshBody();
+    if (note) fpFlash(esc(note)); else fpBar(null);
   }
   async function saveFile(force) {
     if (!fp || !fp.full || !fp.info.editable) return;
-    const cur = fp, content = $('fp-text').value;
+    const cur = fp, content = cur.text;
     try {
       const r = await api('/api/file', { path: cur.path, content, mtime: force ? null : cur.info.mtime });
-      cur.info = { ...cur.info, mtime: r.mtime, size: r.size, content }; cur.dirty = false;
+      cur.info = { ...cur.info, mtime: r.mtime, size: r.size, content };
+      if (cur.text === content) cur.dirty = false;   // 保存期间又改了:还是脏的
       fpFlash('已保存');
     } catch (e) {
       if (/改过/.test(e.message)) fpBar(`保存被拒绝:文件在你打开之后被别处改过了。<span class="btn" data-fp="load">载入磁盘版本(丢弃我的)</span><span class="btn" data-fp="force">用我的覆盖</span>`);
@@ -1648,6 +1953,17 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     for (const e of (b && b.kind === 'map' ? b.entries : [])) out.set(normKey(e.key), e.kind === 'null' ? null : e.kind === 'str' ? e.value.trim() : undefined);
     return out;
   }
+  // 双击:节点的种类 → 命令(keys.llf 的 dblclick;$id / $path / $dir 换成被双击的那个)
+  const DBL_TYPES = { container: '容器', file: '文件', image: '图片', markdown: 'Markdown', form: 'LLF 配置', universe: '宇宙文件', node: '其它节点' };
+  function dblOf(text) {
+    const out = new Map();
+    let doc; try { doc = llfParseDoc(text, CFG_OPTS); } catch { return out; }
+    const b = llfFind(doc, ['dblclick']);
+    for (const e of (b && b.kind === 'map' ? b.entries : [])) out.set(e.key, e.kind === 'null' ? null : e.kind === 'str' ? e.value.trim() : undefined);
+    return out;
+  }
+  const DEF_DBL = new Map([...dblOf(CFG.defaults.keys)].filter(([, c]) => c));
+  let DBL = new Map();
   const DEF_KEYS = [...bindingsOf(CFG.defaults.keys)].filter(([, c]) => c);
   const DEF_KEY = new Map(DEF_KEYS);
   let KEYMAP = [], keyMap = new Map();
@@ -1657,8 +1973,27 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     for (const [k, c] of DEF_KEYS) { const v = user.has(k) ? user.get(k) : c; if (v) out.push([k, v]); }
     for (const [k, v] of user) if (v && !DEF_KEY.has(k)) out.push([k, v]);
     KEYMAP = out; keyMap = new Map(out);
+    DBL = new Map(DEF_DBL);
+    for (const [t, v] of dblOf(userCfg.keys.text)) { if (v) DBL.set(t, v); else if (v === null) DBL.delete(t); }
   }
   rebuildKeys();
+  /** 设某类节点的双击命令;undefined = 恢复默认 */
+  function setDbl(type, cmd) {
+    const value = cmd === undefined || cmd === DEF_DBL.get(type) ? undefined : cmd;
+    cfgEdit('keys', { path: ['dblclick', type], value });
+    rebuildKeys();
+    if (!$('physics').hidden) renderPhysics(true);
+  }
+  /** 双击某个节点要执行的命令行 */
+  function dblLine(id) {
+    const n = raw.get(id); if (!n) return null;
+    const sn = isSpaces() ? compiled.node(id) : sim.get(id), path = fileOf(n);
+    const type = sn && sn.container ? 'container' : path ? fileTypeOf(path) : 'node';
+    const tpl = DBL.get(type) ?? (path ? DBL.get('file') : undefined);
+    if (!tpl) return null;
+    const dir = path && path.includes('/') ? path.replace(/\/[^/]*$/, '') : '.';
+    return tpl.replace(/\$(id|path|dir)\b/g, (_, k) => quoteArg(k === 'id' ? id : k === 'path' ? path || id : dir));
+  }
   /** 绑定 / 取消 / 恢复默认一个键:cmd 是命令行;null = 取消;undefined = 恢复默认 */
   function setBinding(key, cmd) {
     key = normKey(key);
@@ -1709,7 +2044,14 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
           + (st && def ? `<span class="mini" data-kb="reset" title="恢复默认:${esc(def)}">↺</span>` : '<span></span>')
           + (off ? '<span></span>' : `<span class="mini no" data-kb="unbind" title="${def ? '取消这个键' : '删掉这个绑定'}">✗</span>`) + '</div>';
       }).join('') + '</div>'
-      + `<div class="btns" style="margin-top:6px"><span class="btn" id="kb-add">${recording ? '请按下要绑的键…(Esc 取消)' : '+ 添加快捷键'}</span></div>`;
+      + `<div class="btns" style="margin-top:6px"><span class="btn" id="kb-add">${recording ? '请按下要绑的键…(Esc 取消)' : '+ 添加快捷键'}</span></div>`
+      + '<div class="sg" style="margin-top:10px"><div class="sg-h"><span>双击</span></div><div class="sg-b"><div class="tag" style="font-size:11px;margin-bottom:4px">按节点的种类执行命令:$id = 被双击的节点,$path = 它的文件,$dir = 文件所在目录;清空 = 恢复默认</div>'
+      + Object.entries(DBL_TYPES).map(([t, label]) => {
+        const def = DEF_DBL.get(t), cur = DBL.get(t), st = cur === def ? '' : cur ? '已改' : '已取消';
+        return `<div class="kb-row dbl ${st ? 'mod' : ''}"><kbd title="${t}">${esc(label)}</kbd>`
+          + `<input class="kb-cmd" data-dbl="${t}" list="cmd-names" value="${esc(cur || '')}" placeholder="${esc(def ? '默认:' + def : '(按「文件」)')}" spellcheck="false">`
+          + `<span class="kb-st">${st}</span>${st && def ? `<span class="mini" data-dblreset="${t}" title="恢复默认:${esc(def)}">↺</span>` : '<span></span>'}<span></span></div>`;
+      }).join('') + '</div></div>';
   }
   function rawView(name) {
     const u = userCfg[name];
@@ -1741,7 +2083,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     if (t) setTab = t.dataset.tab; else if (r) setRaw = r.dataset.raw === '1'; else return;
     recording = false; saveSetView(); renderPhysics();
   });
-  $('ph-reset').addEventListener('click', () => exec(setTab === 'keys' ? 'bind reset' : 'param reset', 'ui'));
+  $('ph-reset').addEventListener('click', () => { if (setTab === 'keys') { exec('bind reset', 'ui'); exec('dbl reset', 'ui'); } else exec('param reset', 'ui'); });
   $('ph-body').addEventListener('input', (ev) => {
     const t = ev.target;
     if (t.id === 'set-raw') { rawInput(t); return; }
@@ -1752,6 +2094,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
   });
   $('ph-body').addEventListener('change', (ev) => {
     const t = ev.target, k = t.dataset && t.dataset.k;
+    if (t.classList.contains('kb-cmd') && t.dataset.dbl) { const v = t.value.trim(); exec(v ? `dbl ${t.dataset.dbl} ${v}` : `dbl reset ${t.dataset.dbl}`, 'ui'); return; }
     if (t.classList.contains('kb-cmd')) { const v = t.value.trim(); exec(v ? `bind ${quoteArg(t.dataset.key)} ${v}` : `unbind ${quoteArg(t.dataset.key)}`, 'ui'); return; }
     if (!k) return;
     if (t.type === 'range') { setParam(k, P[k]); did(`param ${k} ${formatSetting(SET.items[k].w, P[k])}`); return; }
@@ -1764,6 +2107,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     if (ch) { exec(`param ${ch.dataset.k} ${quoteArg(ch.dataset.v)}`, 'ui'); return; }
     const t = ev.target.closest('.st-tog');
     if (t) { exec(`param ${t.dataset.k} toggle`, 'ui'); return; }
+    const dr = ev.target.closest('[data-dblreset]'); if (dr) { exec(`dbl reset ${dr.dataset.dblreset}`, 'ui'); return; }
     const kb = ev.target.closest('[data-kb]');
     if (kb) { const key = kb.closest('[data-key]').dataset.key; exec(kb.dataset.kb === 'reset' ? `bind reset ${quoteArg(key)}` : `unbind ${quoteArg(key)}`, 'ui'); return; }
     if (ev.target.closest('#kb-add')) { recording = !recording; renderPhysics(); }
@@ -3231,6 +3575,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     run: () => {
       const ae = document.activeElement;
       if (ae && ['INPUT', 'TEXTAREA', 'SELECT'].includes(ae.tagName)) { ae.blur(); return; }
+      if (!$('lightbox').hidden) { $('lightbox').hidden = true; return; }
       if (!$('palette').hidden) { togglePalette(false); return; }
       if (!$('keys').hidden) { toggleKeys(false); return; }
       if (replay) { exitReplay(); return; }
@@ -3265,11 +3610,11 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     run: () => { if (isSpaces()) { expandedSet.clear(); spaceVer++; renderStatus(); } else { manual.clear(); auto.clear(); recompute(false); } },
   });
   defCmd('enter', {
-    group: '空间', title: '进入选中的空间;选中的是文件就进编辑', usage: 'enter [id]', args: [nodeArg()],
+    group: '空间', title: '进入选中的空间;选中的是文件就打开它(= open)', usage: 'enter [id]', args: [nodeArg()],
     run: ([id]) => {
       id = id || selected; if (!id) return false;
       if (isSpaces() && compiled.node(id)?.container) { if (!enterSpace(id, true)) jumpTo(id); return; }
-      if (fileOf(raw.get(id))) { if (id !== selected) select(id, true); focusEditor(); return; }
+      if (fileOf(raw.get(id))) return CMDS.get('open').run([id], {});
       return false;
     },
   });
@@ -3280,7 +3625,54 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
   });
 
   // ---- 文件 ----
-  defCmd('edit', { group: '文件', title: '把光标放进侧栏的文件编辑器', run: () => { if (!$('fp-text')) return false; focusEditor(); } });
+  defCmd('open', {
+    group: '文件', title: '打开节点的文件:侧栏里按它的种类显示(--with 指定视图;--remember / --forget 记住或忘掉这类扩展名的打开方式;--full 全屏看图)',
+    usage: 'open [id|文件路径] [--with text|markdown|form|image|universe|info] [--remember|--forget] [--full]',
+    flags: { with: 'with', w: 'with' }, bools: ['remember', 'forget', 'full'], args: [nodeArg()],
+    palette: () => [{ line: 'open ', title: '打开一个文件', more: true }, ...(fp && fp.info ? handlersFor(fpDesc()).map(({ h }) => ({ line: `open ${quoteArg(fp.id)} --with ${h.id}`, title: `用「${h.label}」看 ${fp.path}` })) : [])],
+    run: ([id], o) => {
+      id = id || selected; if (!id) return false;
+      if (!raw.has(id)) { const n = [...raw.values()].find((x) => x.attrs.file === id); if (!n) throw new Error(`节点不存在:${id}`); id = n.id; }
+      if (o.with && !FILE_HANDLERS.some((h) => h.id === o.with)) throw new Error(`没有这个视图:${o.with}(可用:${FILE_HANDLERS.map((h) => h.id).join(' ')})`);
+      const path = fileOf(raw.get(id));
+      if (!path) { if (id !== selected) select(id, true); return; }
+      const ext = extOf(path);
+      if (o.forget) { delete openWith[ext]; saveOpenWith(); }
+      else if (o.remember) { const h = o.with || (fp && fp.id === id ? fp.handler : null); if (h) { openWith[ext] = h; saveOpenWith(); } }
+      if (o.full) { if (fileTypeOf(path) !== 'image' || window.__STARS_STATIC__) return false; showLightbox(path); }
+      const focus = !o.with && !o.remember && !o.forget && !o.full;   // 双击 / 回车打开:光标放进去;切视图、记住、看大图不抢焦点
+      if (fp && fp.id === id) {
+        if (o.with) fp.want = o.with;
+        if (fp.info && (o.with || o.remember || o.forget)) renderFileBody();
+        if (focus) focusPrimary();
+        return;
+      }
+      fpNext = { id, want: o.with, focus };
+      select(id, true);
+    },
+  });
+  defCmd('edit', {
+    group: '文件', title: '在原文里编辑侧栏的文件(当前是别的视图就切到原文)',
+    run: () => {
+      if (!fp || !fp.info || fp.info.kind !== 'text') return false;
+      if (fp.handler !== 'text') { fp.want = 'text'; renderFileBody(); }
+      focusEditor();
+    },
+  });
+  defCmd('dbl', {
+    group: '设置', title: '双击某类节点时执行的命令($id / $path / $dir 换成那个节点的);dbl reset [类型] 恢复默认;不带参数列出全部',
+    usage: 'dbl [类型] [命令…] · dbl reset [类型]',
+    args: [{ name: '类型', values: () => ['reset', ...Object.keys(DBL_TYPES)] }, { name: '命令', values: () => [...CMDS.keys()] }],
+    run: ([t, ...cmd]) => {
+      if (!t) return Object.keys(DBL_TYPES).map((k) => `${k.padEnd(10)} ${DBL.get(k) ?? '(按 file)'}${DBL.get(k) !== DEF_DBL.get(k) ? '   (改过)' : ''}`).join('\n');
+      if (t === 'reset') { for (const k of cmd.length ? cmd : Object.keys(DBL_TYPES)) setDbl(k, undefined); return; }
+      if (!(t in DBL_TYPES)) throw new Error(`没有这个种类:${t}(可用:${Object.keys(DBL_TYPES).join(' ')})`);
+      if (!cmd.length) return `${t} → ${DBL.get(t) ?? '(按 file)'}${DEF_DBL.has(t) ? `   默认:${DEF_DBL.get(t)}` : ''}`;
+      const line = cmd.length === 1 ? cmd[0] : cmd.map(quoteArg).join(' ');
+      if (!CMDS.has(tokenize(line)[0])) throw new Error(`没有这个命令:${tokenize(line)[0]}`);
+      setDbl(t, line);
+    },
+  });
   defCmd('save', { group: '文件', title: '保存侧栏里的文件(Ctrl+S)', run: () => { if (!fp || !fp.full) return false; return saveFile(false); } });
 
   // ---- 设置(写回 ~/.config/stars/settings.llf)与快捷键(keys.llf)----
@@ -3655,7 +4047,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
         + '</div>';
     }
     html += `<div class="grp"><b>鼠标</b>`
-      + [['单击', '选中(回显成 select)'], ['双击', '容器就地展开 / 收起,文件进编辑'], ['滚轮', '缩放:放大进入空间,缩小回到外层'], ['拖动', '平移镜头;拖节点 = 给它一个拉力'], ['拖侧栏左边', '调整侧栏宽度']]
+      + [['单击', '选中(回显成 select)'], ['双击', '按节点种类执行命令(容器就地展开、文件打开、图片全屏;设置 → 快捷键 → 双击)'], ['滚轮', '缩放:放大进入空间,缩小回到外层'], ['拖动', '平移镜头;拖节点 = 给它一个拉力'], ['拖侧栏左边', '调整侧栏宽度']]
         .map(([k, t]) => `<div class="k"><span>${k}</span><span>${t}</span></div>`).join('') + '</div></div>';
     $('keys').innerHTML = html;
   }

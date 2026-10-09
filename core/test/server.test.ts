@@ -333,7 +333,7 @@ test('共享模块:浏览器拿到的 /core/*.js 去掉了类型、能直接 imp
   await new Promise((r) => setTimeout(r, 150));
   const out = mkdtempSync(join(tmpdir(), 'stars-js-'));
   try {
-    for (const name of ['model', 'expr', 'view', 'ops', 'proposals', 'query', 'llf']) {
+    for (const name of ['model', 'expr', 'view', 'ops', 'proposals', 'query', 'llf', 'format']) {
       const r = await fetch(`http://127.0.0.1:${port}/core/${name}.js`);
       assert.equal(r.status, 200, name);
       const js = await r.text();
@@ -345,6 +345,8 @@ test('共享模块:浏览器拿到的 /core/*.js 去掉了类型、能直接 imp
     assert.deepEqual(llf.llfToJson(llf.llfParse('a !color - #fff\n--LLF-END\n', { tags: true })), { a: { $tag: 'color', $value: '#fff' } });
     const q = await import(pathToFileURL(join(out, 'query.js')).href);
     assert.equal(typeof q.shortestPath, 'function');
+    const fmt = await import(pathToFileURL(join(out, 'format.js')).href);
+    assert.equal(fmt.parse(genesis).nodes.size > 0, true, '浏览器里也能解析宇宙文件(侧栏的宇宙概况)');
   } finally { srv.close(); }
   // 静态导出:内核模块去掉 import/export 后拼进查看器的模块脚本;名字撞了或语法坏了这里会报
   const html = exportHtml(store, dir);

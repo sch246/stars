@@ -136,7 +136,7 @@ CLI:`stars view arch`(架构级,只展开一层、隐藏文件)、`stars view ga
 背景(远方的星系 / 只有星点 / 纯黑)在设置面板的「显示」里选,或按 `B` 切换(`bg` 命令),记在浏览器里。
 
 ### 同一份代码在两端运行
-`model.ts` / `expr.ts` / `view.ts` / `query.ts` / `llf.ts` 只依赖标准库。`stars serve` 把它们去掉类型后以 JS 提供给浏览器(`/core/*.js`,
+`model.ts` / `expr.ts` / `view.ts` / `query.ts` / `llf.ts` / `format.ts` 只依赖标准库。`stars serve` 把它们去掉类型后以 JS 提供给浏览器(`/core/*.js`,
 用 Node 的 `module.stripTypeScriptTypes`,这是实验性 API),所以展开、收起、切换视图完全在浏览器本地计算,
 CLI 与查看器永远是同一套逻辑。
 
@@ -299,6 +299,29 @@ AI 用 `--proposed` 写入的边是"待确认"的。查看器里:
   保存时带上打开时的修改时间,别处改过会被拒绝(409),不会悄悄覆盖。原来是 CRLF 的文件保存后仍是 CRLF;宇宙自己的存储与 `.git` 只读。
 - **宽度**:拖侧栏左边缘调整,看文件时和平时各记各的,双击边缘恢复默认。
 - `VS Code ↗` 是 `vscode://file/…` 链接,查看器和文件在同一台机器上时可用。
+
+### 文件类型处理器:每类文件有自己的视图,原文页始终可用
+
+侧栏下半按文件的种类显示(借鉴 sch246/dsh-file-viewer 的处理器注册表):每个处理器自己判断能不能接这个文件,
+回答"默认"或"可用"(带优先级);选哪个:这次指定的 > 记住的(按扩展名)> 优先级最高的默认 > 原文。
+不止一个视图时,侧栏头上显示「打开方式」分段按钮,旁边的「记住」= 以后这类扩展名都用它(记在浏览器里)。
+
+| 视图 | 接哪些文件 | 说明 |
+|---|---|---|
+| 原文 `text` | 所有文本(可用) | 上面说的轻量编辑器 |
+| 图片 `image` | 图片(默认) | 点一下全屏看(Esc / 再点关) |
+| 预览 `markdown` | `.md`(默认) | 零依赖的小渲染器:标题、列表(含任务、嵌套)、表格、代码块、引用、链接、图片;先整体转义,**不放行原始 HTML**。项目里的相对链接点了就在星图里打开那个文件,`#锚点` 滚过去 |
+| 表单 `form` | `.llf`(默认) | 文件里的类型标签就是 schema,和设置面板同一套控件;`!list<T>` / `!map<T>` 可以增删项;改动按路径写回,停手 0.6 秒自动保存 |
+| 宇宙 `universe` | `.stars`(默认) | 节点、边按类型的概况;是别处的 `universe.stars` 就能「作为项目打开」 |
+| 信息 `info` | 二进制、太大 | 大小,建议用 VS Code 打开 |
+
+所有视图**共用同一份文本缓冲**:在表单里改、切到原文看,改动都在;保存、冲突检测、切走时自动保存都按这份缓冲来。
+
+命令:`open [id|文件路径] [--with 视图] [--remember|--forget] [--full]`(双击、回车打开文件都是它),`edit`(切到原文并把光标放进去)。
+
+**双击也是命令**,按节点的种类查 `keys.llf` 的 `dblclick` 表(`$id` / `$path` / `$dir` 换成被双击的那个):
+`container - expand $id`、`file - open $id`、`image - open $id --full`、`markdown` / `form` / `universe - open $id`、`node - select $id`;
+某类没写就按 `file`。可以在设置 → 快捷键 → 双击里改,或 `dbl <种类> <命令…>` / `dbl reset`。
 - 接口:`GET /api/file?path=`(`&head=N` 只要开头、`&stat=1` 只要大小与修改时间)、`POST /api/file {path, content, mtime}`、
   `GET /api/raw?path=&t=<token>`(图片;`<img>` 带不了请求头,所以 token 放在查询参数里)。路径限制在项目目录内。
 
@@ -336,7 +359,7 @@ AI 用 `--proposed` 写入的边是"待确认"的。查看器里:
 | 面板 | `panel <tools\|side\|types\|rules\|timeline\|review\|projects\|settings\|console\|keys> [on\|off\|toggle]` |
 | 视图 | `view <名字\|序号>`、`filter [文字]`、`type <类型> [on\|off]`、`tag [id]`、`select [id]`、`cancel`、`fit`、`bg`、`bounds` |
 | 空间 | `expand [id]`、`enter [id]`、`exit`、`jump [id]`、`collapse-all` |
-| 文件 / 设置 | `edit`、`save`;`param [名字] [值]`、`param reset [名字]`(名字也可以是 `bg`、`bounds`) |
+| 文件 / 设置 | `open [id] [--with 视图] [--remember] [--full]`、`edit`、`save`;`param [名字] [值]`、`param reset [名字]`;`bind` / `unbind`、`dbl <种类> <命令…>` |
 | 时间线 / 项目 / 审阅 | `timeline <prev\|next\|first\|now\|play\|scope\|more>`;`project [目录] [--create]`;`review <accept-all\|reject-all>` |
 | 写宇宙(与 CLI 同名同参数,作者记为 viewer,可 `undo`) | `add`、`set`、`rm`、`link`、`unlink`、`accept`、`undo` |
 | 读宇宙(在浏览器里算) | `show`、`nb`、`path`、`ls`、`log`、`lint`、`views` |
@@ -383,7 +406,7 @@ AI 用 `--proposed` 写入的边是"待确认"的。查看器里:
 外加**保留原文的文档模型**:`llfParseDoc` 给出每个值在原文里的位置和紧挨在上面的注释,`llfSetString` / `llfDelete` 只改目标那一段。
 测试跑 llf-format 的全部向量(90 + 3 + 6 + 22 条,外加 29 条标签表达式向量)、往返 fuzz,以及"改完只动了目标区域"的编辑 fuzz。
 
-还没接上的:文件类型处理器(侧栏视图 + 双击行为,原文页始终可用;配置文件在侧栏里也显示成这种表单)、JSON / TOML 等格式的表单。
+项目里的 `.llf` 文件在侧栏里也显示成这种表单(见"文件类型处理器")。还没接上的:JSON / TOML 等格式的表单。
 
 ## 在没有显示器的机器上使用
 
@@ -533,7 +556,7 @@ node src/cli.ts serve --watch                # 实时查看器 + 文件系统同
 | 级别 | 内容 | 状态 |
 |---|---|---|
 | L0 | 内核 + 文本格式 + CLI + 实时查看器 | ✅ 本次 |
-| L1 | 文件系统实时同步 ✅、视图规则编辑器 ✅、最近编辑信号 ✅、git 历史回放(含分叉)✅、按事实合并 ✅;表达式与函数节点 ✅、性能(编译/折叠)✅、接受/拒绝 proposed 与"提升为真边"的界面 ✅、静态导出 ✅、嵌套空间(放大切换 / 双击就地展开,各自独立的物理)✅、tag 视图 ✅、多项目切换 ✅、宇宙参数与热量 ✅、查看器里编辑文件 ✅、命令 / 控制台 / 命令面板 ✅、设置与快捷键是 LLF 文件(表单 ⇄ 原文)✅、遥控(`stars ui`)✅;还差:路径查询、保存的查询(= 动态区域)、过期检测(文件哈希)、批量变更预览 | 进行中 |
+| L1 | 文件系统实时同步 ✅、视图规则编辑器 ✅、最近编辑信号 ✅、git 历史回放(含分叉)✅、按事实合并 ✅;表达式与函数节点 ✅、性能(编译/折叠)✅、接受/拒绝 proposed 与"提升为真边"的界面 ✅、静态导出 ✅、嵌套空间(放大切换 / 双击就地展开,各自独立的物理)✅、tag 视图 ✅、多项目切换 ✅、宇宙参数与热量 ✅、查看器里编辑文件 ✅、命令 / 控制台 / 命令面板 ✅、设置与快捷键是 LLF 文件(表单 ⇄ 原文)✅、遥控(`stars ui`)✅、文件类型处理器(预览 / 表单 / 宇宙概况,双击按种类)✅;还差:路径查询、保存的查询(= 动态区域)、过期检测(文件哈希)、批量变更预览 | 进行中 |
 | L2 | 视图/规则/查询都是节点;在图里改类型样式即时生效 | |
 | L3 | 代码节点 + 用关系表达的权限(`script --canWrite--> region`),沙箱运行 | |
 | L4 | agent 循环(事件/定时触发),运行记录写成节点 | |

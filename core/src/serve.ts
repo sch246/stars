@@ -30,7 +30,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const viewerDir = resolve(here, '..', 'viewer');
 
 /** 浏览器能直接 import 的共享模块(都不依赖 Node)。 */
-const SHARED = new Set(['model', 'view', 'expr', 'ops', 'proposals', 'query', 'llf']);
+const SHARED = new Set(['model', 'view', 'expr', 'ops', 'proposals', 'query', 'llf', 'format']);
 
 function sharedModule(name: string): string {
   const ts = readFileSync(resolve(here, `${name}.ts`), 'utf8');
