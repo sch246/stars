@@ -288,6 +288,7 @@ import { trackProposals } from '/core/proposals.js';
     gravity:   { def: 1, min: 0, max: 4, step: 0.05, label: '引力', hint: '把节点拉向空间中心' },
     gap:       { def: 3, min: 0, max: 24, step: 1, label: '间隙 px', hint: '碰撞时节点之间至少留的空隙' },
     friction:  { def: 0.42, min: 0.1, max: 0.8, step: 0.01, label: '阻尼', hint: '越大停得越快、越不飘' },
+    dragForce: { def: 0.2, min: 0, max: 2, step: 0.05, label: '拖动力', hint: '拖动时把节点拉向指针的力度(1 = 原来的手感,默认 0.2);锁定拖动会持续施力,太大就会一直加速飞走' },
     enterAt:   { def: 0, min: 0, max: 2, step: 0.01, label: '进入空间', hint: '放大到容器占屏幕短边的多少比例时进入它;0 = 跟随视图的设置(默认 0.42)' },
     follow:    { def: 1, toggle: true, label: '跟随选中', hint: '选中节点后镜头跟住它:它钉在屏幕中央,外面的世界绕着它转;关掉则自由平移缩放' },
     fade:      { def: 1, toggle: true, label: '淡入淡出', hint: '空间内外切换时的交叉淡入淡出;关掉则瞬间切换,更干脆' },
@@ -329,7 +330,7 @@ import { trackProposals } from '/core/proposals.js';
   // 目标始终在它前方,于是像开飞船一样越跑越快);不锁定时相机不动,目标就是指针的世界位置,元素自然靠过去停住。
   const pullTo = (sim) => (alpha) => {
     if (!drag || !drag.moved || drag.sim !== sim || !drag.n) return;
-    const n = drag.n, k = 0.35 * heatScale(alpha);
+    const n = drag.n, k = 0.35 * P.dragForce * heatScale(alpha);
     const off = screenOffset(n.id);   // 节点所在空间的屏幕原点 + 累计缩放(就地展开的祖先也算在内)
     let tx, ty;
     if (off) { const ox = transform.x + off.x - n.x * off.s, oy = transform.y + off.y - n.y * off.s; tx = (drag.px - ox) / off.s; ty = (drag.py - oy) / off.s; }
