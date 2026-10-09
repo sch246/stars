@@ -293,6 +293,7 @@ import { trackProposals } from '/core/proposals.js';
     shrink:    { def: 0.35, min: 0, max: 3, step: 0.05, label: '收缩余量', hint: '拖成员时整组最多收缩多少:成员在自己的空间里最多伸到 E0×(1+余量),其余成员按比例缩小 ≈ 1/(1+余量)。0.35 ≈ 缩 26%,1 ≈ 缩 50%,3 ≈ 缩 75%;死区只在拖动时张开,松手立刻回到原大小。0 = 不收缩' },
     enterAt:   { def: 0, min: 0, max: 2, step: 0.01, label: '进入空间', hint: '放大到容器占屏幕短边的多少比例时进入它;0 = 跟随视图的设置(默认 0.42)' },
     follow:    { def: 1, toggle: true, label: '跟随选中', hint: '选中节点后镜头跟住它:它钉在屏幕中央,外面的世界绕着它转;关掉则自由平移缩放' },
+    highlight: { def: 1, toggle: true, label: '高亮选中', hint: '选中后其它节点变暗,选中的、它的邻居、以及它展开出来的内容保持明亮;关掉则一律不变暗' },
     fade:      { def: 1, toggle: true, label: '淡入淡出', hint: '空间内外切换时的交叉淡入淡出;关掉则瞬间切换,更干脆' },
     compact:   { def: 1, toggle: true, label: '真实体积', hint: '目录和文件用同一套体积公式;占用与展开都不撑大,内容等比缩小;要看清就滚轮放大' },
     volMap:    { def: 'sqrt', choices: ['log', 'sqrt', 'linear'], label: '体积映射', hint: '真实体积开启时,字节数 → 半径 的缩放;sqrt 让面积 ∝ 体积,log 更紧凑' },
@@ -1892,6 +1893,18 @@ import { trackProposals } from '/core/proposals.js';
     for (const l of sp.links) { if (l.source.id === id) s.add(l.target.id); if (l.target.id === id) s.add(l.source.id); }
     return s;
   }
+  /** 高亮选中的豁免集:选中节点 + 它在自己空间里的邻居。全局共用这一份,所以所有空间、所有层级
+   *  都按同一个明暗来画 —— 不再只暗"同一层"的内容(见 drawSpace 里的 aOf)。 */
+  let hlKey = '', hlCache = null;
+  function hlSet() {
+    const key = selected + '|' + spaceVer + '|' + spaces.size;
+    if (key === hlKey && hlCache) return hlCache;
+    hlKey = key;
+    hlCache = new Set([selected]);
+    const sp = selected ? holderOf(selected) : null;
+    if (sp) for (const l of sp.links) { if (l.source.id === selected) hlCache.add(l.target.id); if (l.target.id === selected) hlCache.add(l.source.id); }
+    return hlCache;
+  }
   const mustLabel = (n) => n.id === selected || (query && matchSet.has(n.id)); // 悬浮不再影响图谱标签布局(改用光标气泡)
 
   // 端点:就地展开的容器,连线停在它的疆界上
@@ -2001,8 +2014,10 @@ import { trackProposals } from '/core/proposals.js';
         flushParticles();
       }
     }
-    const focusSet = selected && sp.byId.has(selected) ? neighborsIn(sp, selected) : null;
-    const aOf = (n) => alpha * mE * (n === focus ? 1 - aIn : aOutF) * (query && !qOK(n) ? 0.12 : focusSet && !focusSet.has(n.id) ? 0.3 : 1);
+    // 选中:全局变暗。豁免 = 选中的、它的邻居、以及它展开出来的整棵子树(在任意一层都成立)
+    const hl = selected && P.highlight > 0 ? hlSet() : null;
+    const selSub = !!(hl && sp.id != null && (sp.id === selected || compiled.ancestors(sp.id).includes(selected)));
+    const aOf = (n) => alpha * mE * (n === focus ? 1 - aIn : aOutF) * (query && !qOK(n) ? 0.12 : (hl && !selSub && !hl.has(n.id)) ? 0.3 : 1);
     ctx.globalCompositeOperation = look === 'galaxy' ? 'lighter' : 'source-over';
     drawSpaceEdges(sp, tx, ty, s, morph ? (n) => aOf(n) * mE : aOf, mapN); // 展开中连线晚一点出现(∝ e²)
     const real = (n) => n.real || n;
@@ -2611,7 +2626,7 @@ import { trackProposals } from '/core/proposals.js';
     const focus = selected ? new Set([selected]) : null;
     if (focus) for (const l of links) { if (l.source.id === selected) focus.add(l.target.id); if (l.target.id === selected) focus.add(l.source.id); }
     const tagOK = (n) => !activeTags.size || (n.tags && n.tags.some((t) => activeTags.has(t)));
-    const alphaOf = (n) => (query && !matches(n.id) ? 0.1 : !tagOK(n) ? 0.1 : focus && !focus.has(n.id) ? 0.2 : 1);
+    const alphaOf = (n) => (query && !matches(n.id) ? 0.1 : !tagOK(n) ? 0.1 : P.highlight > 0 && focus && !focus.has(n.id) ? 0.2 : 1);
 
     ctx.globalCompositeOperation = galaxy ? 'lighter' : 'source-over';
     const tR = performance.now();
