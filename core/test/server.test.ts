@@ -49,6 +49,9 @@ test('服务端:没有 token / 主机头不对 / 跨源 一律拒绝;带 token �
     assert.equal(await raw(port, '/api/op', { host: `127.0.0.1:${port}`, origin: 'http://evil.example', 'x-stars-token': srv.token, 'content-type': 'application/json' },
       'POST', JSON.stringify({ op: { op: 'addNode', id: 'y', label: 'y' } })), 403, '跨源');
     assert.ok(!parse(readFileSync(store.file, 'utf8')).nodes.has('y'), '被拒绝的写入没有落盘');
+    // 沙箱里的预览页发出的请求带 Origin: null;/api/raw 的 token 能放在查询参数里,所以连预检都没有
+    assert.equal(await raw(port, `/api/raw?t=${srv.token}&path=universe.stars`, { host: `127.0.0.1:${port}`, origin: 'null' }), 403, 'Origin: null 也是跨源');
+    assert.equal((await fetch(`${base}/`)).status, 200, '服务器还活着');
     const ok = await post({ op: { op: 'addNode', id: 'x', label: 'X' }, author: 'tester' }, { 'x-stars-token': srv.token });
     assert.equal(ok.status, 200);
     assert.ok(parse(readFileSync(store.file, 'utf8')).nodes.has('x'));

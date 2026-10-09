@@ -309,8 +309,9 @@ export function startServer(
     if (tok !== token) return json(res, 403, { error: '缺少或错误的 token' });
     const origin = req.headers.origin;
     if (origin) { // 同源,或来自明确信任的主机名(反向代理时 Origin 是代理的域名)
-      const o = new URL(origin);
-      if (o.host !== req.headers.host && !allowedHosts.has(o.hostname)) return json(res, 403, { error: '跨源请求被拒绝' });
+      let o: URL | null = null;
+      try { o = new URL(origin); } catch { /* Origin: null(沙箱里的预览页、file://)解析不了,一样算跨源 */ }
+      if (!o || (o.host !== req.headers.host && !allowedHosts.has(o.hostname))) return json(res, 403, { error: '跨源请求被拒绝' });
     }
     try {
       const proj = projectOf(url);
