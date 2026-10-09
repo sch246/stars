@@ -5,12 +5,14 @@ import { request } from 'node:http';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import { parse } from '../src/format.ts';
 import { apply } from '../src/ops.ts';
 import { listFiles, planScan, statMeta } from '../src/scan.ts';
 import { diffUniverses, gitHistory, gitParentSnapshot, gitSnapshot } from '../src/history.ts';
 import { startServer } from '../src/serve.ts';
+import { exportHtml } from '../src/exporter.ts';
 import { Store } from '../src/store.ts';
 
 const genesis = readFileSync(new URL('../genesis.stars', import.meta.url), 'utf8');
@@ -320,4 +322,34 @@ test('历史:宇宙文件还没提交过时,时间线退回到所在文件夹的
     assert.deepEqual(second.diff.addedNodes.sort(), ['src/', 'src/b.ts']);
     assert.ok(!ids(second).some((id: string) => id.includes('universe.stars')), '宇宙自己的存储不算居民');
   } finally { srv.close(); }
+});
+
+test('共享模块:浏览器拿到的 /core/*.js 去掉了类型、能直接 import;静态导出把它们拼进同一个作用域后脚本仍然合法', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'stars-mod-'));
+  const store = new Store(join(dir, 'universe.stars'));
+  store.create(genesis);
+  const port = await freePort();
+  const srv = startServer(store, port, dir, '127.0.0.1', () => {});
+  await new Promise((r) => setTimeout(r, 150));
+  const out = mkdtempSync(join(tmpdir(), 'stars-js-'));
+  try {
+    for (const name of ['model', 'expr', 'view', 'ops', 'proposals', 'query', 'llf']) {
+      const r = await fetch(`http://127.0.0.1:${port}/core/${name}.js`);
+      assert.equal(r.status, 200, name);
+      const js = await r.text();
+      assert.ok(!/from '\.\/\w+\.ts'/.test(js) && !/from 'node:/.test(js), `${name}.js 不能再引用 .ts 或 node:*`);
+      writeFileSync(join(out, `${name}.js`), js);
+    }
+    writeFileSync(join(out, 'package.json'), '{"type":"module"}');
+    const llf = await import(pathToFileURL(join(out, 'llf.js')).href);
+    assert.deepEqual(llf.llfToJson(llf.llfParse('a !color - #fff\n--LLF-END\n', { tags: true })), { a: { $tag: 'color', $value: '#fff' } });
+    const q = await import(pathToFileURL(join(out, 'query.js')).href);
+    assert.equal(typeof q.shortestPath, 'function');
+  } finally { srv.close(); }
+  // 静态导出:内核模块去掉 import/export 后拼进查看器的模块脚本;名字撞了或语法坏了这里会报
+  const html = exportHtml(store, dir);
+  const mod = /<script type="module">([\s\S]*?)<\/script>/.exec(html)![1]!;
+  const file = join(out, 'export-check.mjs');
+  writeFileSync(file, mod);
+  execFileSync(process.execPath, ['--check', file], { stdio: 'pipe' });
 });
