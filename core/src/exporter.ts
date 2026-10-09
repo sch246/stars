@@ -2,7 +2,7 @@
 // 没有服务器、没有网络依赖:拷到任何机器上用浏览器打开即可(只读;视图规则编辑器可以预览,不能保存)。
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildSnapshot } from './snapshot.ts';
 import { type Store } from './store.ts';
@@ -24,7 +24,9 @@ export function exportHtml(store: Store, baseDir: string): string {
   let html = readFileSync(resolve(here, '..', 'viewer', 'index.html'), 'utf8');
   const d3 = readFileSync(resolve(here, '..', 'viewer', 'd3.v7.min.js'), 'utf8');
   const kernel = ['model', 'expr', 'view', 'ops', 'proposals'].map(inline).join('\n');
-  const snapshot = JSON.stringify(buildSnapshot(store, baseDir));
+  // 只带项目名,不带本机路径(导出的文件常会发给别人)
+  const project = { id: 'static', name: basename(resolve(baseDir)), dir: '静态导出 · 只读', file: basename(store.file), primary: true };
+  const snapshot = JSON.stringify({ ...buildSnapshot(store, baseDir), project });
   html = html
     .replace('<meta name="stars-token" content="__STARS_TOKEN__">', '')
     .replace('<script src="/d3.js"></script>', () => `<script>${safe(d3)}</script>`)

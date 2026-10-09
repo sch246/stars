@@ -9,7 +9,7 @@ import { lint } from './lint.ts';
 import { mergeUniverses } from './merge.ts';
 import { StarsError, getEdge, type Attrs, type Universe } from './model.ts';
 import { filterNodes, neighborhood, shortestPath, type Dir } from './query.ts';
-import { listFiles, planScan, statMeta } from './scan.ts';
+import { listFiles, planScan, selfRel, statMeta } from './scan.ts';
 import { execFileSync } from 'node:child_process';
 import { loadSignals } from './activity.ts';
 import { compileFn } from './expr.ts';
@@ -184,7 +184,7 @@ function run(): void {
     case 'scan': {
       const dir = resolve(args[0] ?? '.');
       const rootId = o.under ?? 'repo';
-      const op = planScan(store.load(), listFiles(dir), rootId, basename(dir), statMeta(dir));
+      const op = planScan(store.load(), listFiles(dir, selfRel(dir, store.file)), rootId, basename(dir), statMeta(dir));
       if (op.op === 'batch' && op.ops.length === 0) {
         console.log('没有新内容');
         return;
@@ -356,18 +356,11 @@ function run(): void {
     case 'serve': {
       const extra = [...(o['allow-host'] ?? []), ...(process.env.STARS_ALLOW_HOSTS?.split(',') ?? [])].map((h) => h.trim()).filter(Boolean);
       const baseDir = process.env.STARS_ROOT ?? dirname(file);
-      const server = startServer(store, Number(o.port ?? 4321), baseDir, o.host ?? '127.0.0.1', console.log, extra);
-      if (o.watch) {
-        server.setWatching(true);
-        const w = new FsWatcher({
-          ...watchOptions(),
-          onSync: (r) => { server.pushLive(r.live); if (r.op) console.log(`${r.full ? '全量' : '增量'}对账 ${r.ms.toFixed(0)}ms: ${describeSync(r)}`); },
-          onGit: () => server.gitChanged(),
-        });
-        const first = w.start();
-        console.log(`实时同步已开启(挂载根 ${o.mount ?? 'repo'}):启动对账 ${first.ms.toFixed(0)}ms,${describeSync(first)}`);
-        process.on('SIGINT', () => { w.stop(); server.close(); process.exit(0); });
-      }
+      const server = startServer(store, Number(o.port ?? 4321), baseDir, o.host ?? '127.0.0.1', console.log, extra, {
+        watch: !!o.watch, mountId: o.mount ?? 'repo',
+        debounceMs: o.debounce ? Number(o.debounce) : undefined, pollSec: o.poll ? Number(o.poll) : undefined,
+      });
+      process.on('SIGINT', () => { server.close(); process.exit(0); });
       return;
     }
     default:

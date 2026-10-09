@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -12,6 +12,7 @@ import { startServer } from '../src/serve.ts';
 import { Store } from '../src/store.ts';
 
 const genesis = readFileSync(new URL('../genesis.stars', import.meta.url), 'utf8');
+process.env.XDG_CONFIG_HOME = mkdtempSync(join(tmpdir(), 'stars-cfg-')); // "最近打开"别写进真实的家目录
 const freePort = () => new Promise<number>((ok) => {
   const s = createServer().listen(0, () => { const p = (s.address() as { port: number }).port; s.close(() => ok(p)); });
 });
@@ -157,4 +158,59 @@ test('增量协议:提交只推新增的日志条目;延迟写入落盘不推快
     await waitFor(() => msgs.some((m) => m.type === 'signals'));
     assert.deepEqual((msgs.find((m) => m.type === 'signals') as { size: object }).size, { k1: 123 });
   } finally { ctl.abort(); srv.close(); }
+});
+
+test('多项目:列目录、打开已有宇宙、在空目录建立宇宙;事件流和接口按 ?p= 路由到各自的项目', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'stars-multi-'));
+  const a = join(root, 'a'); const b = join(root, 'b'); const c = join(root, 'c');
+  for (const d of [a, b, c]) mkdirSync(d);
+  writeFileSync(join(c, 'hello.md'), '# hi\n');
+  const sa = new Store(join(a, 'universe.stars')); sa.create(genesis);
+  const sb = new Store(join(b, 'universe.stars')); sb.create(genesis);
+  sb.commit({ op: 'addNode', id: 'only-in-b', label: 'B' }, { author: 't' });
+  const port = await freePort();
+  const srv = startServer(sa, port, a, '127.0.0.1', () => {});
+  const base = `http://127.0.0.1:${port}`;
+  const h = { 'x-stars-token': srv.token, 'content-type': 'application/json' };
+  const get = async (path: string) => { const r = await fetch(base + path, { headers: h }); return { status: r.status, body: await r.json() as any }; };
+  const post = async (path: string, body: unknown) => { const r = await fetch(base + path, { method: 'POST', headers: h, body: JSON.stringify(body) }); return { status: r.status, body: await r.json() as any }; };
+  const firstEvent = async (path: string) => {
+    const ctl = new AbortController();
+    const res = await fetch(base + path, { signal: ctl.signal });
+    const reader = res.body!.getReader(); const dec = new TextDecoder(); let buf = '';
+    while (!buf.includes('\n\n')) buf += dec.decode((await reader.read()).value, { stream: true });
+    ctl.abort();
+    return JSON.parse(buf.slice(6, buf.indexOf('\n\n')));
+  };
+  try {
+    const ls = await get(`/api/ls?dir=${encodeURIComponent(root)}`);
+    assert.equal(ls.status, 200);
+    assert.deepEqual(ls.body.entries.map((e: { name: string; hasUniverse: boolean }) => [e.name, e.hasUniverse]), [['a', true], ['b', true], ['c', false]], '有宇宙的目录排在前面');
+    assert.equal((await get('/api/projects')).body.open.length, 1);
+
+    const pb = await post('/api/open', { dir: b });
+    assert.equal(pb.status, 200);
+    assert.equal((await post('/api/open', { dir: b })).body.id, pb.body.id, '重复打开得到同一个项目');
+    assert.equal((await post('/api/open', { dir: c })).status, 400, '没有宇宙时不会擅自建立');
+    const pc = await post('/api/open', { dir: c, create: true });
+    assert.equal(pc.status, 200);
+    assert.ok(existsSync(join(c, 'universe.stars')), '确认后才建立');
+
+    const snapA = await firstEvent('/events');
+    const snapB = await firstEvent(`/events?p=${pb.body.id}`);
+    const snapC = await firstEvent(`/events?p=${pc.body.id}`);
+    assert.equal(snapA.project.dir, a);
+    assert.equal(snapB.project.id, pb.body.id);
+    assert.ok(snapB.nodes.some((n: { id: string }) => n.id === 'only-in-b'));
+    assert.ok(!snapA.nodes.some((n: { id: string }) => n.id === 'only-in-b'), '项目之间互不串');
+    assert.ok(snapC.nodes.some((n: { label: string }) => n.label === 'hello.md'), '新建的宇宙扫描了目录里的文件');
+
+    assert.equal((await post(`/api/op?p=${pb.body.id}`, { op: { op: 'addNode', id: 'via-p', label: 'p' } })).status, 200);
+    assert.ok(new Store(join(b, 'universe.stars')).load().nodes.has('via-p'), '写入落到 ?p= 指定的项目');
+    assert.ok(!sa.load().nodes.has('via-p'));
+
+    const projects = (await get('/api/projects')).body;
+    assert.equal(projects.open.length, 3);
+    assert.equal(projects.main, snapA.project.id);
+  } finally { srv.close(); }
 });

@@ -82,18 +82,42 @@
   #legend { right: 12px; bottom: 34px; width: 230px; }
   #legend .bar { height: 8px; border-radius: 4px; margin: 6px 0 2px; }
   #legend .lab { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
-  #replaybar { left: 50%; top: 12px; transform: translateX(-50%); border-color: #4a6fd0; background: #101a3acc; display: flex; gap: 10px; align-items: center; }
+  #tagbar { left: 12px; bottom: 34px; max-width: min(760px, calc(100vw - 380px)); display: flex; flex-wrap: wrap; gap: 5px; align-items: center; max-height: 30vh; overflow: auto; }
+  #tagbar[hidden] { display: none; }
+  .tagc { cursor: pointer; padding: 0 8px; border-radius: 999px; border: 1px solid var(--line); font-size: 12px; user-select: none; display: inline-flex; gap: 5px; align-items: center; }
+  .tagc i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; } .tagc.on { border-color: #fff; background: #ffffff18; } .tagc .c { color: var(--muted); }
+  #crumbs { left: 50%; top: 12px; transform: translateX(-50%); display: flex; gap: 6px; align-items: center; padding: 6px 12px; max-width: calc(100vw - 720px); overflow: hidden; white-space: nowrap; }
+  #crumbs[hidden] { display: none; }
+  #crumbs .crumb { cursor: pointer; color: #cfd6ff; } #crumbs .crumb:hover { color: #fff; text-decoration: underline; }
+  #crumbs .crumb:last-of-type { color: #fff; font-weight: 600; }
+  #crumbs .sep { color: var(--muted); } #crumbs .hint { color: var(--muted); font-size: 11px; margin-left: 10px; }
+  #proj { display: flex; align-items: baseline; gap: 6px; margin: -2px 0 8px; cursor: pointer; user-select: none; min-width: 0; }
+  #proj b { color: #fff; white-space: nowrap; } #proj span { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; flex: 1; text-align: left; }
+  #proj:hover b { color: var(--accent); } #proj i { font-style: normal; color: var(--muted); }
+  .static #proj { cursor: default; } .static #proj i { display: none; }
+  #projects { left: 12px; top: 270px; width: 430px; max-height: calc(100vh - 300px); display: flex; flex-direction: column; gap: 6px; }
+  #projects[hidden] { display: none; }
+  #projects .st { color: var(--muted); font-size: 11px; letter-spacing: .06em; margin-top: 4px; }
+  .pj-row { display: flex; gap: 8px; align-items: baseline; padding: 3px 8px; border: 1px solid var(--line); border-radius: 8px; background: #0a0a14; cursor: pointer; min-width: 0; }
+  .pj-row:hover { border-color: var(--accent); } .pj-row.cur { border-color: #4a6fd0; background: #101a3a; }
+  .pj-row b { font-weight: 600; white-space: nowrap; } .pj-row .d { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; flex: 1; text-align: left; }
+  .pj-row .mark { color: #ffd24a; } .pj-row .git { color: var(--muted); font-size: 11px; }
+  #pj-list { overflow: auto; display: flex; flex-direction: column; gap: 3px; min-height: 60px; max-height: 38vh; }
+  #pj-path { flex: 1; width: auto !important; }
+  #pj-msg { font-size: 12px; color: var(--muted); min-height: 16px; } #pj-msg.bad { color: var(--warn); }
+  #replaybar { left: 50%; top: 58px; transform: translateX(-50%); border-color: #4a6fd0; background: #101a3acc; display: flex; gap: 10px; align-items: center; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="banner"></div>
 <div class="panel" id="tools">
+  <div id="proj" title="切换文件夹 / 项目(P)"><b id="proj-name">…</b><span id="proj-dir"></span><i>▾</i></div>
   <div id="views"></div>
   <input id="q" placeholder="过滤节点… ( / )" autocomplete="off">
   <div id="chips"></div>
   <div id="status">连接中…</div>
-  <div id="modes"><span class="vbtn" id="btn-edit">✎ 视图规则</span><span class="vbtn" id="btn-time">⏱ 时间线</span><span class="vbtn" id="btn-review">✓ 审阅<span class="badge" id="rv-badge" hidden>0</span></span></div>
+  <div id="modes"><span class="vbtn" id="btn-edit">✎ 视图规则</span><span class="vbtn" id="btn-time">⏱ 时间线</span><span class="vbtn" id="btn-bg" title="背景:星系 / 星点 / 无(B)">✦ 背景</span><span class="vbtn" id="btn-review">✓ 审阅<span class="badge" id="rv-badge" hidden>0</span></span></div>
 </div>
 <div class="panel" id="editor" hidden>
   <div id="ed-head"><b id="ed-name"></b><span>JSON · 改动即时预览,保存后写入宇宙</span></div>
@@ -122,6 +146,16 @@
   <div class="btns"><span class="btn pri" id="rv-all">全部接受</span><span class="btn" id="rv-none">全部拒绝</span><span class="btn" id="rv-undo" title="撤销最近一次写入">↶ 撤销上一步</span></div>
   <div id="rv-msg" style="font-size:12px;color:var(--muted)"></div>
 </div>
+<div class="panel" id="projects" hidden>
+  <div id="ed-head"><b>项目</b><span>一个文件夹一个宇宙 · 切换不影响其它项目的实时同步</span></div>
+  <div class="st">已打开</div><div id="pj-open"></div>
+  <div id="pj-recent-wrap"><div class="st">最近</div><div id="pj-recent"></div></div>
+  <div class="st">浏览文件夹</div>
+  <div class="btns"><span class="btn" id="pj-up" title="上一级">↑</span><input id="pj-path" placeholder="输入路径回车,如 D:\notes 或 ~/code" autocomplete="off" spellcheck="false"></div>
+  <div id="pj-list"></div>
+  <div class="btns"><span class="btn pri" id="pj-here"></span></div>
+  <div id="pj-msg"></div>
+</div>
 <div class="panel" id="timeline" hidden>
   <div id="tl-head">
     <span class="btn" id="tl-first" title="最早">⏮</span><span class="btn" id="tl-prev" title="上一步 ←">◀</span>
@@ -132,8 +166,10 @@
 </div>
 <div class="panel" id="legend" hidden></div>
 <div class="panel" id="replaybar" hidden></div>
+<div class="panel" id="crumbs" hidden></div>
+<div class="panel" id="tagbar" hidden></div>
 <div class="panel" id="side"></div>
-<div id="hint"><kbd>/</kbd> 过滤 · <kbd>Esc</kbd> 取消 · 点击节点聚焦 · 滚轮缩放 · 拖动平移/拖节点 · <kbd>F</kbd> 适应窗口 · 双击/<kbd>E</kbd> 展开收起 · <kbd>0</kbd> 重置 · <kbd>1</kbd>–<kbd>5</kbd> 切换视图 · 放大自动展开</div>
+<div id="hint"><kbd>/</kbd> 过滤 · <kbd>Esc</kbd> 取消 · 点击节点聚焦 · 滚轮缩放 · 拖动平移/拖节点 · <kbd>F</kbd> 适应窗口 · 放大进入空间 / 缩小或 <kbd>⌫</kbd> 返回 · 双击/<kbd>E</kbd> 就地展开 · <kbd>⏎</kbd> 进入选中的 · <kbd>B</kbd> 背景 · <kbd>P</kbd> 切换文件夹 · <kbd>1</kbd>–<kbd>6</kbd> 视图</div>
 <script src="/d3.js"></script>
 <script type="module">
 import { compileView, listViews, validateSpec } from '/core/view.js';
@@ -153,12 +189,22 @@ import { trackProposals } from '/core/proposals.js';
   let scene = { look: 'galaxy', nodes: [], edges: [], expand: { relation: 'contains' } };
   const manual = new Map();          // id -> true/false:用户手动展开/收起,优先级最高
   const auto = new Map();            // id -> true/false:语义缩放自动决定
+  let tagColor = new Map();
+  let activeTags = new Set();         // tag 视图里被点亮的 tag(容器 id)
   let drawNodes = [];                // 已按绘制顺序排好(星云在下),只在图变化时重建
   let labelNodes = [], labelKey = '', labelAt = 0;
   let regions = [];                  // 展开的容器及其可见后代
   let known = new Set();             // 已知的宇宙节点 id(用来区分"新生"和"只是展开了")
   let look = 'galaxy';
   let currentView = (location.hash.match(/view=([\w-]+)/) || [])[1] || 'galaxy';
+  let projectId = (location.hash.match(/[#&]p=([0-9a-f]+)/) || [])[1] || null;   // null = 服务启动时的主项目
+  let project = null;                // 当前项目的信息(快照里带来的)
+  const reopenTried = new Set();
+  const setHash = () => { history.replaceState(null, '', '#view=' + currentView + (projectId ? '&p=' + projectId : '')); };
+  // 记住 项目 id → 目录:服务重启后其它项目没打开,带着 #p= 刷新时能自动重新打开
+  const dirsKey = 'stars.projectDirs';
+  const knownDirs = () => { try { return JSON.parse(localStorage.getItem(dirsKey) || '{}'); } catch { return {}; } };
+  const rememberDir = (id, dir) => { try { localStorage.setItem(dirsKey, JSON.stringify({ ...knownDirs(), [id]: dir })); } catch { /* 隐私模式 */ } };
   let es = null;
   const sim = new Map();            // id -> 模拟节点(保留位置)
   const raw = new Map();            // id -> 宇宙里的原始节点
@@ -167,6 +213,7 @@ import { trackProposals } from '/core/proposals.js';
   let selected = null, hovered = null, query = '';
   let transform = d3.zoomIdentity;
   let userMoved = false;
+  let curK = 1;                    // 当前正在绘制的空间的屏幕尺度(LOD 用)
   let draftSpec = null, editorDirty = false;   // 编辑器里尚未保存的视图规格(实时预览)
   let hist = null;                 // git 提交图
   let lastUserZoom = -1e9;         // 语义缩放只响应用户自己的缩放/平移,不响应自动适应窗口
@@ -202,6 +249,22 @@ import { trackProposals } from '/core/proposals.js';
     }
   });
 
+  simulation.force('tags', (alpha) => {
+    const groups = new Map();
+    for (const n of simulation.nodes()) {
+      if (!n.tags || !n.tags.length || n.x === undefined) continue;
+      for (const [key, w] of [[n.tags[0], 0.02], [n.tags.join('/'), 0.05]]) {
+        let g = groups.get(key); if (!g) { g = { x: 0, y: 0, n: 0, w, m: [] }; groups.set(key, g); }
+        g.x += n.x; g.y += n.y; g.n++; g.m.push(n);
+      }
+    }
+    for (const g of groups.values()) {
+      if (g.n < 2) continue;
+      const cx = g.x / g.n, cy = g.y / g.n;
+      for (const n of g.m) { n.vx += (cx - n.x) * g.w * alpha; n.vy += (cy - n.y) * g.w * alpha; }
+    }
+  });
+
   // 域与域之间互相推开(祖孙除外),让每个域保持独立的疆界
   simulation.force('regions', () => {
     for (const r of regions) {
@@ -230,7 +293,7 @@ import { trackProposals } from '/core/proposals.js';
       return;
     }
     if (es) es.close();
-    es = new EventSource('/events');
+    es = new EventSource(withP('/events'));
     es.onmessage = (ev) => handle(JSON.parse(ev.data));
     es.onerror = () => { $('status').textContent = '连接断开,重连中…'; };
   }
@@ -294,6 +357,7 @@ import { trackProposals } from '/core/proposals.js';
 
   let replay = null, liveSnap = null;   // 回放中:不应用实时更新,只记下最新的
   function ingest(snap) {
+    if (snap.project && !onProject(snap.project)) return;
     if (snap.error) { banner(snap.error); return; }
     liveSnap = snap;
     lastN = snap.n || 0; staleLive = false;
@@ -336,10 +400,32 @@ import { trackProposals } from '/core/proposals.js';
     for (const id of ids) { const v = manual.has(id) ? manual.get(id) : auto.get(id); (v ? opened : shut).push(id); }
     const t0 = performance.now();
     if (structural || !compiled) {
-      try { compiled = compileView(uni, draftSpec ?? specs[currentView], { signals: data.signals || {}, now: Date.now() }); }
+      const base = draftSpec ?? specs[currentView];
+      const spec = base.layout === 'spaces' && hiddenTypes.size // 空间模式下,类型过滤交给内核(被隐藏的容器是"透明"的)
+        ? { ...base, select: { ...(base.select || {}), hideTypes: [...((base.select && base.select.hideTypes) || []), ...hiddenTypes] } } : base;
+      try { compiled = compileView(uni, spec, { signals: data.signals || {}, now: Date.now() }); }
       catch (err) { banner('视图无法编译: ' + err.message); return; }
     }
     const t1 = performance.now();
+    if (compiled.layout === 'spaces') {
+      if (structural) lastCompile = t1 - t0;
+      perf.compileMs = lastCompile;
+      spaceVer++;                                   // 空间按需重建,保留已有位置
+      if (curSpaceId !== null && !compiled.node(curSpaceId)) curSpaceId = null;
+      for (const id of [...expandedSet]) if (!compiled.node(id)) expandedSet.delete(id);
+      scene = { look: compiled.look, nodes: [], edges: [], expand: { relation: 'contains' } };
+      look = compiled.look;
+      links = []; drawNodes = []; regions = []; sim.clear();
+      simulation.nodes([]); simulation.force('link').links([]); simulation.stop();
+      zoom.scaleExtent([0.02, 80]);
+      computeMatches();
+      renderViews(); renderChips(); renderSide(); renderLegend(); renderReview();
+      layoutPanels(); renderStatus(); renderCrumbs(); $('tagbar').hidden = true;
+      return;
+    }
+    zoom.scaleExtent([0.08, 10]);
+    simulation.restart();
+    $('crumbs').hidden = true;
     scene = compiled.fold({ expanded: opened, collapsed: shut });
     if (structural) lastCompile = t1 - t0;
     perf.compileMs = structural ? t1 - t0 : perf.compileMs; perf.foldMs = performance.now() - t1;
@@ -372,13 +458,22 @@ import { trackProposals } from '/core/proposals.js';
     if (selected && !sim.has(selected)) selected = null;
 
     rebuildGraph();
-    renderViews(); renderChips(); renderSide(); renderLegend(); renderReview();
+    renderViews(); renderChips(); renderSide(); renderLegend(); renderReview(); renderTagbar();
     layoutPanels();
     renderStatus();
   }
 
   function renderStatus() {
     const nn = data.nodes.filter((n) => !n.id.startsWith('~')).length;
+    if (isSpaces()) {
+      const sp = getSpace(curSpaceId);
+      $('status').innerHTML = `空间 <b>${esc(curSpaceId === null ? '宇宙' : (raw.get(curSpaceId)?.label || curSpaceId))}</b> · ${sp.nodes.length} 项 · 共 ${nn} 节点`
+        + (expandedSet.size ? ` · ${expandedSet.size} 个就地展开` : '') + ` · `
+        + `<span class="sev-error">${data.issues.filter((i) => i.severity === 'error').length} 错误</span> · `
+        + `<span class="sev-warn">${data.issues.filter((i) => i.severity === 'warn').length} 警告</span>`
+        + (data.watching ? ' · <b style="color:#7be0a0">● 实时同步</b>' : '');
+      return;
+    }
     const folded = scene.nodes.filter((n) => n.container && !n.expanded).length;
     $('status').innerHTML = `视图 <b>${scene.nodes.length}</b>/${nn} 节点 · <b>${scene.edges.length}</b> 边`
       + (folded ? ` · <b>${folded}</b> 个收起` : '') + ` · `
@@ -427,16 +522,41 @@ import { trackProposals } from '/core/proposals.js';
   }
   function setView(v) {
     if (!v || v === currentView) return;
-    currentView = v; location.hash = 'view=' + v; fresh = true; selected = null; hiddenTypes.clear(); manual.clear(); auto.clear();
+    currentView = v; setHash(); fresh = true; selected = null; hiddenTypes.clear(); manual.clear(); auto.clear();
+    curSpaceId = null; expandedSet.clear(); fade = null; spaces.clear(); activeTags.clear();
     for (const n of sim.values()) n.born = 0;
     recompute();
     fresh = false; userMoved = false; setTimeout(fit, 900); setTimeout(() => { if (!userMoved) fit(); }, 3600);
   }
   $('views').addEventListener('click', (ev) => { const el = ev.target.closest('.vbtn'); if (el) setView(el.dataset.v); });
 
+  function renderTagbar() {
+    const el = $('tagbar');
+    const counts = new Map(), colorOf = new Map();
+    if (!isSpaces()) for (const n of scene.nodes) for (const t of n.tags || []) { counts.set(t, (counts.get(t) || 0) + 1); if (!colorOf.has(t)) colorOf.set(t, n.color); }
+    if (!counts.size) { el.hidden = true; return; }
+    el.hidden = false;
+    const top = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 60);
+    const labelCount = new Map();
+    for (const [t] of top) { const l = raw.get(t)?.label || t; labelCount.set(l, (labelCount.get(l) || 0) + 1); }
+    const nameOf = (t) => { const l = raw.get(t)?.label || t; return labelCount.get(l) > 1 ? t.replace(/\/$/, '') : l; }; // 同名时显示路径
+    tagColor = colorOf;
+    el.innerHTML = `<span class="tag" style="font-size:11px">tag</span>` + top.map(([t, c]) => {
+      const col = colorOf.get(t) || '#888';
+      return `<span class="tagc ${activeTags.has(t) ? 'on' : ''}" data-tag="${esc(t)}" title="${esc(t)}"><i style="background:${col}"></i>${esc(nameOf(t))}<span class="c">${c}</span></span>`;
+    }).join('') + (activeTags.size ? `<span class="tagc" data-tag="">清除</span>` : '');
+  }
+  function toggleTag(t) {
+    if (!t) activeTags.clear(); else if (activeTags.has(t)) activeTags.delete(t); else activeTags.add(t);
+    renderTagbar(); renderSide();
+  }
+  $('tagbar').addEventListener('click', (ev) => { const c = ev.target.closest('.tagc'); if (c) toggleTag(c.dataset.tag); });
+
   function renderChips() {
     const counts = new Map(), sample = new Map();
-    for (const n of sim.values()) { const t = typeOf(n.id); counts.set(t, (counts.get(t) || 0) + 1); sample.set(t, n); }
+    if (isSpaces()) {
+      for (const n of data.nodes) { if (n.id.startsWith('~')) continue; const t = typeOf(n.id); counts.set(t, (counts.get(t) || 0) + 1); if (!sample.has(t)) sample.set(t, compiled.node(n.id) || { color: '#888' }); }
+    } else for (const n of sim.values()) { const t = typeOf(n.id); counts.set(t, (counts.get(t) || 0) + 1); sample.set(t, n); }
     $('chips').innerHTML = [...counts].sort((a, b) => b[1] - a[1]).map(([t, c]) =>
       `<span class="chip ${hiddenTypes.has(t) ? '' : 'on'}" data-t="${esc(t)}"><i style="background:${sample.get(t).color}"></i>${esc(t)} ${c}</span>`).join('');
   }
@@ -444,7 +564,7 @@ import { trackProposals } from '/core/proposals.js';
     const el = ev.target.closest('.chip'); if (!el) return;
     const t = el.dataset.t;
     if (hiddenTypes.has(t)) hiddenTypes.delete(t); else hiddenTypes.add(t);
-    rebuildGraph(); renderChips();
+    if (isSpaces()) recompute(true); else { rebuildGraph(); renderChips(); }
   });
 
   const fmtBytes = (b) => (b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : b >= 1024 ? (b / 1024).toFixed(1) + ' KB' : b + ' B');
@@ -462,7 +582,7 @@ import { trackProposals } from '/core/proposals.js';
   function renderSide() {
     const el = $('side');
     const n = selected && raw.get(selected);
-    const sn = selected && sim.get(selected);
+    const sn = selected && (isSpaces() ? compiled.node(selected) : sim.get(selected));
     if (!n) {
       const feed = data.log.slice().reverse().slice(0, 14).map((e) =>
         `<div class="row"><span class="tag">#${e.n}</span><span class="author">${esc(e.author)}</span><span>${esc(summ(e))}</span></div>`).join('');
@@ -489,17 +609,33 @@ import { trackProposals } from '/core/proposals.js';
     el.innerHTML = `<h3 style="color:${sn ? sn.color : '#fff'}">${esc(n.label)}</h3>
       <div class="sub">${esc(n.id)}${n.attrs.type ? ' · ' + esc(n.attrs.type) : ''}${sn && sn.value !== undefined ? ' · 视图值 ' + esc(sn.value) : ''}</div>
       ${n.attrs.summary ? `<p>${esc(n.attrs.summary)}</p>` : ''}
-      ${sn && sn.container ? `<div class="sec"><div class="row"><span class="tag">容器</span><span>${sn.expanded ? '已展开' : '已收起'} · ${sn.children} 个直接子节点 · ${sn.descendants} 个后代</span></div><div class="row"><span class="tag">操作</span><span>双击 或 <kbd>E</kbd> ${sn.expanded ? '收起' : '展开'}</span></div></div>` : ''}
+      ${sn && sn.container ? (isSpaces()
+        ? `<div class="sec"><div class="row"><span class="tag">空间</span><span>${sn.children} 个直接子项 · ${sn.descendants} 个后代${expandedSet.has(sn.id) ? ' · 已就地展开' : ''}${curSpaceId === sn.id ? ' · 你在这里' : ''}</span></div>`
+          + `<div class="btns" style="margin-top:6px"><span class="btn pri" data-act="enter" data-id="${esc(sn.id)}">进入 ⏎</span><span class="btn" data-act="inplace" data-id="${esc(sn.id)}">${expandedSet.has(sn.id) ? '收起' : '就地展开'}(双击 / E)</span></div></div>`
+        : `<div class="sec"><div class="row"><span class="tag">容器</span><span>${sn.expanded ? '已展开' : '已收起'} · ${sn.children} 个直接子节点 · ${sn.descendants} 个后代</span></div><div class="row"><span class="tag">操作</span><span>双击 或 <kbd>E</kbd> ${sn.expanded ? '收起' : '展开'}</span></div></div>`) : ''}
+      ${sn && sn.tags && sn.tags.length ? `<div class="sec"><div class="t">tag</div><div style="display:flex;flex-wrap:wrap;gap:5px">${sn.tags.map((t) => `<span class="tagc ${activeTags.has(t) ? 'on' : ''}" data-sidetag="${esc(t)}"><i style="background:${tagColor.get(t) || '#888'}"></i>${esc(t.replace(/\/$/, ''))}</span>`).join('')}</div></div>` : ''}
       ${attrs ? `<div class="sec">${attrs}</div>` : ''}
       ${!replay && data.signals ? `<div class="sec"><div class="t">最近编辑</div><div class="row"><span class="tag">图里</span><span>${ago((data.signals.touched || {})[n.id])}</span></div>${(data.signals.fileChanged || {})[n.id] ? `<div class="row"><span class="tag">文件</span><span>${ago(data.signals.fileChanged[n.id])}</span></div>` : ''}</div>` : ''}
       <div class="sec"><div class="t">出边 ${out.length}</div>${out.map((e) => edgeRow(e, e.to, '→')).join('') || '<span class="tag">无</span>'}</div>
       <div class="sec"><div class="t">入边 ${inn.length}</div>${inn.map((e) => edgeRow(e, e.from, '←')).join('') || '<span class="tag">无</span>'}</div>
-      ${sn && sn.container && !sn.expanded ? liftedSection(n.id) : ''}
+      ${sn && sn.container && (isSpaces() || !sn.expanded) ? liftedSection(n.id) : ''}
       ${myIssues.length ? `<div class="sec"><div class="t">问题</div>${myIssues.map((i) => `<div class="row sev-${i.severity}">${esc(i.message)}</div>`).join('')}</div>` : ''}`;
   }
-  $('side').addEventListener('click', (ev) => { const el = ev.target.closest('.row.link'); if (el) select(el.dataset.id, true); });
+  $('side').addEventListener('click', (ev) => {
+    const tg = ev.target.closest('[data-sidetag]'); if (tg) { toggleTag(tg.dataset.sidetag); return; }
+    const el = ev.target.closest('.row.link'); if (el) select(el.dataset.id, true);
+  });
 
   function liftedSection(id) {
+    if (isSpaces()) { // 这个空间里的东西与外面的关系(汇总到"从这里看出去"的对象上)
+      const ext = compiled.space(id).external, agg = new Map();
+      for (const x of ext) { const k = `${x.out}|${x.type}|${x.other}`; const a = agg.get(k) || { ...x, count: 0 }; a.count += x.count; agg.set(k, a); }
+      const rows = [...agg.values()].sort((a, b) => b.count - a.count).slice(0, 30).map((x) => {
+        const from = x.out ? id : x.other, to = x.out ? x.other : id;
+        return `<div class="row link" data-id="${esc(x.other)}"><span class="tag">${x.out ? '→' : '←'}</span><span style="color:${x.color}">${esc(x.type)}</span><span>${esc(raw.get(x.other)?.label || x.other)}</span><span class="tag">×${x.count}</span><span class="mini ok" data-act="promote" data-from="${esc(from)}" data-type="${esc(x.type)}" data-to="${esc(to)}" data-count="${x.count}" title="把这条汇总关系提升为两者之间真实存在的边">提升</span></div>`;
+      });
+      return rows.length ? `<div class="sec"><div class="t">里面的东西与外面的关系(汇总)</div>${rows.join('')}</div>` : '';
+    }
     const rel = scene.expand.relation;
     const rows = scene.edges.filter((e) => e.type !== rel && (e.from === id || e.to === id)).map((e) => {
       const other = e.from === id ? e.to : e.from;
@@ -510,6 +646,7 @@ import { trackProposals } from '/core/proposals.js';
 
   function select(id, center) {
     selected = id;
+    if (isSpaces()) { if (id && center) reveal(id); renderSide(); return; }
     const n = id && sim.get(id);
     if (n && !visible(n)) { hiddenTypes.delete(typeOf(id)); rebuildGraph(); renderChips(); }
     if (n && center && n.x !== undefined) {
@@ -521,42 +658,76 @@ import { trackProposals } from '/core/proposals.js';
 
   // ---------- 交互 ----------
   const find = (px, py) => {
+    if (isSpaces()) { const h = pickHit(px, py); return h && !h.domain ? h.n : null; }
     const [x, y] = transform.invert([px, py]);
     return simulation.find(x, y, 16 / transform.k + 6);
   };
   const zoom = d3.zoom().scaleExtent([0.08, 10])
     .filter((ev) => !(ev.type === 'mousedown' && find(ev.offsetX, ev.offsetY)) && !ev.button)
-    .on('zoom', (ev) => { transform = ev.transform; if (ev.sourceEvent) { userMoved = true; lastUserZoom = performance.now(); } });
+    .on('zoom', (ev) => {
+      const prevK = transform.k;
+      transform = ev.transform;
+      if (ev.sourceEvent) {
+        userMoved = true; lastUserZoom = performance.now();
+        if (isSpaces()) maybeSwitch(ev.sourceEvent, transform.k > prevK * 1.0001 ? 1 : transform.k < prevK * 0.9999 ? -1 : 0);
+      }
+    });
   d3.select(canvas).call(zoom).on('dblclick.zoom', null);
   d3.select(canvas).call(d3.drag()
-    .subject((ev) => find(ev.x, ev.y))
-    .on('start', (ev) => { ev.subject.fx = ev.subject.x; ev.subject.fy = ev.subject.y; ev.subject.moved = false; })
-    .on('drag', (ev) => { const [x, y] = transform.invert([ev.sourceEvent.offsetX, ev.sourceEvent.offsetY]); ev.subject.fx = x; ev.subject.fy = y; ev.subject.moved = true; })
-    .on('end', (ev) => { ev.subject.fx = null; ev.subject.fy = null; if (!ev.subject.moved) select(ev.subject.id, false); }));
+    .subject((ev) => {
+      if (isSpaces()) { const h = pickHit(ev.x, ev.y); return h && !h.domain ? { h, x: ev.x, y: ev.y } : null; }
+      return find(ev.x, ev.y);
+    })
+    .on('start', (ev) => {
+      if (ev.subject.h) { const n = ev.subject.h.n; n.fx = n.x; n.fy = n.y; ev.subject.moved = false; return; }
+      ev.subject.fx = ev.subject.x; ev.subject.fy = ev.subject.y; ev.subject.moved = false;
+    })
+    .on('drag', (ev) => {
+      if (ev.subject.h) { // 拖动只影响这个节点所在的空间(物理独立)
+        const { h } = ev.subject, n = h.n;
+        n.fx = (ev.sourceEvent.offsetX - h.tx) / h.s; n.fy = (ev.sourceEvent.offsetY - h.ty) / h.s;
+        if (!ev.subject.moved) h.sp.sim.alphaTarget(0.25).restart();
+        ev.subject.moved = true; return;
+      }
+      const [x, y] = transform.invert([ev.sourceEvent.offsetX, ev.sourceEvent.offsetY]); ev.subject.fx = x; ev.subject.fy = y; ev.subject.moved = true;
+    })
+    .on('end', (ev) => {
+      if (ev.subject.h) { const { h } = ev.subject; h.n.fx = null; h.n.fy = null; h.sp.sim.alphaTarget(0); if (!ev.subject.moved) select(h.n.id, false); return; }
+      ev.subject.fx = null; ev.subject.fy = null; if (!ev.subject.moved) select(ev.subject.id, false);
+    }));
   canvas.addEventListener('mousemove', (ev) => { hovered = find(ev.offsetX, ev.offsetY) || null; canvas.style.cursor = hovered ? 'pointer' : 'default'; });
-  canvas.addEventListener('click', (ev) => { if (!find(ev.offsetX, ev.offsetY)) select(null); });
-  $('q').addEventListener('input', (ev) => { query = ev.target.value.trim().toLowerCase(); });
+  canvas.addEventListener('click', (ev) => {
+    if (isSpaces()) { const h = pickHit(ev.offsetX, ev.offsetY); if (!h) select(null); else if (h.domain) select(h.n.id); return; }
+    if (!find(ev.offsetX, ev.offsetY)) select(null);
+  });
+  $('q').addEventListener('input', (ev) => { query = ev.target.value.trim().toLowerCase(); computeMatches(); });
   addEventListener('keydown', (ev) => {
     const typing = ['INPUT', 'TEXTAREA'].includes(document.activeElement && document.activeElement.tagName);
     if (ev.key === '/' && !typing) { ev.preventDefault(); $('q').focus(); }
     else if (ev.key === 'Escape') {
       if (typing) { document.activeElement.blur(); return; }
       if (replay) { exitReplay(); return; }
+      if (!$('projects').hidden) { toggleProjects(false); return; }
       $('q').value = ''; query = ''; select(null);
     }
     else if (!typing && !$('timeline').hidden && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')) { ev.preventDefault(); stepCommit(ev.key === 'ArrowLeft' ? -1 : 1); }
     else if (!typing && (ev.key === 'f' || ev.key === 'F')) fit();
-    else if (!typing && (ev.key === 'e' || ev.key === 'E') && selected) toggleExpand(selected);
-    else if (!typing && ev.key === '0') { manual.clear(); auto.clear(); recompute(false); }
+    else if (!typing && (ev.key === 'e' || ev.key === 'E') && selected) { if (isSpaces()) toggleExpandSpace(selected); else toggleExpand(selected); }
+    else if (!typing && isSpaces() && ev.key === 'Enter' && selected && compiled.node(selected)?.container) { if (!enterSpace(selected)) jumpTo(selected); }
+    else if (!typing && isSpaces() && (ev.key === 'Backspace' || ev.key === 'u' || ev.key === 'U')) { ev.preventDefault(); exitSpace(); }
+    else if (!typing && (ev.key === 'b' || ev.key === 'B')) setBg(bgMode + 1);
+    else if (!typing && (ev.key === 'p' || ev.key === 'P')) toggleProjects($('projects').hidden);
+    else if (!typing && ev.key === '0') { if (isSpaces()) { expandedSet.clear(); spaceVer++; renderStatus(); } else { manual.clear(); auto.clear(); recompute(false); } }
     else if (!typing && /^[1-9]$/.test(ev.key) && viewNames[+ev.key - 1]) setView(viewNames[+ev.key - 1]);
   });
 
 
   // ---------- 与服务端的接口(写入需要页面内嵌的 token)----------
   const token = (document.querySelector('meta[name=stars-token]') || {}).content || '';
+  function withP(path) { return projectId ? path + (path.includes('?') ? '&' : '?') + 'p=' + projectId : path; }
   async function api(path, body) {
     if (window.__STARS_STATIC__) throw new Error('这是静态导出,只读;请连接实时查看器来保存');
-    const r = await fetch(path, {
+    const r = await fetch(withP(path), {
       method: body ? 'POST' : 'GET',
       headers: { 'x-stars-token': token, ...(body ? { 'content-type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
@@ -583,10 +754,11 @@ import { trackProposals } from '/core/proposals.js';
     $('ed-name').textContent = currentView + (isCustom(currentView) ? '' : '(内置)');
     draftSpec = null; editorDirty = false; if (clearMsg) msg.innerHTML = '';
   }
-  function layoutPanels() { const b = $('tools').getBoundingClientRect().bottom + 10; for (const id of ['editor', 'review']) { $(id).style.top = b + 'px'; $(id).style.maxHeight = `calc(100vh - ${b + 30}px)`; } }
+  function layoutPanels() { const b = $('tools').getBoundingClientRect().bottom + 10; for (const id of ['editor', 'review', 'projects']) { $(id).style.top = b + 'px'; $(id).style.maxHeight = `calc(100vh - ${b + 30}px)`; } }
   addEventListener('resize', layoutPanels);
   function toggleEditor(on) {
     if (on && typeof toggleReview === 'function' && !$('review').hidden) { $('review').hidden = true; $('btn-review').classList.remove('on'); }
+    if (on) $('projects').hidden = true;
     layoutPanels();
     $('editor').hidden = !on; $('btn-edit').classList.toggle('on', on);
     if (on) loadEditor(); else if (draftSpec) { draftSpec = null; editorDirty = false; recompute(); }
@@ -608,7 +780,7 @@ import { trackProposals } from '/core/proposals.js';
     const op = uni.nodes.has(id) ? { op: 'setNode', id, set: { spec: compact } } : { op: 'addNode', id, label: name, attrs: { kind: 'view', spec: compact } };
     try {
       const r = await api('/api/op', { op, author: 'viewer' });
-      currentView = name; draftSpec = null; editorDirty = false; location.hash = 'view=' + name;
+      currentView = name; draftSpec = null; editorDirty = false; setHash();
       msg.innerHTML = `<span class="ok">✓ 已写入宇宙(操作 #${r.n}),可用 stars view ${esc(name)} 查看</span>`;
     } catch (e) { msg.innerHTML = `<span class="bad">保存失败:${esc(e.message)}</span>`; }
   }
@@ -644,7 +816,7 @@ import { trackProposals } from '/core/proposals.js';
     $('rv-all').style.opacity = $('rv-none').style.opacity = list.length ? 1 : 0.4;
   }
   function toggleReview(on) {
-    if (on) toggleEditor(false);
+    if (on) { toggleEditor(false); $('projects').hidden = true; }
     $('review').hidden = !on; $('btn-review').classList.toggle('on', on);
     if (on) { layoutPanels(); renderReview(); }
   }
@@ -663,10 +835,105 @@ import { trackProposals } from '/core/proposals.js';
     const b = ev.target.closest('[data-act]'); if (!b) return;
     ev.stopPropagation();
     const e = { from: b.dataset.from, type: b.dataset.type, to: b.dataset.to };
+    if (b.dataset.act === 'enter' || b.dataset.act === 'inplace') { if (b.dataset.act === 'enter') { if (!enterSpace(b.dataset.id)) jumpTo(b.dataset.id); } else toggleExpandSpace(b.dataset.id); return; }
     if (b.dataset.act === 'accept') write(acceptOp(e), '已接受');
     else if (b.dataset.act === 'reject') write(rejectOp(e), '已拒绝');
+    else if (b.dataset.act === 'enter') { if (!enterSpace(b.dataset.id)) jumpTo(b.dataset.id); }
+    else if (b.dataset.act === 'inplace') toggleExpandSpace(b.dataset.id);
     else if (b.dataset.act === 'promote') write({ op: 'addEdge', ...e, attrs: { note: `由 ${b.dataset.count} 条内部关系汇总提升` } }, '已提升为真边');
   }, true);
+
+  // ---------- 项目:一个文件夹一个宇宙;同一个服务里可以同时打开多个,随时切换 ----------
+  /** 快照里带来的项目信息。返回 false 表示这不是想看的项目(服务重启过,正在按记住的目录重新打开它) */
+  function onProject(p) {
+    if (projectId && p.id !== projectId) {
+      const dir = knownDirs()[projectId];
+      if (dir && !reopenTried.has(projectId)) {
+        reopenTried.add(projectId);
+        api('/api/open', { dir }).then((info) => { projectId = info.primary ? null : info.id; setHash(); connect(); })
+          .catch(() => { projectId = null; setHash(); connect(); });
+        return false;
+      }
+      projectId = p.primary ? null : p.id; setHash();
+    }
+    project = p;
+    if (!window.__STARS_STATIC__) rememberDir(p.id, p.dir);
+    $('proj-name').textContent = p.name;
+    $('proj-dir').textContent = p.dir;
+    $('proj').title = `${p.file}\n切换文件夹 / 项目(P)`;
+    document.title = `星罗 · ${p.name}`;
+    return true;
+  }
+  /** 切到另一个项目:丢掉和上一个宇宙有关的一切状态,重新连接事件流(服务端会先发一份完整快照) */
+  function switchProject(info) {
+    rememberDir(info.id, info.dir);
+    toggleProjects(false);
+    if (project && info.id === project.id) return;
+    stopPlay(); replay = null; liveSnap = null; staleLive = false; hist = null; renderReplayBar();
+    $('timeline').hidden = true; $('btn-time').classList.remove('on');
+    draftSpec = null; editorDirty = false; toggleEditor(false);
+    selected = null; hovered = null; hiddenTypes.clear(); manual.clear(); auto.clear(); activeTags.clear();
+    curSpaceId = null; expandedSet.clear(); fade = null; spaces.clear(); spaceVer++;
+    sim.clear(); known = new Set(); fresh = true; lastN = 0; compiled = null; uni = null;
+    links = []; drawNodes = []; regions = []; labelNodes = [];
+    simulation.nodes([]); simulation.force('link').links([]);
+    data = { nodes: [], edges: [], issues: [], log: [] };
+    projectId = info.primary ? null : info.id; project = null; setHash();
+    $('status').textContent = `正在打开 ${info.name}…`;
+    connect();
+  }
+
+  let lsCur = null, openList = [];
+  const pjMsg = (t, bad) => { $('pj-msg').textContent = t; $('pj-msg').classList.toggle('bad', !!bad); };
+  const baseName = (d) => d.split(/[\\/]/).filter(Boolean).pop() || d;
+  const parentDir = (d) => { const p = d.replace(/[\\/]+[^\\/]+[\\/]*$/, ''); return !p ? '/' : /^[A-Za-z]:$/.test(p) ? p + '\\' : p; };
+  async function toggleProjects(on) {
+    if (window.__STARS_STATIC__) return;
+    $('projects').hidden = !on;
+    if (!on) return;
+    if (!$('editor').hidden) toggleEditor(false);
+    if (!$('review').hidden) toggleReview(false);
+    layoutPanels();
+    await renderProjects();
+    ls(lsCur ? lsCur.dir : project ? parentDir(project.dir) : '');
+  }
+  async function renderProjects() {
+    let r;
+    try { r = await api('/api/projects'); } catch (e) { pjMsg(e.message, true); return; }
+    openList = r.open;
+    $('pj-open').innerHTML = r.open.map((p) => `<div class="pj-row ${project && p.id === project.id ? 'cur' : ''}" data-pid="${p.id}"><b>${esc(p.name)}</b><span class="d">${esc(p.dir)}</span>`
+      + `${p.watching ? '<span class="git" style="color:#7be0a0" title="实时同步中">●</span>' : ''}</div>`).join('');
+    $('pj-recent-wrap').hidden = !r.recent.length;
+    $('pj-recent').innerHTML = r.recent.map((d) => `<div class="pj-row" data-dir="${esc(d.dir)}" data-has="${d.hasUniverse ? 1 : ''}"><b>${d.hasUniverse ? '<span class="mark">★</span> ' : ''}${esc(d.name)}</b><span class="d">${esc(d.dir)}</span></div>`).join('');
+  }
+  async function ls(dir) {
+    let r;
+    try { r = await api('/api/ls?dir=' + encodeURIComponent(dir || '')); } catch (e) { pjMsg(e.message, true); return; }
+    lsCur = r;
+    $('pj-path').value = r.dir;
+    $('pj-up').style.opacity = r.parent ? 1 : 0.3;
+    $('pj-list').innerHTML = r.entries.map((e) => `<div class="pj-row" data-ls="${esc(e.path)}" title="${e.hasUniverse ? '有宇宙 · ' : ''}点击进入">`
+      + `<b>${e.hasUniverse ? '<span class="mark">★</span> ' : ''}${esc(e.name)}</b><span class="d"></span>${e.isGit ? '<span class="git">git</span>' : ''}`
+      + `${e.hasUniverse ? `<span class="mini ok" data-go="${esc(e.path)}">打开</span>` : ''}</div>`).join('') || '<div class="tag" style="padding:6px">(没有子文件夹)</div>';
+    const isOpen = openList.find((p) => p.dir === r.dir);
+    $('pj-here').textContent = isOpen ? `切换到 ${baseName(r.dir)}` : r.hasUniverse ? `打开 ${baseName(r.dir)} 的宇宙` : `在 ${baseName(r.dir)} 建立宇宙(扫描文件)`;
+    pjMsg(r.hasUniverse ? '' : '这里还没有 universe.stars;建立时会扫描文件夹(遵守 .gitignore),写入 universe.stars');
+  }
+  async function openDir(dir, create = false) {
+    pjMsg(create ? '正在扫描并建立宇宙…' : '正在打开…');
+    try { switchProject(await api('/api/open', { dir, create })); pjMsg(''); } catch (e) { pjMsg(e.message, true); }
+  }
+  $('proj').addEventListener('click', () => toggleProjects($('projects').hidden));
+  $('projects').addEventListener('click', (ev) => {
+    const t = ev.target.closest('[data-go],[data-pid],[data-dir],[data-ls]'); if (!t) return;
+    if (t.dataset.go) openDir(t.dataset.go);
+    else if (t.dataset.pid) switchProject(openList.find((p) => p.id === t.dataset.pid));
+    else if (t.dataset.dir) { if (t.dataset.has) openDir(t.dataset.dir); else ls(t.dataset.dir); }
+    else if (t.dataset.ls) ls(t.dataset.ls);
+  });
+  $('pj-up').addEventListener('click', () => { if (lsCur && lsCur.parent) ls(lsCur.parent); });
+  $('pj-path').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') ls($('pj-path').value.trim()); });
+  $('pj-here').addEventListener('click', () => { if (lsCur) openDir(lsCur.dir, !lsCur.hasUniverse); });
 
   // ---------- 图例:视图用到"新旧"时说明颜色的含义 ----------
   function renderLegend() {
@@ -797,31 +1064,428 @@ import { trackProposals } from '/core/proposals.js';
     manual.set(id, !n.expanded);
     recompute(false);
   }
-  canvas.addEventListener('dblclick', (ev) => { const n = find(ev.offsetX, ev.offsetY); if (n) toggleExpand(n.id); });
+  canvas.addEventListener('dblclick', (ev) => {
+    if (isSpaces()) { const h = pickHit(ev.offsetX, ev.offsetY); if (h && h.n.container) toggleExpandSpace(h.n.id); return; }
+    const n = find(ev.offsetX, ev.offsetY); if (n) toggleExpand(n.id);
+  });
 
-  // 语义缩放:放大到容器的视觉半径超过阈值就展开,缩小到它的内容变得很小就收起(带滞后,避免来回闪)
-  setInterval(() => {
-    const T = scene.expand && scene.expand.auto && scene.expand.auto.radiusPx;
-    if (!T || performance.now() - lastUserZoom > 1500) return;
-    const k = transform.k, W = innerWidth, H = innerHeight;
-    let changed = false;
-    for (const n of simulation.nodes()) {
-      if (!n.container || manual.has(n.id) || n.x === undefined) continue;
-      const sx = n.x * k + transform.x, sy = n.y * k + transform.y;
-      if (!n.expanded) {
-        const on = sx > -120 && sx < W + 120 && sy > -120 && sy < H + 120;
-        if (on && n.r * k * 3 > T && auto.get(n.id) !== true) { auto.set(n.id, true); changed = true; }
-      } else {
-        const reg = regions.find((r) => r.id === n.id);
-        if (!reg) continue;
-        const ext = Math.max(...reg.members.map((m) => Math.hypot(m.x - n.x, m.y - n.y) + m.r)) * k;
-        if (ext < T * 0.55 && auto.get(n.id) !== false) { auto.set(n.id, false); changed = true; }
+  // ======================= 嵌套空间 =======================
+  // 每个容器是一个独立的小世界:只有它的直接子节点,只受内部关系约束,和外界没有力的交互。
+  //  · 放大越过阈值 = 切换到子空间(像 cd 进目录),外面不再画;缩小 = 回到父空间。有来源有目的,所以有连续的过渡动画。
+  //  · 双击 / E = 显式的就地展开:把子空间以同样的尺度画在原地(内部物理仍独立),父空间给它让出位置。
+  const isSpaces = () => !!compiled && compiled.layout === 'spaces';
+  const spaces = new Map();          // 容器 id('' = 顶层)→ 空间
+  let spaceVer = 0;
+  let curSpaceId = null;             // 当前所在的空间,null = 顶层
+  const expandedSet = new Set();     // 就地展开的容器
+  let fade = null;                   // 空间切换的过渡
+  let frameHits = [], frameLabels = [];
+  let lastSwitchAt = 0;
+  let matchSet = new Set(), matchAnc = new Map();
+  const BODY = 4.2;                  // 收起的容器在父空间里的"盘"半径 = r × BODY
+  const keyOf = (id) => id ?? '';
+
+  function decorate(n, old) {
+    n.rgb = hex2rgb(n.color); n.core = mix(n.rgb, [255, 255, 255], 0.65);
+    n.kidRgb = n.kids ? n.kids.map(([c, r]) => [hex2rgb(c), r]) : null;
+    n.phase = old ? old.phase : Math.random() * TAU; n.tilt = (n.phase - 3) * 0.3;
+    n.D = n.container ? n.r * BODY : 0;
+    n.born = old ? old.born : 0;
+  }
+  function measure(sp) {
+    let E = 24;
+    for (const n of sp.nodes) E = Math.max(E, Math.hypot(n.x, n.y) + n.fp);
+    sp.E = E;
+  }
+  function updateFootprints(sp) {
+    for (const n of sp.nodes) n.fp = n.container ? (expandedSet.has(n.id) ? getSpace(n.id).E + 8 : n.D) : n.r * 1.6 + 2;
+  }
+  function applyForces(sp) { // d3 的力在 initialize 时缓存每个节点的半径/强度,改了 fp 要重新设置
+    sp.sim.force('link').distance((l) => (l.distance ?? 60) * 0.5 + l.source.fp + l.target.fp);
+    sp.sim.force('collide').radius((d) => d.fp + 3);
+    sp.sim.force('charge').strength((d) => -(12 + d.fp * d.fp * 0.8));
+  }
+
+  function getSpace(id) {
+    const key = keyOf(id);
+    const old = spaces.get(key);
+    if (old && old.ver === spaceVer) return old;
+    const sd = compiled.space(id);
+    const byId = new Map();
+    const nodes = sd.nodes.map((sn, i) => {
+      const o = old && old.byId.get(sn.id);
+      const n = { ...sn };
+      decorate(n, o);
+      if (o) { n.x = o.x; n.y = o.y; }
+      else { const a = i * 2.39996, rr = 14 * Math.sqrt(i + 1); n.x = Math.cos(a) * rr; n.y = Math.sin(a) * rr; if (old) n.born = performance.now(); }
+      byId.set(n.id, n);
+      return n;
+    });
+    const links = sd.edges.filter((e) => byId.has(e.from) && byId.has(e.to)).map((e) => ({ ...e, source: e.from, target: e.to }));
+    const sim = d3.forceSimulation(nodes).alphaDecay(0.045)
+      .force('link', d3.forceLink(links).id((d) => d.id).strength((l) => Math.min(0.5, (l.strength ?? 0.15) * (1 + Math.log2(l.count || 1) * 0.3))))
+      .force('charge', d3.forceManyBody().distanceMax(900))
+      .force('x', d3.forceX(0).strength(0.05)).force('y', d3.forceY(0).strength(0.05))
+      .force('collide', d3.forceCollide().strength(0.9))
+      .stop();
+    const sp = { key, id, ver: spaceVer, nodes, byId, links, external: sd.external, sim, E: 24 };
+    spaces.set(key, sp);
+    updateFootprints(sp);
+    applyForces(sp);
+    // 同步跑到稳定:进入空间时布局已经是静止的,不会挤、不会抖
+    const n = nodes.length, ticks = old ? 30 : n > 2000 ? 40 : n > 500 ? 100 : 260;
+    if (old) sim.alpha(0.2);
+    for (let i = 0; i < ticks; i++) sim.tick();
+    measure(sp);
+    sim.on('tick', () => onSpaceTick(sp));
+    return sp;
+  }
+  /** 哪个空间里有这个节点(它的父容器的空间;父容器被过滤掉时往上找) */
+  function holderOf(id) {
+    const chain = compiled.ancestors(id);
+    for (let i = chain.length - 2; i >= 0; i--) { const sp = getSpace(chain[i]); if (sp.byId.has(id)) return sp; }
+    return getSpace(null);
+  }
+  function onSpaceTick(sp) { // 就地展开的空间在调整时,父空间要跟着给它让位
+    measure(sp);
+    if (sp.id === null || !expandedSet.has(sp.id)) return;
+    const ps = holderOf(sp.id), n = ps.byId.get(sp.id);
+    if (!n) return;
+    n.fp = sp.E + 8;
+    applyForces(ps);
+    if (ps.sim.alpha() < 0.08) ps.sim.alpha(0.25).restart();
+  }
+
+  function toggleExpandSpace(id) {
+    const n = compiled.node(id);
+    if (!n || !n.container) return;
+    if (expandedSet.has(id)) expandedSet.delete(id); else expandedSet.add(id);
+    const ps = holderOf(id);
+    updateFootprints(ps); applyForces(ps);
+    ps.sim.alpha(0.7).restart(); // 父空间动画地让出(或收回)位置
+    renderSide();
+  }
+
+  const qOK = (n) => !query || matchSet.has(n.id) || (n.container && matchAnc.has(n.id));
+  function computeMatches() {
+    matchSet = new Set(); matchAnc = new Map();
+    if (!query || !compiled) return;
+    for (const n of data.nodes) {
+      if (n.id.startsWith('~') || !`${n.id} ${n.label} ${n.attrs.summary || ''}`.toLowerCase().includes(query)) continue;
+      matchSet.add(n.id);
+      for (let p = compiled.parentOf(n.id); p; p = compiled.parentOf(p)) matchAnc.set(p, (matchAnc.get(p) || 0) + 1);
+    }
+  }
+  function neighborsIn(sp, id) {
+    const s = new Set([id]);
+    for (const l of sp.links) { if (l.source.id === id) s.add(l.target.id); if (l.target.id === id) s.add(l.source.id); }
+    return s;
+  }
+  const mustLabel = (n) => n === hovered || n.id === selected || (query && matchSet.has(n.id));
+
+  // 端点:就地展开的容器,连线停在它的疆界上
+  function endPoint(n, other) {
+    if (!expandedSet.has(n.id)) return n;
+    const E = getSpace(n.id).E + 4, dx = other.x - n.x, dy = other.y - n.y, d = Math.hypot(dx, dy) || 1;
+    return { x: n.x + dx / d * E, y: n.y + dy / d * E, r: 0 };
+  }
+
+  function drawSpaceEdges(sp, tx, ty, s, aOf) {
+    const W = innerWidth, H = innerHeight, buckets = new Map(), few = sp.links.length < 400;
+    for (const l of sp.links) {
+      const a0 = l.source, b0 = l.target;
+      const ea = expandedSet.has(a0.id), eb = expandedSet.has(b0.id);
+      if ((ea || eb) && l.lifted) continue; // 展开后,细节由内部节点直接连出去
+      const a = endPoint(a0, b0), b = endPoint(b0, a0);
+      const ax = tx + a.x * s, ay = ty + a.y * s, bx = tx + b.x * s, by = ty + b.y * s;
+      if (Math.max(ax, bx) < -40 || Math.min(ax, bx) > W + 40 || Math.max(ay, by) < -40 || Math.min(ay, by) > H + 40) continue;
+      if (Math.hypot(bx - ax, by - ay) < 2) continue;
+      const al = Math.min(aOf(a0), aOf(b0));
+      const hot = selected && (a0.id === selected || b0.id === selected);
+      const faint = l.mode !== 'line';
+      const w = (l.width || 1) * (l.lifted ? 0.8 + Math.min(Math.log2(l.count + 1), 3) * 0.5 : 1) * (hot ? 1.8 : 1);
+      const op = al * (hot ? 0.95 : faint ? 0.16 : 0.42);
+      const dash = l.proposed ? 'p' : l.lifted ? 'l' : '';
+      const key = `${l.proposed ? 'p' : l.color}|${Math.round(op * 20)}|${Math.round(w * 4)}|${dash}`;
+      let bk = buckets.get(key);
+      if (!bk) { bk = { col: l.proposed ? [255, 210, 74] : hex2rgb(l.color), op, w, dash, segs: [], arrows: [] }; buckets.set(key, bk); }
+      bk.segs.push(a, b);
+      if ((few || hot) && l.arrow) bk.arrows.push([a, b0 === l.target && !eb ? b0 : b]);
+      if ((l.lifted || l.count > 1) && (few || hot)) frameLabels.push({ text: '×' + l.count, sx: (ax + bx) / 2, sy: (ay + by) / 2 - 7, prio: 20, color: l.lifted ? '#b9c4ff' : '#9aa', small: true, alpha: al });
+    }
+    for (const bk of buckets.values()) {
+      ctx.strokeStyle = rgba(bk.col, bk.op); ctx.lineWidth = bk.w / s;
+      ctx.setLineDash(bk.dash === 'p' ? [5 / s, 4 / s] : bk.dash === 'l' ? [2 / s, 4 / s] : []);
+      ctx.beginPath();
+      for (let i = 0; i < bk.segs.length; i += 2) { ctx.moveTo(bk.segs[i].x, bk.segs[i].y); ctx.lineTo(bk.segs[i + 1].x, bk.segs[i + 1].y); }
+      ctx.stroke(); ctx.setLineDash([]);
+      for (const [a, b] of bk.arrows) drawArrow(a, b, bk.col, Math.min(1, bk.op * 1.5), s);
+    }
+  }
+
+  function drawSpace(sp, tx, ty, s, alpha, depth, now, skipId) {
+    if (alpha <= 0.01 || depth > 8) return;
+    const dpr = devicePixelRatio || 1, W = innerWidth, H = innerHeight;
+    const setT = () => { ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * tx, dpr * ty); curK = s; };
+    setT();
+    const onScr = (n, rad) => { const x = tx + n.x * s, y = ty + n.y * s, m = rad * s + 30; return x > -m && x < W + m && y > -m && y < H + m; };
+    const focusSet = selected && sp.byId.has(selected) ? neighborsIn(sp, selected) : null;
+    const aOf = (n) => alpha * (query && !qOK(n) ? 0.12 : focusSet && !focusSet.has(n.id) ? 0.3 : 1);
+    ctx.globalCompositeOperation = look === 'galaxy' ? 'lighter' : 'source-over';
+    drawSpaceEdges(sp, tx, ty, s, aOf);
+
+    const inPlace = [];
+    for (const n of sp.nodes) { // 收起的容器:小星系(在下层)
+      if (!n.container || n.id === skipId) continue;
+      if (expandedSet.has(n.id)) { inPlace.push(n); continue; }
+      if (!onScr(n, n.D * 1.7)) continue;
+      const R = n.D * s, sx = tx + n.x * s, sy = ty + n.y * s;
+      if (n.r * s < 1.2) { ctx.fillStyle = rgba(n.core, 0.8 * aOf(n)); ctx.fillRect(n.x - 1 / s, n.y - 1 / s, 2 / s, 2 / s); }
+      else drawNode(n, now, aOf(n) * (n === hovered ? 1.25 : 1));
+      frameHits.push({ n, sp, depth, sx, sy, sr: Math.max(R * 0.75, 6), R, tx, ty, s });
+      if (R >= 10 || mustLabel(n) || (query && matchAnc.has(n.id))) {
+        const cnt = query && matchAnc.has(n.id) ? `  ·${matchAnc.get(n.id)} 处匹配` : '';
+        frameLabels.push({ text: n.label + cnt, sx, sy: sy + Math.max(R * 0.55, 6) + 3, prio: mustLabel(n) ? 1e9 : 1e5 + R, color: '#dfe3ff', alpha: aOf(n) });
       }
     }
-    if (changed) recompute(false);
-  }, 220);
+    flushParticles();
+    for (const n of sp.nodes) { // 叶子
+      if (n.container || n.id === skipId || !onScr(n, n.r * 5)) continue;
+      const sx = tx + n.x * s, sy = ty + n.y * s, sr = n.r * s;
+      if (sr < 2.2 && n !== hovered && n.id !== selected) { const q = Math.max(1.2 / s, n.r * 0.9); ctx.fillStyle = rgba(n.core, 0.9 * aOf(n)); ctx.fillRect(n.x - q / 2, n.y - q / 2, q, q); }
+      else drawNode(n, now, aOf(n) * (n === hovered ? 1.25 : 1));
+      const age = now - (n.born || -1e9);
+      if (age < 1800) { const p = age / 1800; ctx.strokeStyle = rgba(n.rgb, (1 - p) * 0.9 * alpha); ctx.lineWidth = 2 / s; ctx.beginPath(); ctx.arc(n.x, n.y, n.r + 4 + p * 50, 0, TAU); ctx.stroke(); }
+      frameHits.push({ n, sp, depth, sx, sy, sr: Math.max(sr * 1.4, 5), R: sr, tx, ty, s });
+      if (sr >= 4 || mustLabel(n) || sp.nodes.length <= 16) frameLabels.push({ text: n.label, sx, sy: sy + sr * 1.3 + 3, prio: mustLabel(n) ? 1e9 : sr, color: '#e8e8f6', alpha: aOf(n) });
+    }
+    flushParticles();
+    for (const n of inPlace) { // 就地展开:疆界 + 子空间(同一尺度,物理独立)
+      const child = getSpace(n.id);
+      if (!onScr(n, child.E + 30)) continue;
+      const E = child.E + 4, cx = tx + n.x * s, cy = ty + n.y * s, R = E * s;
+      ctx.globalCompositeOperation = 'source-over'; setT();
+      ctx.beginPath(); ctx.arc(n.x, n.y, E, 0, TAU);
+      ctx.fillStyle = rgba(n.rgb, 0.05 * aOf(n)); ctx.fill();
+      ctx.strokeStyle = rgba(n.rgb, (n.id === selected ? 0.65 : 0.32) * aOf(n)); ctx.lineWidth = 1.2 / s; ctx.setLineDash([6 / s, 5 / s]); ctx.stroke(); ctx.setLineDash([]);
+      frameLabels.push({ text: n.label, sx: cx, sy: cy - R - 16, prio: 6e5 + R, color: '#cfd6ff', alpha: aOf(n) });
+      frameHits.push({ n, sp, depth, sx: cx, sy: cy, sr: R, R, tx, ty, s, domain: true });
+      drawSpace(child, cx, cy, s, alpha, depth + 1, now, null);
+      setT();
+      drawInnerLinks(child, n, sp, s, alpha);
+    }
+  }
+
+  /** 就地展开的容器里,通向外面的关系:如果对方在这个空间里看得见,直接连过去(不同层级在一起时才能看到的连线) */
+  function drawInnerLinks(child, container, sp, s, alpha) {
+    if (!child.external.length) return;
+    ctx.globalCompositeOperation = look === 'galaxy' ? 'lighter' : 'source-over';
+    for (const x of child.external) {
+      const q = child.byId.get(x.node), target = sp.byId.get(x.other);
+      if (!q || !target || target === container) continue;
+      const a = { x: container.x + q.x, y: container.y + q.y }, b = endPoint(target, a);
+      const col = hex2rgb(x.color), hot = selected && (q.id === selected || target.id === selected);
+      ctx.strokeStyle = rgba(col, alpha * (hot ? 0.9 : 0.38)); ctx.lineWidth = (hot ? 1.6 : 1) / s;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      if (x.out) drawArrow(a, { ...b, r: target.r || 0 }, col, alpha * 0.7, s); else drawArrow(b, { ...a, r: q.r }, col, alpha * 0.7, s);
+    }
+  }
+
+  /** 当前空间通向外面的关系:从子节点伸向空间边界的短桩,方向指向外面那个对象在父空间里的方位 */
+  function drawStubs(sp, tx, ty, s, alpha) {
+    if (curSpaceId === null || !sp.external.length) return;
+    const ps = holderOf(curSpaceId), me = ps.byId.get(curSpaceId);
+    if (!me) return;
+    const R = sp.E * 1.05, dirCache = new Map();
+    const dirTo = (other) => {
+      if (dirCache.has(other)) return dirCache.get(other);
+      let t = ps.byId.get(other);
+      if (!t) for (const id of compiled.ancestors(other)) { t = ps.byId.get(id); if (t) break; }
+      let dx, dy;
+      if (t && t !== me) { dx = t.x - me.x; dy = t.y - me.y; } else { dx = me.x || 1; dy = me.y || 0; } // 在更外层:朝外
+      const d = Math.hypot(dx, dy) || 1, v = [dx / d, dy / d];
+      dirCache.set(other, v); return v;
+    };
+    ctx.setTransform((devicePixelRatio || 1) * s, 0, 0, (devicePixelRatio || 1) * s, (devicePixelRatio || 1) * tx, (devicePixelRatio || 1) * ty);
+    ctx.globalCompositeOperation = 'source-over';
+    for (const x of sp.external) {
+      const n = sp.byId.get(x.node); if (!n) continue;
+      const [ux, uy] = dirTo(x.other), ex = ux * R, ey = uy * R, col = hex2rgb(x.color);
+      const hot = selected && n.id === selected;
+      ctx.strokeStyle = rgba(col, alpha * (hot ? 0.85 : 0.4)); ctx.lineWidth = 1 / s; ctx.setLineDash([3 / s, 4 / s]);
+      ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(ex, ey); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = rgba(col, alpha * 0.8); ctx.beginPath(); ctx.arc(ex, ey, 2.5 / s, 0, TAU); ctx.fill();
+      frameLabels.push({ text: `${x.out ? '→' : '←'} ${raw.get(x.other)?.label || x.other}${x.count > 1 ? ' ×' + x.count : ''}`, sx: tx + ex * s + ux * 8, sy: ty + ey * s + uy * 8 - 6, prio: 40 + x.count, color: x.color, small: true, alpha, anchor: ux });
+    }
+  }
+
+  // ---------- 空间切换(有来源有目的 → 连续的过渡)----------
+  const scOf = (n, child) => (expandedSet.has(n.id) ? 1 : (n.D * 0.92) / child.E);
+  /** 从当前空间走到目标容器:中间必须都是就地展开的(那样目标在画面里是看得见的) */
+  function pathWithin(fromId, targetId) {
+    const chain = compiled.ancestors(targetId);
+    let i = fromId === null ? 0 : chain.indexOf(fromId) + 1;
+    if (fromId !== null && i === 0) return null;
+    let sp = getSpace(fromId);
+    const out = [];
+    for (; i < chain.length; i++) {
+      const n = sp.byId.get(chain[i]);
+      if (!n) continue; // 被过滤掉的容器是透明的
+      out.push(n);
+      if (chain[i] === targetId) return out;
+      if (!expandedSet.has(chain[i])) return null;
+      sp = getSpace(chain[i]);
+    }
+    return null;
+  }
+  function setTransformNow(x, y, k) { d3.select(canvas).call(zoom.transform, d3.zoomIdentity.translate(x, y).scale(k)); }
+
+  function enterSpace(id) {
+    const path = pathWithin(curSpaceId, id);
+    if (!path) return false;
+    let ox = 0, oy = 0;
+    for (const n of path) { ox += n.x; oy += n.y; } // 穿过就地展开的祖先,尺度都是 1
+    const target = path[path.length - 1], child = getSpace(id), sc = scOf(target, child);
+    const { x, y, k } = transform;
+    fade = { kind: 'enter', fromId: curSpaceId, skip: path[0].id, ox, oy, sc, t0: performance.now() };
+    curSpaceId = id; lastSwitchAt = performance.now();
+    setTransformNow(x + k * ox, y + k * oy, k * sc);
+    afterSwitch();
+    return true;
+  }
+  function exitSpace() {
+    if (curSpaceId === null) return false;
+    const ps = holderOf(curSpaceId), n = ps.byId.get(curSpaceId), cur = getSpace(curSpaceId);
+    if (!n) { jumpTo(ps.id); return true; }
+    const sc = scOf(n, cur), { x, y, k } = transform, k2 = k / sc;
+    fade = { kind: 'exit', fromId: curSpaceId, node: n, sc, t0: performance.now() };
+    curSpaceId = ps.id; lastSwitchAt = performance.now();
+    setTransformNow(x - k2 * n.x, y - k2 * n.y, k2);
+    afterSwitch();
+    return true;
+  }
+  /** 跨多级的跳转(面包屑、搜索结果):淡出旧空间,适应窗口地显示新空间 */
+  function jumpTo(id, focusId) {
+    if (id === curSpaceId && !focusId) { fitSpace(true); return; }
+    fade = { kind: 'jump', fromId: curSpaceId, oldT: transform, t0: performance.now() };
+    curSpaceId = id; lastSwitchAt = performance.now();
+    if (focusId) { const sp = getSpace(id), n = sp.byId.get(focusId); fitSpace(false); if (n) centerOn(n, sp); }
+    else fitSpace(false);
+    afterSwitch();
+  }
+  function afterSwitch() { renderStatus(); renderCrumbs(); }
+  function fitSpace(animate) {
+    const sp = getSpace(curSpaceId);
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const n of sp.nodes) { const r = n.fp; x0 = Math.min(x0, n.x - r); x1 = Math.max(x1, n.x + r); y0 = Math.min(y0, n.y - r); y1 = Math.max(y1, n.y + r); }
+    if (!isFinite(x0)) { x0 = y0 = -50; x1 = y1 = 50; }
+    const W = innerWidth, H = innerHeight;
+    const k = Math.min(6, 0.84 * Math.min((W - 360) / Math.max(60, x1 - x0), (H - 80) / Math.max(60, y1 - y0)));
+    const t = d3.zoomIdentity.translate(W / 2 - 20, H / 2 + 10).scale(k).translate(-(x0 + x1) / 2, -(y0 + y1) / 2);
+    if (animate) d3.select(canvas).transition().duration(600).call(zoom.transform, t); else d3.select(canvas).call(zoom.transform, t);
+  }
+  function centerOn(n, sp) {
+    const k = Math.max(transform.k, 10 / Math.max(n.r, 1));
+    const t = d3.zoomIdentity.translate(innerWidth / 2 - 20, innerHeight / 2).scale(k).translate(-n.x, -n.y);
+    d3.select(canvas).transition().duration(500).call(zoom.transform, t);
+  }
+  /** 让一个节点出现在画面里:必要时切换到它所在的空间 */
+  function reveal(id) {
+    const holder = holderOf(id), holderId = holder.id;
+    const path = pathWithin(curSpaceId, id);
+    if (path) { let ox = 0, oy = 0; for (const n of path) { ox += n.x; oy += n.y; } centerOn({ x: ox, y: oy, r: path[path.length - 1].r }, null); return; }
+    jumpTo(holderId, id);
+  }
+
+  /** 缩放手势触发的空间切换:放大且指针落在一个已经占据小半屏幕的容器上 → 进入;当前空间缩到很小 → 退出 */
+  function maybeSwitch(se, dir) {
+    if (!dir || fade || performance.now() - lastSwitchAt < 450) return;
+    const T = compiled.enterAt * Math.min(innerWidth, innerHeight);
+    if (dir > 0) {
+      let px = innerWidth / 2, py = innerHeight / 2;
+      try { [px, py] = d3.pointer(se, canvas); } catch { /* 触摸等 */ }
+      let best = null;
+      for (const h of frameHits) {
+        if (!h.n.container || h.R < T || Math.hypot(px - h.sx, py - h.sy) > h.R) continue;
+        if (!best || h.depth > best.depth || (h.depth === best.depth && h.R < best.R)) best = h;
+      }
+      if (best) requestAnimationFrame(() => enterSpace(best.n.id));
+    } else if (curSpaceId !== null && getSpace(curSpaceId).E * transform.k < 0.5 * T) requestAnimationFrame(() => exitSpace());
+  }
+
+  function pickHit(px, py) {
+    let best = null, bestDomain = null;
+    for (const h of frameHits) {
+      const d = Math.hypot(px - h.sx, py - h.sy);
+      if (h.domain) { if (d <= h.R && (!bestDomain || h.depth > bestDomain.depth)) bestDomain = h; }
+      else if (d <= h.sr + 4 && (!best || h.sr < best.sr)) best = h;
+    }
+    return best || bestDomain;
+  }
+
+  function renderCrumbs() {
+    const el = $('crumbs');
+    if (!isSpaces()) { el.hidden = true; return; }
+    el.hidden = false;
+    const chain = curSpaceId === null ? [] : compiled.ancestors(curSpaceId);
+    el.innerHTML = `<span class="crumb" data-c="">🌌 宇宙</span>` + chain.map((id) => `<span class="sep">›</span><span class="crumb" data-c="${esc(id)}">${esc(raw.get(id)?.label || id)}</span>`).join('')
+      + `<span class="hint">放大进入 · 缩小返回 · 双击就地展开</span>`;
+  }
+  $('crumbs').addEventListener('click', (ev) => { const c = ev.target.closest('.crumb'); if (c) jumpTo(c.dataset.c || null); });
+
+  function drawSpacesFrame(now) {
+    frameHits = []; frameLabels = [];
+    if (!compiled) return;
+    const { x, y, k } = transform;
+    const p = fade ? Math.min(1, (now - fade.t0) / 420) : 1, ease = p * p * (3 - 2 * p);
+    if (fade && p < 1) { // 过渡:旧空间按"来源—目的"的几何关系画出来,渐隐
+      try {
+        if (fade.kind === 'enter') { const kP = k / fade.sc; drawSpace(getSpace(fade.fromId), x - kP * fade.ox, y - kP * fade.oy, kP, 1 - ease, 0, now, fade.skip); }
+        else if (fade.kind === 'exit') { const n = fade.node; drawSpace(getSpace(fade.fromId), x + k * n.x, y + k * n.y, k * fade.sc, 1 - ease, 0, now, null); }
+        else drawSpace(getSpace(fade.fromId), fade.oldT.x, fade.oldT.y, fade.oldT.k, 1 - ease, 0, now, null);
+      } catch { fade = null; }
+      frameHits = []; frameLabels = []; // 旧空间不参与交互
+    }
+    const cur = getSpace(curSpaceId);
+    drawSpace(cur, x, y, k, fade ? Math.max(0.05, ease) : 1, 0, now, null);
+    drawStubs(cur, x, y, k, fade ? ease : 1);
+    if (fade && p >= 1) fade = null;
+
+    // 屏幕空间:选中 / 问题 / 回放差异的环,标签
+    const dpr = devicePixelRatio || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.globalCompositeOperation = 'source-over'; ctx.setLineDash([]);
+    for (const h of frameHits) {
+      const rr = h.domain ? h.R + 3 : h.sr + 3, sev = issueByNode.get(h.n.id);
+      if (sev === 'error' || sev === 'warn') { ctx.strokeStyle = sev === 'error' ? 'rgba(255,90,90,.9)' : 'rgba(255,179,71,.9)'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(h.sx, h.sy, rr, 0, TAU); ctx.stroke(); }
+      if (replay && (replay.added.has(h.n.id) || replay.changed.has(h.n.id))) { ctx.strokeStyle = replay.added.has(h.n.id) ? 'rgba(123,224,160,.95)' : 'rgba(255,179,71,.95)'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(h.sx, h.sy, rr + 5, 0, TAU); ctx.stroke(); }
+      if (h.n.id === selected && !h.domain) { ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(h.sx, h.sy, rr + 3, 0, TAU); ctx.stroke(); }
+    }
+    drawFrameLabels();
+  }
+
+  function drawFrameLabels() {
+    frameLabels.sort((a, b) => b.prio - a.prio);
+    const placed = [];
+    ctx.textBaseline = 'top'; ctx.lineJoin = 'round';
+    let n = 0;
+    for (const L of frameLabels) {
+      if (n > 260) break;
+      const fs = L.small ? 10 : 11.5;
+      ctx.font = `${fs}px -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif`;
+      const w = ctx.measureText(L.text).width;
+      const x0 = L.anchor > 0.3 ? L.sx : L.anchor < -0.3 ? L.sx - w : L.sx - w / 2;
+      const box = [x0 - 2, L.sy - 1, x0 + w + 2, L.sy + fs + 2];
+      if (L.prio < 1e9 && placed.some((q) => box[0] < q[2] && box[2] > q[0] && box[1] < q[3] && box[3] > q[1])) continue;
+      placed.push(box); n++;
+      ctx.globalAlpha = Math.max(0.3, Math.min(1, L.alpha ?? 1));
+      if (!L.small) { ctx.strokeStyle = 'rgba(2,2,10,0.85)'; ctx.lineWidth = 3; ctx.strokeText(L.text, x0, L.sy); }
+      ctx.fillStyle = L.color || '#e8e8f6'; ctx.fillText(L.text, x0, L.sy);
+    }
+    ctx.globalAlpha = 1;
+  }
 
   function fit() {
+    if (isSpaces()) { fitSpace(true); return; }
     const vis = simulation.nodes().filter((n) => n.x !== undefined);
     if (!vis.length) return;
     const xs = vis.map((n) => n.x), ys = vis.map((n) => n.y);
@@ -864,6 +1528,18 @@ import { trackProposals } from '/core/proposals.js';
     ctx.globalAlpha = prev;
   }
 
+  // 背景:0 = 星点 + 远方星系,1 = 只有星点,2 = 无(只有暗色底)
+  let bgMode = 0;
+  try { bgMode = Number(localStorage.getItem('stars.bg') || 0) % 3; } catch { /* 隐私模式 */ }
+  const BG_NAMES = ['星系', '星点', '无'];
+  function setBg(m) {
+    bgMode = m % 3;
+    try { localStorage.setItem('stars.bg', String(bgMode)); } catch { /* ignore */ }
+    $('btn-bg').textContent = '✦ 背景:' + BG_NAMES[bgMode];
+  }
+  $('btn-bg').addEventListener('click', () => setBg(bgMode + 1));
+  setBg(bgMode);
+
   function drawBackdrop(now) {
     const W = innerWidth, H = innerHeight;
     if (look !== 'galaxy') { ctx.fillStyle = '#07070d'; ctx.fillRect(0, 0, W, H); return; }
@@ -871,6 +1547,7 @@ import { trackProposals } from '/core/proposals.js';
     g.addColorStop(0, '#0d0b22'); g.addColorStop(0.5, '#05050f'); g.addColorStop(1, '#01010605');
     ctx.fillStyle = '#010106'; ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    if (bgMode === 2) return; // 背景关闭:只留暗色渐变
     // 银河光带:一条斜向的柔光
     ctx.save(); ctx.translate(W * 0.5 + transform.x * 0.04, H * 0.5 + transform.y * 0.04); ctx.rotate(-0.45);
     const band = ctx.createLinearGradient(0, -H * 0.35, 0, H * 0.35);
@@ -896,13 +1573,13 @@ import { trackProposals } from '/core/proposals.js';
       for (let i = 0; i < pts.length; i += 3) ctx.rect(pts[i] - pts[i + 2], pts[i + 1] - pts[i + 2], pts[i + 2] * 2, pts[i + 2] * 2);
       ctx.fill();
     }
-    drawFarGalaxies(now);
+    if (bgMode === 0) drawFarGalaxies(now);
     ctx.globalCompositeOperation = 'source-over';
   }
 
   // 收起的容器 = 一个小星系:粒子是它里面的东西(颜色、大小取自内容),缓缓旋转
   function drawGalaxyArms(n, now, a) {
-    const sr = n.r * transform.k;
+    const sr = n.r * curK;
     if (sr < 4.5) return; // 屏幕上太小,画粒子也看不清
     const len = sr > 12 ? n.kidRgb.length : Math.min(n.kidRgb.length, sr > 8 ? 24 : 12);
     const ct = Math.cos(n.tilt), st = Math.sin(n.tilt), aq = Math.round(a * 4) / 4;
@@ -923,7 +1600,7 @@ import { trackProposals } from '/core/proposals.js';
     for (const { col, a, pts } of particles.values()) {
       ctx.fillStyle = rgba(col, 0.9 * a);
       ctx.beginPath();
-      for (let i = 0; i < pts.length; i += 3) { const sz = pts[i + 2]; ctx.rect(pts[i] - sz, pts[i + 1] - sz, sz * 2, sz * 2); }
+      for (let i = 0; i < pts.length; i += 3) { const sz = pts[i + 2] * 0.8; ctx.moveTo(pts[i] + sz, pts[i + 1]); ctx.arc(pts[i], pts[i + 1], sz, 0, TAU); } // 一种颜色一条路径:仍然只填充一次
       ctx.fill();
     }
     particles.clear();
@@ -936,7 +1613,7 @@ import { trackProposals } from '/core/proposals.js';
       layer: 1 + (i % 2), tint: [[170, 200, 255], [255, 205, 165], [205, 170, 255]][i % 3], n: 56 };
   });
   function drawFarGalaxies(now) {
-    const W = innerWidth, H = innerHeight, kk = 1 + (transform.k - 1) * 0.08;
+    const W = innerWidth, H = innerHeight, kk = 1 + Math.max(-0.4, Math.min(3, transform.k - 1)) * 0.08;
     for (const g of farGalaxies) {
       const par = 0.02 + g.layer * 0.03;
       const gx = (((g.x * W + transform.x * par) % W) + W) % W, gy = (((g.y * H + transform.y * par) % H) + H) % H;
@@ -975,7 +1652,7 @@ import { trackProposals } from '/core/proposals.js';
         const open = n.container && n.expanded;
         const br = 1 + 0.05 * Math.sin(now / 1400 + n.phase);
         const rr = open ? r * 0.6 : r;
-        if (r * transform.k < 6) glow(x, y, rr * 4.2, c, 0.55 * a); // 屏幕上还很小:一层发光就够
+        if (r * curK < 6) glow(x, y, rr * 4.2, c, 0.55 * a); // 屏幕上还很小:一层发光就够
         else { glow(x, y, rr * 6.5 * br, c, (open ? 0.18 : 0.32) * a); glow(x, y, rr * 3, c, 0.38 * a); glow(x, y, rr * 1, n.core, 0.7 * a); }
         if (n.kidRgb && n.kidRgb.length) drawGalaxyArms(n, now, a);
         break;
@@ -991,7 +1668,7 @@ import { trackProposals } from '/core/proposals.js';
         const p = 0.5 + 0.5 * Math.sin(now / 520 + n.phase);
         glow(x, y, r * (3.6 + p * 1.6), c, 0.6 * a);
         ctx.strokeStyle = rgba(n.core, (0.35 + 0.3 * p) * a); ctx.lineWidth = Math.max(0.6, r * 0.09);
-        const L = Math.min(r * (3.2 + p * 3.2), 90 / transform.k);
+        const L = Math.min(r * (3.2 + p * 3.2), 90 / curK);
         ctx.beginPath(); ctx.moveTo(x - L, y); ctx.lineTo(x + L, y); ctx.moveTo(x, y - L); ctx.lineTo(x, y + L); ctx.stroke();
         ctx.fillStyle = rgba(n.core, a); ctx.beginPath(); ctx.arc(x, y, r * 0.7, 0, TAU); ctx.fill();
         break;
@@ -1004,7 +1681,7 @@ import { trackProposals } from '/core/proposals.js';
         glow(x, y, r * 5 * tw, c, 0.75 * a);
         if (r >= 5) {
           ctx.strokeStyle = rgba(n.core, 0.3 * a); ctx.lineWidth = 0.7;
-          const L = Math.min(r * 3.4, 70 / transform.k); ctx.beginPath(); ctx.moveTo(x - L, y); ctx.lineTo(x + L, y); ctx.moveTo(x, y - L); ctx.lineTo(x, y + L); ctx.stroke();
+          const L = Math.min(r * 3.4, 70 / curK); ctx.beginPath(); ctx.moveTo(x - L, y); ctx.lineTo(x + L, y); ctx.moveTo(x, y - L); ctx.lineTo(x, y + L); ctx.stroke();
         }
         ctx.fillStyle = rgba(n.core, a); ctx.beginPath(); ctx.arc(x, y, Math.max(0.9, r * 0.62), 0, TAU); ctx.fill();
       }
@@ -1017,17 +1694,25 @@ import { trackProposals } from '/core/proposals.js';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, innerWidth, innerHeight);
     drawBackdrop(now);
+    if (isSpaces()) {
+      drawSpacesFrame(now);
+      perf.frameMs = perf.frameMs * 0.9 + (performance.now() - frameStart) * 0.1;
+      requestAnimationFrame(draw);
+      return;
+    }
 
     const galaxy = look === 'galaxy';
     ctx.save();
     ctx.translate(transform.x, transform.y); ctx.scale(transform.k, transform.k);
     const k = transform.k;
+    curK = k;
     const VW = innerWidth, VH = innerHeight, TX = transform.x, TY = transform.y;
     const onScreen = (n, extra) => { const m = n.r * extra * k + 24, sx = n.x * k + TX, sy = n.y * k + TY; return sx > -m && sx < VW + m && sy > -m && sy < VH + m; };
 
     const focus = selected ? new Set([selected]) : null;
     if (focus) for (const l of links) { if (l.source.id === selected) focus.add(l.target.id); if (l.target.id === selected) focus.add(l.source.id); }
-    const alphaOf = (n) => (query && !matches(n.id) ? 0.1 : focus && !focus.has(n.id) ? 0.2 : 1);
+    const tagOK = (n) => !activeTags.size || (n.tags && n.tags.some((t) => activeTags.has(t)));
+    const alphaOf = (n) => (query && !matches(n.id) ? 0.1 : !tagOK(n) ? 0.1 : focus && !focus.has(n.id) ? 0.2 : 1);
 
     ctx.globalCompositeOperation = galaxy ? 'lighter' : 'source-over';
     const tR = performance.now();
@@ -1183,7 +1868,7 @@ import { trackProposals } from '/core/proposals.js';
   }
   requestAnimationFrame(draw);
 
-  window.__stars = { nodes: () => simulation.nodes(), transform: () => transform, scene: () => scene, regions: () => regions, perf, hasNode: (id) => uni.nodes.has(id), nodeCount: () => uni.nodes.size, lastN: () => lastN, recompute, manual, auto, compiled: () => compiled }; // 调试/自动化用
+  window.__stars = { nodes: () => simulation.nodes(), transform: () => transform, scene: () => scene, regions: () => regions, perf, hits: () => frameHits, space: () => curSpaceId, enter: (id) => enterSpace(id), exit: () => exitSpace(), expand: (id) => toggleExpandSpace(id), expanded: () => [...expandedSet], getSpace: (id) => getSpace(id ?? null), hasNode: (id) => !!uni && uni.nodes.has(id), project: () => project, nodeCount: () => uni.nodes.size, lastN: () => lastN, recompute, manual, auto, compiled: () => compiled }; // 调试/自动化用
   connect();
 })();
 </script>

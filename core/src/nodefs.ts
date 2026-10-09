@@ -5,13 +5,13 @@ import { spawnSync } from 'node:child_process';
 import { lstatSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { type FsEntry, type FsView } from './fssync.ts';
-import { listFiles } from './scan.ts';
+import { isStorage, listFiles } from './scan.ts';
 
 const stat = (root: string, rel: string) => {
   try { const s = lstatSync(join(root, rel)); return { size: s.size, mtimeMs: s.mtimeMs }; } catch { return null; }
 };
 
-export function snapshotFs(root: string): FsView {
+export function snapshotFs(root: string, self?: string): FsView {
   const dirs = new Map<string, Map<string, boolean>>();
   const stats = new Map<string, { size: number; mtimeMs: number }>();
   const put = (dir: string, name: string, isDir: boolean) => {
@@ -19,7 +19,7 @@ export function snapshotFs(root: string): FsView {
     if (!m) { m = new Map(); dirs.set(dir, m); }
     m.set(name, isDir);
   };
-  for (const f of listFiles(root)) {
+  for (const f of listFiles(root, self)) {
     const st = stat(root, f);
     if (!st) continue; // git 索引里有、磁盘上已经没了
     stats.set(f, st);
@@ -33,7 +33,7 @@ export function snapshotFs(root: string): FsView {
   };
 }
 
-export function liveFs(root: string): FsView {
+export function liveFs(root: string, self?: string): FsView {
   const cache = new Map<string, boolean>();
   const FALLBACK_IGNORE = /(^|\/)(node_modules|\.git)\/?$/;
   return {
@@ -45,7 +45,10 @@ export function liveFs(root: string): FsView {
     stat: (rel) => stat(root, rel),
     ignored(rels) {
       const out = new Set<string>();
-      const todo = rels.filter((r) => { const c = cache.get(r); if (c === true) out.add(r); return c === undefined; });
+      const todo = rels.filter((r) => {
+        if (isStorage(r, self)) { out.add(r); return false; }
+        const c = cache.get(r); if (c === true) out.add(r); return c === undefined;
+      });
       if (todo.length > 0) {
         const r = spawnSync('git', ['-C', root, 'check-ignore', '--stdin', '-z'], { input: todo.join('\0'), encoding: 'utf8', maxBuffer: 64 << 20 });
         if (r.status === 0 || r.status === 1) { // 0 = 有被忽略的,1 = 一个都没有

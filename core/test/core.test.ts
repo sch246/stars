@@ -159,9 +159,10 @@ test('视图:color by group —— 同一子树继承同一个颜色', async () 
 
 test('折叠:默认只展开到第一层,收起的容器带"缩影",大小不因折叠而变', async () => {
   const { evaluateView, BUILTIN_VIEWS } = await import('../src/view.ts');
+  const FLAT_FOLD = { ...BUILTIN_VIEWS.galaxy!, layout: 'flat' as const, expand: { relation: 'contains', depth: 1 } };
   const u = genesis();
   apply(u, planScan(u, ['a/x.ts', 'a/y.md', 'b/z.ts', 'top.txt'], 'repo', 'demo', () => ({ size: 100 })));
-  const folded = evaluateView(u, BUILTIN_VIEWS.galaxy!);
+  const folded = evaluateView(u, FLAT_FOLD);
   assert.deepEqual(folded.nodes.map((n) => n.id).sort(), ['a/', 'b/', 'repo', 'top.txt', 'universe']);
   const a = folded.nodes.find((n) => n.id === 'a/')!;
   assert.equal(a.container, true);
@@ -169,28 +170,29 @@ test('折叠:默认只展开到第一层,收起的容器带"缩影",大小不因
   assert.equal(a.descendants, 2);
   assert.equal(a.kids!.length, 2);
   assert.equal(a.parent, 'repo');
-  const open = evaluateView(u, BUILTIN_VIEWS.galaxy!, { expanded: ['a/'] });
+  const open = evaluateView(u, FLAT_FOLD, { expanded: ['a/'] });
   assert.equal(open.nodes.length, 7);
   assert.equal(open.nodes.find((n) => n.id === 'a/x.ts')!.parent, 'a/');
   assert.equal(open.nodes.find((n) => n.id === 'a/')!.r, a.r, '展开前后大小一致');
-  const all = evaluateView(u, BUILTIN_VIEWS.galaxy!, { depth: 99, collapsed: ['b/'] });
+  const all = evaluateView(u, FLAT_FOLD, { depth: 99, collapsed: ['b/'] });
   assert.ok(!all.nodes.some((n) => n.id === 'b/z.ts'));
   assert.ok(all.nodes.some((n) => n.id === 'a/x.ts'));
 });
 
 test('折叠:内部关系消失,跨容器关系提升到容器上并汇总计数', async () => {
   const { evaluateView, BUILTIN_VIEWS } = await import('../src/view.ts');
+  const FLAT_FOLD = { ...BUILTIN_VIEWS.galaxy!, layout: 'flat' as const, expand: { relation: 'contains', depth: 1 } };
   const u = genesis();
   apply(u, planScan(u, ['a/x.ts', 'a/y.ts', 'b/z.ts', 'b/w.ts'], 'repo', 'demo'));
   apply(u, { op: 'addEdge', from: 'a/x.ts', type: 'dependsOn', to: 'b/z.ts' });
   apply(u, { op: 'addEdge', from: 'a/y.ts', type: 'dependsOn', to: 'b/w.ts' });
   apply(u, { op: 'addEdge', from: 'a/x.ts', type: 'dependsOn', to: 'a/y.ts' }); // 内部关系
-  const folded = evaluateView(u, BUILTIN_VIEWS.galaxy!);
+  const folded = evaluateView(u, FLAT_FOLD);
   const dep = folded.edges.filter((e) => e.type === 'dependsOn');
   assert.equal(dep.length, 1, '内部那条被折叠掉,两条跨容器的汇总成一条');
   assert.deepEqual([dep[0]!.from, dep[0]!.to, dep[0]!.count, dep[0]!.lifted], ['a/', 'b/', 2, true]);
   // 只展开 a/:一端是真实文件,一端仍是提升到 b/ 的容器
-  const half = evaluateView(u, BUILTIN_VIEWS.galaxy!, { expanded: ['a/'] }).edges.filter((e) => e.type === 'dependsOn');
+  const half = evaluateView(u, FLAT_FOLD, { expanded: ['a/'] }).edges.filter((e) => e.type === 'dependsOn');
   assert.deepEqual(half.map((e) => `${e.from}>${e.to}:${e.count}:${e.lifted}`).sort(),
     ['a/x.ts>a/y.ts:1:false', 'a/x.ts>b/:1:true', 'a/y.ts>b/:1:true']);
   // 全部展开:全是真实的边
@@ -334,4 +336,56 @@ test('存储:延迟写入 —— 日志先落盘,别的进程读到的仍然是�
   const text = rf(file, 'utf8').replace(/^stars 1 rev=\d+/, 'stars 1');
   (await import('node:fs')).writeFileSync(legacy, text);
   assert.ok(new Store(legacy).load().nodes.has('cli'));
+});
+
+
+test('空间:每个容器是独立的小世界 —— 只含直接子节点;子节点之间的关系被汇总;通向外面的关系成为"外部链接"', async () => {
+  const { compileView, BUILTIN_VIEWS } = await import('../src/view.ts');
+  const u = genesis();
+  apply(u, planScan(u, ['a/x.ts', 'a/lib/y.ts', 'a/lib/z.ts', 'b/w.ts', 'top.txt'], 'repo', 'demo', () => ({ size: 10 })));
+  apply(u, { op: 'addNode', id: 'goal', label: 'goal', attrs: { type: 'concept' } });
+  apply(u, { op: 'addEdge', from: 'a/x.ts', type: 'dependsOn', to: 'a/lib/y.ts' });   // a 内部,跨一层
+  apply(u, { op: 'addEdge', from: 'a/lib/z.ts', type: 'dependsOn', to: 'b/w.ts' });    // 通向 a 之外
+  apply(u, { op: 'addEdge', from: 'goal', type: 'describes', to: 'a/lib/y.ts' });      // 来自整个 repo 之外
+  const c = compileView(u, BUILTIN_VIEWS.galaxy!);
+  assert.equal(c.layout, 'spaces');
+  assert.equal(c.enterAt, 0.2);
+
+  const root = c.space(null);
+  assert.deepEqual(root.nodes.map((n) => n.id).sort(), ['goal', 'repo', 'universe']);
+  const repo = root.nodes.find((n) => n.id === 'repo')!;
+  assert.equal(repo.container, true);
+  assert.ok(repo.kids!.length > 0, '收起的容器带内容缩影,用来画成小星系');
+  const toRepo = root.edges.find((e) => e.from === 'goal');
+  assert.deepEqual([toRepo!.to, toRepo!.lifted, toRepo!.count], ['repo', true, 1], '顶层空间里,goal 的关系被汇总到 repo 上');
+
+  const repoSpace = c.space('repo');
+  assert.deepEqual(repoSpace.nodes.map((n) => n.id).sort(), ['a/', 'b/', 'top.txt'], '只有直接子节点,没有孙子');
+  const dep = repoSpace.edges.find((e) => e.type === 'dependsOn')!;
+  assert.deepEqual([dep.from, dep.to, dep.lifted], ['a/', 'b/', true]);
+  assert.deepEqual(repoSpace.external.map((x) => [x.node, x.other, x.type, x.out]), [['a/', 'goal', 'describes', false]], '来自 goal 的关系是通向外面的桩');
+
+  const a = c.space('a/');
+  assert.deepEqual(a.nodes.map((n) => n.id).sort(), ['a/lib/', 'a/x.ts']);
+  assert.equal(a.edges.find((e) => e.type === 'dependsOn')!.to, 'a/lib/', 'x.ts → lib/ 内的 y.ts,被汇总到 lib/ 上');
+  assert.deepEqual(a.external.map((x) => `${x.node}|${x.out ? '→' : '←'}|${x.other}|${x.type}`).sort(), ['a/lib/|←|goal|describes', 'a/lib/|→|b/|dependsOn'], '通向外面的桩:分叉处的对象 + 方向');
+  assert.deepEqual(c.space('a/lib/').nodes.map((n) => n.id).sort(), ['a/lib/y.ts', 'a/lib/z.ts']);
+  assert.deepEqual(c.ancestors('a/lib/y.ts'), ['repo', 'a/', 'a/lib/', 'a/lib/y.ts']);
+  assert.equal(c.parentOf('a/lib/'), 'a/');
+  assert.equal(c.space('nope').nodes.length, 0);
+  assert.equal(c.space('a/') , c.space('a/'), '结果被缓存');
+});
+
+test('tag:容器不显示为节点,而是作为 tag 打在节点上', async () => {
+  const { evaluateView, BUILTIN_VIEWS, validateSpec } = await import('../src/view.ts');
+  const u = genesis();
+  apply(u, planScan(u, ['a/b/x.ts', 'a/y.ts', 'c/z.ts', 'top.md'], 'repo', 'demo', () => ({ size: 10 })));
+  const scene = evaluateView(u, BUILTIN_VIEWS.tags!);
+  const n = new Map(scene.nodes.map((x) => [x.id, x]));
+  assert.ok(!n.has('a/') && !n.has('a/b/'), '文件夹本身不显示');
+  assert.deepEqual(n.get('a/b/x.ts')!.tags, ['a/', 'a/b/']);
+  assert.deepEqual(n.get('a/y.ts')!.tags, ['a/']);
+  assert.equal(n.get('top.md')!.tags, undefined, '挂载根不算 tag');
+  assert.equal(n.get('a/b/x.ts')!.color, n.get('a/y.ts')!.color, '颜色 = 顶层文件夹');
+  assert.deepEqual(validateSpec(BUILTIN_VIEWS.tags), []);
 });
