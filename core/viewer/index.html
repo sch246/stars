@@ -869,7 +869,10 @@ import { trackProposals } from '/core/proposals.js';
       const prevK = transform.k;
       transform = ev.transform;
       if (ev.sourceEvent) {
-        userMoved = true; if (Math.abs(transform.k - prevK) > 1e-4) lastUserZoom = performance.now(); // 只有缩放算"进出意图",平移不算
+        userMoved = true;
+        const kChanged = Math.abs(transform.k - prevK) > 1e-4;
+        if (kChanged) lastUserZoom = performance.now(); // 只有缩放算"进出意图",平移不算
+        else if (ev.sourceEvent.type === 'mousemove' && (followId || followPend)) select(null); // 拖背景 = 脱离锁定
         if (isSpaces()) maybeSwitch(ev.sourceEvent, transform.k > prevK * 1.0001 ? 1 : transform.k < prevK * 0.9999 ? -1 : 0);
       }
     });
@@ -894,7 +897,8 @@ import { trackProposals } from '/core/proposals.js';
       if (!drag.moved) {
         if (Math.hypot(px - drag.sx, py - drag.sy) < 3) return;   // 手抖不算拖动
         drag.moved = true;
-        if (followId || followPend) select(null);   // 锁定时一拖就解锁并取消选定:镜头就地解冻,节点随手动
+        const lockT = followId || (followPend && followPend.id);
+        if (lockT && drag.n && drag.n.id !== lockT) select(null);   // 拖别的元素 = 脱离锁定;拖锁定本体不脱离 —— 它钉在中心、世界绕它转
         const running = drag.h ? heated.has(drag.h.sp) : heatOn(); // 拖动只影响这个节点所在的空间(物理独立)
         if (!running) { drag.warmed = true; if (drag.h) drag.h.sp.dragging = true; drag.sim.alpha(Math.max(drag.sim.alpha(), P.heatLevel)).alphaTarget(P.heatLevel).restart(); }
       }
