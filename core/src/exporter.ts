@@ -23,7 +23,7 @@ export function exportHtml(store: Store, baseDir: string): string {
   process.removeAllListeners('warning'); // stripTypeScriptTypes 的实验性提示对用户是噪音
   let html = readFileSync(resolve(here, '..', 'viewer', 'index.html'), 'utf8');
   const d3 = readFileSync(resolve(here, '..', 'viewer', 'd3.v7.min.js'), 'utf8');
-  const kernel = ['model', 'expr', 'view', 'ops', 'proposals'].map(inline).join('\n');
+  const kernel = ['model', 'expr', 'view', 'ops', 'proposals', 'query'].map(inline).join('\n');
   // 只带项目名,不带本机路径(导出的文件常会发给别人)
   const project = { id: 'static', name: basename(resolve(baseDir)), dir: '静态导出 · 只读', file: basename(store.file), primary: true };
   const snapshot = JSON.stringify({ ...buildSnapshot(store, baseDir), project });
