@@ -7,6 +7,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { parse } from '../src/format.ts';
+import { apply } from '../src/ops.ts';
+import { listFiles, planScan, statMeta } from '../src/scan.ts';
 import { diffUniverses, gitHistory, gitParentSnapshot, gitSnapshot } from '../src/history.ts';
 import { startServer } from '../src/serve.ts';
 import { Store } from '../src/store.ts';
@@ -245,8 +247,19 @@ test('文件:在查看器里读写项目文件 —— 出不了项目目录、�
   const get = async (path: string) => { const r = await fetch(base + path, { headers: h }); return { status: r.status, body: await r.json() as any }; };
   const save = async (body: unknown) => { const r = await fetch(base + '/api/file', { method: 'POST', headers: h, body: JSON.stringify(body) }); return { status: r.status, body: await r.json() as any }; };
   try {
+    // 轻量打开:head 只给开头一段,切在换行处;超过 2 MB 的文本也能预览开头,但不能编辑
+    writeFileSync(join(dir, 'long.txt'), Array.from({ length: 400 }, (_, i) => `第 ${i} 行`).join('\n') + '\n');
+    const head = await get('/api/file?path=long.txt&head=100');
+    assert.equal(head.body.partial, true);
+    assert.ok(head.body.content.endsWith('\n') && Buffer.byteLength(head.body.content) <= 100 && head.body.content.startsWith('第 0 行\n'));
+    assert.equal((await get('/api/file?path=long.txt')).body.partial, undefined, '不带 head 给全文');
+    writeFileSync(join(dir, 'huge.log'), 'x'.repeat(3 << 20));
+    const huge = await get('/api/file?path=huge.log&head=1000');
+    assert.deepEqual([huge.body.kind, huge.body.partial, huge.body.editable, huge.body.content.length], ['text', true, false, 1000]);
+    assert.equal((await get('/api/file?path=huge.log')).body.kind, 'large');
+
     const a = await get('/api/file?path=src/a.ts');
-    assert.deepEqual([a.status, a.body.kind, a.body.content, a.body.readonly], [200, 'text', 'export const a = 1;\n', false]);
+    assert.deepEqual([a.status, a.body.kind, a.body.content, a.body.readonly, a.body.editable], [200, 'text', 'export const a = 1;\n', false, true]);
     assert.equal((await get('/api/file?path=../etc/passwd')).status, 400, '出不了项目目录');
     assert.equal((await get('/api/file?path=blob.bin')).body.kind, 'binary');
     assert.equal((await get('/api/file?path=pic.png')).body.kind, 'image');
@@ -272,5 +285,39 @@ test('文件:在查看器里读写项目文件 —— 出不了项目目录、�
     const img = await fetch(`${base}/api/raw?path=pic.png&t=${srv.token}`);
     assert.equal(img.headers.get('content-type'), 'image/png');
     assert.equal((await fetch(`${base}/api/raw?path=src/a.ts&t=${srv.token}`)).status, 415, 'raw 只给图片');
+  } finally { srv.close(); }
+});
+
+test('历史:宇宙文件还没提交过时,时间线退回到所在文件夹的 git 历史,每个提交的宇宙由那时的文件树长出来', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'stars-repo-hist-'));
+  sh(dir, 'init', '-q', '-b', 'main');
+  writeFileSync(join(dir, 'a.md'), '# a\n');
+  sh(dir, 'add', '.'); sh(dir, 'commit', '-qm', 'first');
+  mkdirSync(join(dir, 'src')); writeFileSync(join(dir, 'src/b.ts'), 'export {};\n');
+  sh(dir, 'add', '.'); sh(dir, 'commit', '-qm', 'second');
+  // 宇宙是后来才建的(没提交):扫描 + 一条语义关系
+  const store = new Store(join(dir, 'universe.stars')); store.create(genesis);
+  const u = store.load();
+  apply(u, planScan(u, listFiles(dir, 'universe.stars'), 'repo', 'proj', statMeta(dir)));
+  store.save(u);
+  store.commit({ op: 'addNode', id: 'idea', label: '想法' }, { author: 't' });
+  store.commit({ op: 'addEdge', from: 'idea', type: 'describes', to: 'a.md' }, { author: 't' });
+  const port = await freePort();
+  const srv = startServer(store, port, dir, '127.0.0.1', () => {});
+  const get = async (path: string) => (await (await fetch(`http://127.0.0.1:${port}${path}`, { headers: { 'x-stars-token': srv.token } })).json()) as any;
+  try {
+    assert.equal((await get('/api/history?scope=file')).commits.length, 0, '宇宙文件自己没有历史');
+    const h = await get('/api/history?scope=auto');
+    assert.equal(h.scope, 'repo');
+    assert.deepEqual(h.commits.map((c: { subject: string }) => c.subject), ['second', 'first']);
+    assert.equal(h.dirty, false, '宇宙文件自己的改动不算"工作区有改动"');
+    const first = await get(`/api/state?scope=repo&commit=${h.commits[1].hash}`);
+    const ids = (s: { nodes: Array<{ id: string }> }) => s.nodes.map((n) => n.id);
+    assert.ok(ids(first).includes('a.md') && !ids(first).includes('src/b.ts'), '第一个提交时还没有 src/b.ts');
+    assert.ok(first.edges.some((e: { from: string; to: string }) => e.from === 'idea' && e.to === 'a.md'), '现在的语义关系挂在那时也存在的文件上');
+    assert.deepEqual(first.diff.removedNodes, []);
+    const second = await get(`/api/state?scope=repo&commit=${h.commits[0].hash}`);
+    assert.deepEqual(second.diff.addedNodes.sort(), ['src/', 'src/b.ts']);
+    assert.ok(!ids(second).some((id: string) => id.includes('universe.stars')), '宇宙自己的存储不算居民');
   } finally { srv.close(); }
 });

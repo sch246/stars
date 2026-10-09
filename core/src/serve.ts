@@ -16,9 +16,9 @@ import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { invalidateSignals, loadSignals, type LiveSignals } from './activity.ts';
 import { FileConflict, IMAGE_TYPES, readProjectFile, resolveInside, writeProjectFile } from './files.ts';
-import { diffUniverses, gitHistory, gitParentSnapshot, gitSnapshot } from './history.ts';
+import { diffUniverses, gitFirstParent, gitHistory, gitParentSnapshot, gitSnapshot, gitTreeUniverse, type HistoryScope } from './history.ts';
 import { lint } from './lint.ts';
-import { StarsError } from './model.ts';
+import { StarsError, type Universe } from './model.ts';
 import { apply, type Op } from './ops.ts';
 import { listFiles, planScan, selfRel, statMeta } from './scan.ts';
 import { buildSnapshot } from './snapshot.ts';
@@ -95,6 +95,16 @@ class Project {
 
   /** 启动时指定的那个项目(查看器不带 ?p= 时连到它) */
   primary = false;
+  private trees = new Map<string, Universe | null>();
+
+  /** 目录历史里某个提交时的宇宙(ls-tree 现场长出来;最近几个缓存,单步回放时父提交正好是上一个) */
+  treeAt(hash: string, mountId: string): Universe | null {
+    if (this.trees.has(hash)) return this.trees.get(hash)!;
+    const u = gitTreeUniverse(this.baseDir, hash, this.store.peek(), this.store.file, mountId);
+    this.trees.set(hash, u);
+    if (this.trees.size > 8) this.trees.delete(this.trees.keys().next().value!);
+    return u;
+  }
 
   info() { return { id: this.id, name: this.name, dir: this.baseDir, file: this.store.file, watching: this.watching, primary: this.primary }; }
 
@@ -296,7 +306,8 @@ export function startServer(
       }
       const self = selfRel(proj.baseDir, proj.store.file);
       if (req.method === 'GET' && url.pathname === '/api/file') {
-        return json(res, 200, readProjectFile(proj.baseDir, url.searchParams.get('path') ?? '', { self, statOnly: url.searchParams.has('stat') }));
+        const head = Number(url.searchParams.get('head')) || undefined;
+        return json(res, 200, readProjectFile(proj.baseDir, url.searchParams.get('path') ?? '', { self, statOnly: url.searchParams.has('stat'), head }));
       }
       if (req.method === 'GET' && url.pathname === '/api/raw') { // 图片预览
         const abs = resolveInside(proj.baseDir, url.searchParams.get('path') ?? '');
@@ -306,9 +317,22 @@ export function startServer(
         res.end(readFileSync(abs));
         return;
       }
-      if (req.method === 'GET' && url.pathname === '/api/history') return json(res, 200, gitHistory(proj.store.file, Math.min(20000, Math.max(1, Number(url.searchParams.get('limit')) || 300))));
+      if (req.method === 'GET' && url.pathname === '/api/history') {
+        // scope=auto:宇宙文件有历史就看它的,没有(新建的宇宙)就看所在文件夹的
+        const limit = Math.min(20000, Math.max(1, Number(url.searchParams.get('limit')) || 300));
+        const want = url.searchParams.get('scope');
+        const h = gitHistory(proj.store.file, limit, want === 'repo' ? 'repo' : 'file', proj.baseDir);
+        return json(res, 200, want === 'auto' && !h.commits.length ? gitHistory(proj.store.file, limit, 'repo', proj.baseDir) : h);
+      }
       if (req.method === 'GET' && url.pathname === '/api/state') {
         const hash = url.searchParams.get('commit') ?? '';
+        if ((url.searchParams.get('scope') as HistoryScope) === 'repo') {
+          const snap = proj.treeAt(hash, mountId);
+          if (!snap) return json(res, 404, { error: '这个提交里没有这个文件夹' });
+          const ph = gitFirstParent(proj.baseDir, hash);
+          const parent = ph ? proj.treeAt(ph, mountId) : null;
+          return json(res, 200, { nodes: [...snap.nodes.values()], edges: [...snap.edges.values()], diff: diffUniverses(parent, snap) });
+        }
         const snap = gitSnapshot(proj.store.file, hash);
         const diff = diffUniverses(gitParentSnapshot(proj.store.file, hash), snap);
         return json(res, 200, { nodes: [...snap.nodes.values()], edges: [...snap.edges.values()], diff });
