@@ -1083,6 +1083,7 @@ import { trackProposals } from '/core/proposals.js';
   let lastSwitchAt = 0;
   let matchSet = new Set(), matchAnc = new Map();
   const BODY = 4.2;                  // 收起的容器在父空间里的"盘"半径 = r × BODY
+  const PAD = 16;                    // 就地展开的疆域外留的空隙(兄弟节点和它们的标签不贴着疆界)
   const keyOf = (id) => id ?? '';
 
   function decorate(n, old) {
@@ -1098,12 +1099,16 @@ import { trackProposals } from '/core/proposals.js';
     sp.E = E;
   }
   function updateFootprints(sp) {
-    for (const n of sp.nodes) n.fp = n.container ? (expandedSet.has(n.id) ? getSpace(n.id).E + 8 : n.D) : n.r * 1.6 + 2;
+    for (const n of sp.nodes) n.fp = n.container ? (expandedSet.has(n.id) ? getSpace(n.id).E + PAD : n.D) : n.r * 1.6 + 2;
   }
+  // 斥力只负责"把节点匀开",按节点自己的体(收起的盘 / 叶子)线性给;不能按 fp(就地展开后的整个疆域)给,
+  // 更不能按平方给:疆域越大斥力越大 → 兄弟被推得越远 → 父疆域更大 → 在上一层斥力更大,层层放大。
+  // 不重叠交给碰撞(半径 = fp),它只在真的挨上时起作用。
+  const bodyOf = (d) => (d.container ? d.D : d.r * 1.6 + 2);
   function applyForces(sp) { // d3 的力在 initialize 时缓存每个节点的半径/强度,改了 fp 要重新设置
     sp.sim.force('link').distance((l) => (l.distance ?? 60) * 0.5 + l.source.fp + l.target.fp);
     sp.sim.force('collide').radius((d) => d.fp + 3);
-    sp.sim.force('charge').strength((d) => -(12 + d.fp * d.fp * 0.8));
+    sp.sim.force('charge').strength((d) => -(20 + bodyOf(d) * 4));
   }
 
   function getSpace(id) {
@@ -1126,7 +1131,7 @@ import { trackProposals } from '/core/proposals.js';
       .force('link', d3.forceLink(links).id((d) => d.id).strength((l) => Math.min(0.5, (l.strength ?? 0.15) * (1 + Math.log2(l.count || 1) * 0.3))))
       .force('charge', d3.forceManyBody().distanceMax(900))
       .force('x', d3.forceX(0).strength(0.05)).force('y', d3.forceY(0).strength(0.05))
-      .force('collide', d3.forceCollide().strength(0.9))
+      .force('collide', d3.forceCollide().strength(0.9).iterations(2)) // 半径差很大(展开的疆域 vs 叶子)时一次迭代推不干净
       .stop();
     const sp = { key, id, ver: spaceVer, nodes, byId, links, external: sd.external, sim, E: 24 };
     spaces.set(key, sp);
@@ -1151,7 +1156,7 @@ import { trackProposals } from '/core/proposals.js';
     if (sp.id === null || !expandedSet.has(sp.id)) return;
     const ps = holderOf(sp.id), n = ps.byId.get(sp.id);
     if (!n) return;
-    n.fp = sp.E + 8;
+    n.fp = sp.E + PAD;
     applyForces(ps);
     if (ps.sim.alpha() < 0.08) ps.sim.alpha(0.25).restart();
   }
