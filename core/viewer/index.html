@@ -323,12 +323,18 @@ import { trackProposals } from '/core/proposals.js';
   }
   applyFlatForces();
 
-  // 拖动 = 施加一个力:被拖的节点被拉向指针(弹簧),和别的自定义力一样按温度缩放 —— 不钉住、不改温度,
-  // 周围的节点通过平常的力去响应它。拉力的平衡点也和温度无关。
+  // 拖动 = 施加一个力:每一帧都按"当前指针位置 vs 元素当前位置"重算拉力的目标(弹簧),和别的自定义力一样
+  // 按温度缩放 —— 不钉住、不改温度,周围的节点通过平常的力去响应它。
+  // 关键是它按当前相机/空间重算:指针停在一边不动,力就持续朝那边给(锁定/相机跟着走时元素钉在中心,
+  // 目标始终在它前方,于是像开飞船一样越跑越快);不锁定时相机不动,目标就是指针的世界位置,元素自然靠过去停住。
   const pullTo = (sim) => (alpha) => {
-    if (!drag || !drag.moved || drag.sim !== sim) return;
+    if (!drag || !drag.moved || drag.sim !== sim || !drag.n) return;
     const n = drag.n, k = 0.35 * heatScale(alpha);
-    n.vx += (drag.tx - n.x) * k; n.vy += (drag.ty - n.y) * k;
+    const off = screenOffset(n.id);   // 节点所在空间的屏幕原点 + 累计缩放(就地展开的祖先也算在内)
+    let tx, ty;
+    if (off) { const ox = transform.x + off.x - n.x * off.s, oy = transform.y + off.y - n.y * off.s; tx = (drag.px - ox) / off.s; ty = (drag.py - oy) / off.s; }
+    else { tx = (drag.px - transform.x) / transform.k; ty = (drag.py - transform.y) / transform.k; }
+    n.vx += (tx - n.x) * k; n.vy += (ty - n.y) * k;
   };
   simulation.force('pointer', pullTo(simulation));
 
@@ -888,11 +894,12 @@ import { trackProposals } from '/core/proposals.js';
     })
     .on('start', (ev) => {
       const h = ev.subject.h;
-      drag = { sx: ev.sourceEvent.offsetX, sy: ev.sourceEvent.offsetY, h, n: h ? h.n : ev.subject, sim: h ? h.sp.sim : simulation, moved: false, warmed: false };
+      drag = { sx: ev.sourceEvent.offsetX, sy: ev.sourceEvent.offsetY, px: ev.sourceEvent.offsetX, py: ev.sourceEvent.offsetY, h, n: h ? h.n : ev.subject, sim: h ? h.sp.sim : simulation, moved: false, warmed: false };
     })
     .on('drag', (ev) => {
       if (!drag) return;
       const px = ev.sourceEvent.offsetX, py = ev.sourceEvent.offsetY;
+      drag.px = px; drag.py = py;   // 只记指针在屏幕上的位置;世界目标每帧在 pullTo 里按当前相机重算
       if (!drag.moved) {
         if (Math.hypot(px - drag.sx, py - drag.sy) < 3) return;   // 手抖不算拖动
         drag.moved = true;
@@ -902,8 +909,6 @@ import { trackProposals } from '/core/proposals.js';
         const running = drag.h ? heated.has(drag.h.sp) : heatOn(); // 拖动只影响这个节点所在的空间(物理独立)
         if (!running) { drag.warmed = true; if (drag.h) drag.h.sp.dragging = true; drag.sim.alpha(Math.max(drag.sim.alpha(), P.heatLevel)).alphaTarget(P.heatLevel).restart(); }
       }
-      if (drag.h) { drag.tx = (px - drag.h.tx) / drag.h.s; drag.ty = (py - drag.h.ty) / drag.h.s; }
-      else { const kk = transform.k; [drag.tx, drag.ty] = [(px - transform.x) / kk, (py - transform.y) / kk]; }
     })
     .on('end', () => {
       const d = drag; drag = null;
