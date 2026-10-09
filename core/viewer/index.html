@@ -552,7 +552,7 @@ import { trackProposals } from '/core/proposals.js';
       n.rgb = hex2rgb(sn.color);
       n.core = mix(n.rgb, [255, 255, 255], 0.65);
       n.dot = mix(n.rgb, [255, 255, 255], 0.25);
-      n.kidRgb = sn.kids ? sn.kids.map(([c, r]) => [hex2rgb(c), r]) : null;
+      n.kidRgb = sn.kids ? sn.kids.map(([c, r, id]) => [hex2rgb(c), r, id]) : null;
       n.tilt = (n.phase - 3) * 0.3;
     }
     for (const id of [...sim.keys()]) if (!seen.has(id)) sim.delete(id);
@@ -1488,11 +1488,13 @@ import { trackProposals } from '/core/proposals.js';
   //  · 双击 / E = 显式的就地展开:把子空间以同样的尺度画在原地(内部物理仍独立),父空间给它让出位置。
   const isSpaces = () => !!compiled && compiled.layout === 'spaces';
   // 缩放时的交叉淡入淡出:只由 ρ(容器在屏幕上的盘半径;在子空间里时用子空间的范围折算)决定,
-  // 所以切换前后是同一幅画面 —— 切换本身(进入 ρ ≥ T、退出 ρ < 0.54T,有滞后)只改变"当前空间"是谁。
+  // 所以切换前后是同一幅画面 —— 切换本身只改变"当前空间"是谁。进入 ρ ≥ T、退出 ρ < 0.95T:
+  // 只留 5% 防抖(画面是连续的,来回切换也看不出来),放大一点进去、缩小一点就出来。
   const smooth = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
   const enterT = () => (P.enterAt > 0 ? P.enterAt : compiled.enterAt) * Math.min(innerWidth, innerHeight);
   const innerAlpha = (r) => smooth((r - 0.4) / 0.6);                                          // r = ρ / T
   const outerAlpha = (r) => (1 - 0.85 * smooth((r - 0.6) / 1.6)) * (1 - smooth(r - 3));
+  const EXIT_AT = 0.95;
   let pointerXY = null, stickyFocus = null;
   const spaces = new Map();          // 容器 id('' = 顶层)→ 空间
   let spaceVer = 0;
@@ -1508,7 +1510,7 @@ import { trackProposals } from '/core/proposals.js';
 
   function decorate(n, old) {
     n.rgb = hex2rgb(n.color); n.core = mix(n.rgb, [255, 255, 255], 0.65);
-    n.kidRgb = n.kids ? n.kids.map(([c, r]) => [hex2rgb(c), r]) : null;
+    n.kidRgb = n.kids ? n.kids.map(([c, r, id]) => [hex2rgb(c), r, id]) : null;
     n.phase = old ? old.phase : Math.random() * TAU; n.tilt = (n.phase - 3) * 0.3;
     n.D = n.container ? n.r * BODY : 0;
     n.born = old ? old.born : 0;
@@ -1659,10 +1661,10 @@ import { trackProposals } from '/core/proposals.js';
     return { x: n.x + dx / d * E, y: n.y + dy / d * E, r: 0 };
   }
 
-  function drawSpaceEdges(sp, tx, ty, s, aOf) {
+  function drawSpaceEdges(sp, tx, ty, s, aOf, map = null) {
     const W = innerWidth, H = innerHeight, buckets = new Map(), few = sp.links.length < 400;
     for (const l of sp.links) {
-      const a0 = l.source, b0 = l.target;
+      const a0 = map ? map(l.source) : l.source, b0 = map ? map(l.target) : l.target;
       const ea = expandedSet.has(a0.id), eb = expandedSet.has(b0.id);
       if ((ea || eb) && l.lifted) continue; // 展开后,细节由内部节点直接连出去
       const a = endPoint(a0, b0), b = endPoint(b0, a0);
@@ -1692,8 +1694,14 @@ import { trackProposals } from '/core/proposals.js';
     }
   }
 
-  /** mode:'' 正常;'context' 当前空间外面的衬底(不参与交互、不保持热量);'preview' 正在放大的容器的内部 */
-  function drawSpace(sp, tx, ty, s, alpha, depth, now, skipId, mode = '') {
+  /**
+   * mode:'' 正常;'context' 当前空间外面的衬底(不参与交互、不保持热量);'preview' 正在放大的容器的内部。
+   * opt.focusId:画衬底时指明"正被钻进去的那个"(就是当前所在的子空间),和在外面时画得一模一样。
+   * opt.morph = { host, hs, e }:这个空间是 host 这个小星系"展开"出来的。星系的每颗粒子对应一个后代:
+   *   e 从 0 到 1,粒子从旋臂上的位置一路移到对应节点的真实位置、长成那颗节点(孙辈的粒子汇入它所在的子星系)。
+   *   e = 0 时就是原来的星系,e = 1 时就是真实的空间 —— 全程每个东西只出现一次,不会有粒子和节点叠在一起的重影。
+   */
+  function drawSpace(sp, tx, ty, s, alpha, depth, now, skipId, mode = '', opt = {}) {
     if (!mode) drawnSpaces.add(sp);
     if (alpha <= 0.01 || depth > 8) return;
     const dpr = devicePixelRatio || 1, W = innerWidth, H = innerHeight;
@@ -1702,10 +1710,12 @@ import { trackProposals } from '/core/proposals.js';
     const onScr = (n, rad) => { const x = tx + n.x * s, y = ty + n.y * s, m = rad * s + 30; return x > -m && x < W + m && y > -m && y < H + m; };
     const hitsOn = mode !== 'context' && !(mode === 'preview' && alpha < 0.5);
     const hit = (h) => { if (!hitsOn) return; if (mode) h.pv = true; frameHits.push(h); }; // pv:预览里的东西可以点选,但不能作为"放大进入"的目标
+    const morph = opt.morph && opt.morph.e < 0.999 ? opt.morph : null, mE = morph ? morph.e : 1;
     // 焦点容器:放大时正被钻进去的那个(指针所在、盘最大;刚从它里面退出来时优先它)。
-    // 它的内部随 ρ 淡入、外面的东西随 ρ 淡出
+    // 它的内部随 ρ 展开(见 morph)、它自己的光晕随 ρ 淡出,外面的东西随 ρ 淡出
     let focus = null, aIn = 0, aOutF = 1;
-    if (depth === 0 && !mode) {
+    if (mode === 'context' && opt.focusId) focus = sp.byId.get(opt.focusId) || null;
+    else if (depth === 0 && !mode && !morph) {
       const T = enterT(), [px, py] = pointerXY || [W / 2, H / 2];
       for (const n of sp.nodes) {
         if (!n.container || expandedSet.has(n.id) || n.id === skipId) continue;
@@ -1714,38 +1724,67 @@ import { trackProposals } from '/core/proposals.js';
         if (n.id === stickyFocus && d <= R * 1.6) { focus = n; break; }
         if (d <= R && (!focus || R > focus.D * s)) focus = n;
       }
-      if (focus) { const r = focus.D * s / T; aIn = innerAlpha(r); aOutF = outerAlpha(r); }
-      else stickyFocus = null;
+      if (!focus) stickyFocus = null;
+    }
+    if (focus) { const r = focus.D * s / enterT(); aIn = innerAlpha(r); aOutF = outerAlpha(r); }
+    // 展开中:匹配到粒子的节点从粒子的位置插值到真实位置(用代理对象画,不动模拟里的节点)
+    let nodesV = sp.nodes, mapN = null;
+    if (morph) {
+      const { host, hs, e } = morph, f = hs / s, kids = host.kidRgb || [], len = kids.length;
+      const idx = new Map(kids.map((k, i) => [k[2], i])), prox = new Map();
+      nodesV = sp.nodes.map((n) => {
+        const i = idx.get(n.id);
+        if (i === undefined) return n;
+        const [dx, dy, pr] = armPoint(host, i, len, now), p = Object.create(n);
+        p.real = n; p.x = dx * f + (n.x - dx * f) * e; p.y = dy * f + (n.y - dy * f) * e; p.r = pr * f + (n.r - pr * f) * e;
+        prox.set(n, p);
+        return p;
+      });
+      mapN = (n) => prox.get(n) || n;
+      const aq = Math.round(alpha * (1 - e) * 8) / 8; // 粒子:移向自己的节点(孙辈移向它所在的子星系),随 e 淡出
+      if (aq > 0) {
+        for (let i = 0; i < len; i++) {
+          const [col, , id] = kids[i], [dx, dy, pr] = armPoint(host, i, len, now);
+          let to = sp.byId.get(id);
+          if (!to) for (let up = compiled.parentOf(id); up && !to; up = compiled.parentOf(up)) to = sp.byId.get(up);
+          const fx = dx * f, fy = dy * f, gx = to ? to.x : fx, gy = to ? to.y : fy;
+          pushParticle(col, aq, fx + (gx - fx) * e, fy + (gy - fy) * e, pr * f);
+        }
+        flushParticles();
+      }
     }
     const focusSet = selected && sp.byId.has(selected) ? neighborsIn(sp, selected) : null;
-    const aOf = (n) => alpha * (n === focus ? 1 - aIn : aOutF) * (query && !qOK(n) ? 0.12 : focusSet && !focusSet.has(n.id) ? 0.3 : 1);
+    const aOf = (n) => alpha * mE * (n === focus ? 1 - aIn : aOutF) * (query && !qOK(n) ? 0.12 : focusSet && !focusSet.has(n.id) ? 0.3 : 1);
     ctx.globalCompositeOperation = look === 'galaxy' ? 'lighter' : 'source-over';
-    drawSpaceEdges(sp, tx, ty, s, aOf);
+    drawSpaceEdges(sp, tx, ty, s, morph ? (n) => aOf(n) * mE : aOf, mapN); // 展开中连线晚一点出现(∝ e²)
+    const real = (n) => n.real || n;
+    // 标签等展开过半才出现(挤在星系中心的半透明字只会添乱)
+    const lblA = morph ? smooth((mE - 0.45) / 0.4) : 1, lab = (n) => aOf(n) / mE * lblA;
 
     const inPlace = [];
-    for (const n of sp.nodes) { // 收起的容器:小星系(在下层)
+    for (const n of nodesV) { // 收起的容器:小星系(在下层)
       if (!n.container || n.id === skipId) continue;
       if (expandedSet.has(n.id)) { inPlace.push(n); continue; }
       if (!onScr(n, n.D * 1.7)) continue;
       const R = n.D * s, sx = tx + n.x * s, sy = ty + n.y * s;
       if (n.r * s < 1.2) { ctx.fillStyle = rgba(n.core, 0.8 * aOf(n)); ctx.fillRect(n.x - 1 / s, n.y - 1 / s, 2 / s, 2 / s); }
-      else drawNode(n, now, aOf(n) * (n === hovered ? 1.25 : 1));
-      hit({ n, sp, depth, sx, sy, sr: Math.max(R * 0.75, 6), R, tx, ty, s });
+      else drawNode(n, now, aOf(n) * (real(n) === hovered ? 1.25 : 1), n !== focus); // 焦点容器的旋臂由展开中的粒子代替
+      hit({ n: real(n), sp, depth, sx, sy, sr: Math.max(R * 0.75, 6), R, tx, ty, s });
       if (R >= 10 || mustLabel(n) || (query && matchAnc.has(n.id))) {
         const cnt = query && matchAnc.has(n.id) ? `  ·${matchAnc.get(n.id)} 处匹配` : '';
-        frameLabels.push({ text: n.label + cnt, sx, sy: sy + Math.max(R * 0.55, 6) + 3, prio: mustLabel(n) ? 1e9 : 1e5 + R, color: '#dfe3ff', alpha: aOf(n), fade: alpha * (n === focus ? 1 - aIn : aOutF) });
+        if (lblA > 0.02) frameLabels.push({ text: n.label + cnt, sx, sy: sy + Math.max(R * 0.55, 6) + 3, prio: mustLabel(n) ? 1e9 : 1e5 + R, color: '#dfe3ff', alpha: lab(n), fade: alpha * lblA * (n === focus ? 1 - aIn : aOutF) });
       }
     }
     flushParticles();
-    for (const n of sp.nodes) { // 叶子
+    for (const n of nodesV) { // 叶子
       if (n.container || n.id === skipId || !onScr(n, n.r * 5)) continue;
       const sx = tx + n.x * s, sy = ty + n.y * s, sr = n.r * s;
-      if (sr < 2.2 && n !== hovered && n.id !== selected) { const q = Math.max(1.2 / s, n.r * 0.9); ctx.fillStyle = rgba(n.core, 0.9 * aOf(n)); ctx.fillRect(n.x - q / 2, n.y - q / 2, q, q); }
-      else drawNode(n, now, aOf(n) * (n === hovered ? 1.25 : 1));
+      if (sr < 2.2 && real(n) !== hovered && n.id !== selected) { const q = Math.max(1.2 / s, n.r * 0.9); ctx.fillStyle = rgba(n.core, 0.9 * aOf(n)); ctx.fillRect(n.x - q / 2, n.y - q / 2, q, q); }
+      else drawNode(n, now, aOf(n) * (real(n) === hovered ? 1.25 : 1));
       const age = now - (n.born || -1e9);
       if (age < 1800) { const p = age / 1800; ctx.strokeStyle = rgba(n.rgb, (1 - p) * 0.9 * alpha); ctx.lineWidth = 2 / s; ctx.beginPath(); ctx.arc(n.x, n.y, n.r + 4 + p * 50, 0, TAU); ctx.stroke(); }
-      hit({ n, sp, depth, sx, sy, sr: Math.max(sr * 1.4, 5), R: sr, tx, ty, s });
-      if (sr >= 4 || mustLabel(n) || sp.nodes.length <= 16) frameLabels.push({ text: n.label, sx, sy: sy + sr * 1.3 + 3, prio: mustLabel(n) ? 1e9 : sr, color: '#e8e8f6', alpha: aOf(n), fade: alpha * aOutF });
+      hit({ n: real(n), sp, depth, sx, sy, sr: Math.max(sr * 1.4, 5), R: sr, tx, ty, s });
+      if (lblA > 0.02 && (sr >= 4 || mustLabel(n) || sp.nodes.length <= 16)) frameLabels.push({ text: n.label, sx, sy: sy + sr * 1.3 + 3, prio: mustLabel(n) ? 1e9 : sr, color: '#e8e8f6', alpha: lab(n), fade: alpha * lblA * aOutF });
     }
     flushParticles();
     for (const n of inPlace) { // 就地展开:疆界 + 子空间(同一尺度,物理独立)
@@ -1756,15 +1795,15 @@ import { trackProposals } from '/core/proposals.js';
       ctx.beginPath(); ctx.arc(n.x, n.y, E, 0, TAU);
       ctx.fillStyle = rgba(n.rgb, 0.05 * aOf(n)); ctx.fill();
       ctx.strokeStyle = rgba(n.rgb, (n.id === selected ? 0.65 : 0.32) * aOf(n)); ctx.lineWidth = 1.2 / s; ctx.setLineDash([6 / s, 5 / s]); ctx.stroke(); ctx.setLineDash([]);
-      frameLabels.push({ text: n.label, sx: cx, sy: cy - R - 16, prio: 6e5 + R, color: '#cfd6ff', alpha: aOf(n), fade: alpha * aOutF });
-      hit({ n, sp, depth, sx: cx, sy: cy, sr: R, R, tx, ty, s, domain: true });
-      drawSpace(child, cx, cy, s, alpha * aOutF, depth + 1, now, null, mode);
+      frameLabels.push({ text: n.label, sx: cx, sy: cy - R - 16, prio: 6e5 + R, color: '#cfd6ff', alpha: aOf(n), fade: alpha * mE * aOutF });
+      hit({ n: real(n), sp, depth, sx: cx, sy: cy, sr: R, R, tx, ty, s, domain: true });
+      drawSpace(child, cx, cy, s, alpha * mE * aOutF, depth + 1, now, null, mode);
       setT();
-      drawInnerLinks(child, n, sp, s, alpha * aOutF);
+      drawInnerLinks(child, n, sp, s, alpha * mE * aOutF);
     }
-    if (focus && aIn > 0.01) { // 正在钻进去的容器:内部按同样的几何画在盘里,随 ρ 淡入
+    if (focus && mode !== 'context') { // 正在钻进去的容器:它的小星系展开成内部的空间(同样的几何,画在盘里)
       const child = getSpace(focus.id);
-      drawSpace(child, tx + focus.x * s, ty + focus.y * s, s * scOf(focus, child), alpha * aIn, depth + 1, now, null, 'preview');
+      drawSpace(child, tx + focus.x * s, ty + focus.y * s, s * scOf(focus, child), alpha, depth + 1, now, null, 'preview', { morph: { host: focus, hs: s, e: aIn } });
       setT();
     }
   }
@@ -1906,7 +1945,7 @@ import { trackProposals } from '/core/proposals.js';
         if (!best || h.depth > best.depth || (h.depth === best.depth && h.R < best.R)) best = h;
       }
       if (best) requestAnimationFrame(() => enterSpace(best.n.id));
-    } else if (curSpaceId !== null && getSpace(curSpaceId).E * transform.k < 0.5 * T) requestAnimationFrame(() => exitSpace());
+    } else if (curSpaceId !== null && getSpace(curSpaceId).E * transform.k / 0.92 < EXIT_AT * T) requestAnimationFrame(() => exitSpace());
   }
 
   function pickHit(px, py) {
@@ -1944,17 +1983,17 @@ import { trackProposals } from '/core/proposals.js';
       frameHits = []; frameLabels = []; // 旧空间不参与交互
     }
     const cur = getSpace(curSpaceId);
-    let curAlpha = 1;
-    if (!fade && curSpaceId !== null) { // 外面:父空间按"来源—目的"的几何画在下面,随 ρ 淡出
+    let morphC = null;
+    if (!fade && curSpaceId !== null) { // 外面:父空间按"来源—目的"的几何画在下面,画法和在外面时一样(焦点就是当前空间)
       const ps = holderOf(curSpaceId), c = ps.byId.get(curSpaceId);
       if (c && !expandedSet.has(c.id)) {
-        const r = cur.E * k / 0.92 / enterT(), sc = scOf(c, cur), kP = k / sc, aOut = outerAlpha(r);
-        if (aOut > 0.01) { drawSpace(ps, x - kP * c.x, y - kP * c.y, kP, aOut, 0, now, c.id, 'context'); frameLabels = frameLabels.filter((L) => (L.fade ?? 1) >= 0.25); }
-        curAlpha = Math.max(0.04, innerAlpha(r));
+        const r = cur.E * k / 0.92 / enterT(), sc = scOf(c, cur), kP = k / sc, e = innerAlpha(r);
+        if (outerAlpha(r) > 0.01 || e < 0.999) { drawSpace(ps, x - kP * c.x, y - kP * c.y, kP, 1, 0, now, null, 'context', { focusId: c.id }); frameLabels = frameLabels.filter((L) => (L.fade ?? 1) >= 0.25); }
+        if (e < 0.999) morphC = { host: c, hs: kP, e };
       }
     }
-    drawSpace(cur, x, y, k, fade ? Math.max(0.05, ease) : curAlpha, 0, now, null);
-    drawStubs(cur, x, y, k, fade ? ease : curAlpha);
+    drawSpace(cur, x, y, k, fade ? Math.max(0.05, ease) : 1, 0, now, null, '', { morph: morphC });
+    drawStubs(cur, x, y, k, fade ? ease : morphC ? morphC.e : 1);
     if (fade && p >= 1) fade = null;
     heatSpaces();
 
@@ -2089,21 +2128,27 @@ import { trackProposals } from '/core/proposals.js';
   }
 
   // 收起的容器 = 一个小星系:粒子是它里面的东西(颜色、大小取自内容),缓缓旋转
+  /** 旋臂上第 i 颗(共 len 颗)粒子:相对容器中心的位置(容器所在空间的坐标)与粒子大小 */
+  function armPoint(n, i, len, now) {
+    const t = (i + 1) / len, arm = i % 3, rad = n.r * (1.15 + 2.9 * t);
+    const ang = arm * 2.0944 + t * 5.5 + now * 0.00028 / Math.sqrt(t + 0.25) + n.phase;
+    const px = Math.cos(ang) * rad, py = Math.sin(ang) * rad * 0.62, ct = Math.cos(n.tilt), st = Math.sin(n.tilt);
+    const kr = n.kidRgb[Math.floor(i * n.kidRgb.length / len)][1];
+    return [ct * px - st * py, st * px + ct * py, Math.max(0.7, Math.min(2.2, kr * 0.34))];
+  }
+  function pushParticle(col, a, x, y, size) {
+    const key = col[0] + ',' + col[1] + ',' + col[2] + '|' + a;
+    let bk = particles.get(key);
+    if (!bk) { bk = { col, a, pts: [] }; particles.set(key, bk); }
+    bk.pts.push(x, y, size);
+  }
   function drawGalaxyArms(n, now, a) {
     const sr = n.r * curK;
     if (sr < 4.5) return; // 屏幕上太小,画粒子也看不清
-    const len = sr > 12 ? n.kidRgb.length : Math.min(n.kidRgb.length, sr > 8 ? 24 : 12);
-    const ct = Math.cos(n.tilt), st = Math.sin(n.tilt), aq = Math.round(a * 4) / 4;
+    const len = sr > 12 ? n.kidRgb.length : Math.min(n.kidRgb.length, sr > 8 ? 24 : 12), aq = Math.round(a * 4) / 4;
     for (let i = 0; i < len; i++) {
-      const [col, kr] = n.kidRgb[Math.floor(i * n.kidRgb.length / len)];
-      const t = (i + 1) / len, arm = i % 3;
-      const rad = n.r * (1.15 + 2.9 * t);
-      const ang = arm * 2.0944 + t * 5.5 + now * 0.00028 / Math.sqrt(t + 0.25) + n.phase;
-      const px = Math.cos(ang) * rad, py = Math.sin(ang) * rad * 0.62;
-      const key = col[0] + ',' + col[1] + ',' + col[2] + '|' + aq;
-      let bk = particles.get(key);
-      if (!bk) { bk = { col, a: aq, pts: [] }; particles.set(key, bk); }
-      bk.pts.push(n.x + ct * px - st * py, n.y + st * px + ct * py, Math.max(0.7, Math.min(2.2, kr * 0.34)));
+      const [dx, dy, pr] = armPoint(n, i, len, now);
+      pushParticle(n.kidRgb[Math.floor(i * n.kidRgb.length / len)][0], aq, n.x + dx, n.y + dy, pr);
     }
   }
   const particles = new Map();
@@ -2156,7 +2201,7 @@ import { trackProposals } from '/core/proposals.js';
     ctx.closePath(); ctx.fill();
   }
 
-  function drawNode(n, now, a) {
+  function drawNode(n, now, a, arms = true) {
     const r = n.r, x = n.x, y = n.y, c = n.rgb;
     switch (n.shape) {
       case 'nebula': {
@@ -2165,7 +2210,7 @@ import { trackProposals } from '/core/proposals.js';
         const rr = open ? r * 0.6 : r;
         if (r * curK < 6) glow(x, y, rr * 4.2, c, 0.55 * a); // 屏幕上还很小:一层发光就够
         else { glow(x, y, rr * 6.5 * br, c, (open ? 0.18 : 0.32) * a); glow(x, y, rr * 3, c, 0.38 * a); glow(x, y, rr * 1, n.core, 0.7 * a); }
-        if (n.kidRgb && n.kidRgb.length) drawGalaxyArms(n, now, a);
+        if (arms && n.kidRgb && n.kidRgb.length) drawGalaxyArms(n, now, a);
         break;
       }
       case 'ringed': {
