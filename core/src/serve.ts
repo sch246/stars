@@ -12,11 +12,11 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch, writ
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { stripTypeScriptTypes } from 'node:module';
 import { homedir } from 'node:os';
-import { basename, dirname, extname, join, resolve } from 'node:path';
+import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { invalidateSignals, loadSignals, type LiveSignals } from './activity.ts';
 import { configDir, isConfigName, pageConfig, readUserConfig, registerServer, unregisterServer, writeUserConfig } from './config.ts';
-import { FileConflict, IMAGE_TYPES, readProjectFile, resolveInside, writeProjectFile } from './files.ts';
+import { FileConflict, IMAGE_TYPES, PREVIEW_TYPES, patchProjectFile, readProjectFile, resolveInside, writeProjectFile } from './files.ts';
 import { diffUniverses, gitFirstParent, gitHistory, gitParentSnapshot, gitSnapshot, gitTreeUniverse, type HistoryScope } from './history.ts';
 import { lint } from './lint.ts';
 import { StarsError, type Universe } from './model.ts';
@@ -30,7 +30,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const viewerDir = resolve(here, '..', 'viewer');
 
 /** 浏览器能直接 import 的共享模块(都不依赖 Node)。 */
-const SHARED = new Set(['model', 'view', 'expr', 'ops', 'proposals', 'query', 'llf', 'format']);
+const SHARED = new Set(['model', 'view', 'expr', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync']);
 
 function sharedModule(name: string): string {
   const ts = readFileSync(resolve(here, `${name}.ts`), 'utf8');
@@ -372,11 +372,19 @@ export function startServer(
         const body = JSON.parse(await readBody(req, url.pathname === '/api/file' ? 8 << 20 : 1 << 20) || '{}') as {
           op?: Op; author?: string; dir?: string; create?: boolean; path?: string; content?: string; mtime?: number | null;
           name?: string; line?: string; file?: string; from?: string; id?: string; wait?: number;
+          patch?: { start: number; end: number; insert: string }; baseHash?: string;
         };
         if (url.pathname === '/api/file') {
-          if (typeof body.path !== 'string' || typeof body.content !== 'string') return json(res, 400, { error: '需要 path 与 content' });
-          try { return json(res, 200, writeProjectFile(proj.baseDir, body.path, body.content, typeof body.mtime === 'number' ? body.mtime : null, { self })); }
-          catch (err) { if (err instanceof FileConflict) return json(res, 409, { error: err.message, mtime: err.mtime }); throw err; }
+          // 两种写法:{ path, patch: { start, end, insert }, baseHash }(只传改动的一段)或 { path, content, mtime }(整份;mtime: null = 覆盖)
+          if (typeof body.path !== 'string' || (typeof body.content !== 'string' && !(body.patch && typeof body.baseHash === 'string'))) return json(res, 400, { error: '需要 path,以及 content 或 patch + baseHash' });
+          try {
+            if (body.patch) return json(res, 200, patchProjectFile(proj.baseDir, body.path, body.patch, body.baseHash!, { self }));
+            return json(res, 200, writeProjectFile(proj.baseDir, body.path, body.content!, typeof body.mtime === 'number' ? body.mtime : null, { self }));
+          } catch (err) {
+            if (err instanceof FileConflict) return json(res, 409, { error: err.message, mtime: err.mtime });
+            if (err instanceof RangeError) return json(res, 400, { error: err.message });
+            throw err;
+          }
         }
         if (url.pathname === '/api/config') {
           if (!isConfigName(body.name) || typeof body.content !== 'string') return json(res, 400, { error: '需要 name(settings / keys)与 content' });
@@ -431,6 +439,26 @@ export function startServer(
       res.write(`data: ${proj.snapshotLine()}\n\n`);
       proj.clients.add(res);
       req.on('close', () => proj.clients.delete(res));
+      return;
+    }
+    // 预览(侧栏的 HTML 预览、新标签页打开):/preview/<token>/<项目 id 或 _>/<路径>。iframe 带不了请求头,token 放在路径里,
+    // 页面里的相对路径(css / js / 图片)自然落在同一个前缀下。HTML / SVG 带 CSP sandbox:就算在新标签页里直接打开也是不同源的,
+    // 碰不到查看器和 token;允许跨源读(预览里的脚本 fetch 同目录的 json),反正要先知道 token 才能拼出地址。
+    const pv = /^\/preview\/([0-9a-f]+)\/([0-9a-f]+|_)\/(.*)$/.exec(path);
+    if (pv) {
+      const proj = pv[2] === '_' ? main : projects.get(pv[2]!);
+      if (pv[1] !== token) { res.writeHead(403).end('forbidden'); return; }
+      if (!proj) { res.writeHead(404).end('没有这个项目'); return; }
+      try {
+        let abs = resolveInside(proj.baseDir, decodeURIComponent(pv[3]!));
+        if (/(^|[\\/])\.git([\\/]|$)/.test(relative(proj.baseDir, abs))) throw new StarsError('.git 不提供');
+        if (statSync(abs).isDirectory()) abs = join(abs, 'index.html');
+        const type = PREVIEW_TYPES[extname(abs).toLowerCase()] ?? 'application/octet-stream';
+        const headers: Record<string, string> = { 'content-type': type, 'cache-control': 'no-cache', 'access-control-allow-origin': '*', 'x-content-type-options': 'nosniff' };
+        if (/html|svg|xml/.test(type)) headers['content-security-policy'] = 'sandbox allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox';
+        const body = readFileSync(abs);
+        res.writeHead(200, headers).end(body);
+      } catch { res.writeHead(404).end('not found'); }
       return;
     }
     const mod = /^\/core\/(\w+)\.js$/.exec(path);

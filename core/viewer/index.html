@@ -235,6 +235,16 @@
   #fp-uni .chip { cursor: default; }
   #lightbox { position: fixed; inset: 0; z-index: 30; background: #000000d8; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
   #lightbox[hidden] { display: none; } #lightbox img { max-width: 94vw; max-height: 94vh; box-shadow: 0 0 60px #000; }
+  /* 预览的开关条、并排编辑、HTML 预览 */
+  .pv-bar { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; padding: 5px 10px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); flex: none; }
+  .pv-opt { cursor: pointer; user-select: none; display: inline-flex; gap: 3px; align-items: center; color: var(--muted); text-decoration: none; }
+  .pv-opt:hover { color: var(--text); } .pv-opt.on { color: #fff; } .pv-opt i { font-style: normal; }
+  .pv-opt.act { border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; } .pv-out { margin-left: auto; }
+  #fp-body.split { flex-direction: column; }
+  .sp-edit { flex: 1 1 42%; display: flex; min-height: 90px; border-bottom: 2px solid var(--line); overflow: hidden; }
+  .sp-view { flex: 1 1 58%; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+  .sp-view #fp-md { flex: 1; }
+  #fp-html { flex: 1; border: 0; width: 100%; background: #fff; }
 </style>
 </head>
 <body>
@@ -333,6 +343,7 @@ import { trackProposals } from '/core/proposals.js';
 import { filterNodes, neighborhood, shortestPath } from '/core/query.js';
 import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '/core/llf.js';
 import { parse } from '/core/format.js';
+import { textDiff, textHash, textNormEol } from '/core/textsync.js';
 (() => {
   const TAU = Math.PI * 2;
   const canvas = document.getElementById('c');
@@ -652,6 +663,7 @@ import { parse } from '/core/format.js';
     renderStatus();
   }
   function applySignals(m) {
+    if (fp && fp.handler === 'html' && m.changed && Object.keys(m.changed).some((id) => id !== fp.id || !fp.opts.live)) htmlRefreshSoon();   // 页面引用的 css / js 改了
     if (fp && ((m.changed && m.changed[fp.id] !== undefined) || (m.size && m.size[fp.id] !== undefined) || m.replace)) checkDisk();
     const sg = (data.signals = data.signals || {});
     if (m.replace) { sg.fileChanged = m.fileChanged; sg.touched = m.touched; if (m.size) sg.size = m.size; }
@@ -1393,7 +1405,13 @@ import { parse } from '/core/format.js';
   // 磁盘上变了(实时信号 / 每 3 秒查一次修改时间):没改过就直接载入,改过就提示冲突。
   const fileOf = (n) => (n && typeof n.attrs.file === 'string' && n.attrs.type !== 'dir' && !n.attrs.file.endsWith('/') ? n.attrs.file : null);
   const HEAD = 24 << 10;
-  let fp = null;          // { id, path, info, dirty, full, indent }
+  let fp = null;          // { id, path, info, text, base, full, indent, handler, want }
+  // 脏不是一个标志位,而是算出来的:当前文本 ≠ 基线(打开 / 上次保存 / 载入磁盘版本时的内容)。改了再改回来就是干净的,
+  // 不会白白保存、也不会在关页面时拦你。两边都按"换行折成 LF"比(<textarea> 本来就会这样折;CRLF 文件保存时服务端再还原)。
+  const normEol = textNormEol;
+  // 保存只传改动的一段 + 基线的哈希(服务端按内容核对基线,对不上就是别处改过了);「用我的覆盖」才传整份
+  const saveBody = (cur, content, force) => (force ? { path: cur.path, content, mtime: null } : { path: cur.path, patch: textDiff(cur.base, content), baseHash: textHash(cur.base) });
+  const fpDirty = (f = fp) => !!(f && f.full && f.info && f.info.kind === 'text' && f.text !== f.base);
   let fpPoll = null, fpOrphan = null;
   let barSeq = 0;          // 每条提示一个序号:定时消失只清掉自己,不清后来的提示
   const fpBar = (html, kind) => { barSeq++; const b = $('fp-bar'); b.hidden = !html; b.className = kind || ''; b.innerHTML = html || ''; };
@@ -1413,11 +1431,12 @@ import { parse } from '/core/format.js';
   const extOf = (p) => ((/\.([^./]+)$/.exec(p) || [])[1] || '').toLowerCase();
   const IMG_EXT = /^(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/, MD_EXT = /^(md|markdown|mdown|mkd)$/;
   /** 不读文件就能判断的种类(双击、选默认视图用):image / markdown / form / universe / file */
-  const fileTypeOf = (path) => { const e = extOf(path); return IMG_EXT.test(e) ? 'image' : MD_EXT.test(e) ? 'markdown' : e === 'llf' ? 'form' : e === 'stars' ? 'universe' : 'file'; };
+  const fileTypeOf = (path) => { const e = extOf(path); return IMG_EXT.test(e) ? 'image' : MD_EXT.test(e) ? 'markdown' : /^(html?|xhtml)$/.test(e) ? 'html' : e === 'llf' ? 'form' : e === 'stars' ? 'universe' : 'file'; };
   const FILE_HANDLERS = [
     { id: 'text', label: '原文', match: (d) => (d.kind === 'text' ? { role: 'available' } : false), mount: mountText },
     { id: 'image', label: '图片', match: (d) => (d.kind === 'image' ? { role: 'default', priority: 10 } : false), mount: mountImage },
     { id: 'markdown', label: '预览', match: (d) => (d.kind === 'text' && MD_EXT.test(d.ext) ? { role: 'default', priority: 10 } : false), mount: mountMarkdown },
+    { id: 'html', label: '预览', match: (d) => (d.kind === 'text' && /^(html?|xhtml)$/.test(d.ext) ? { role: 'default', priority: 10 } : false), mount: mountHtml },
     { id: 'form', label: '表单', match: (d) => (d.kind === 'text' && d.ext === 'llf' ? { role: 'default', priority: 10 } : false), mount: mountForm },
     { id: 'universe', label: '宇宙', match: (d) => (d.kind === 'text' && d.ext === 'stars' ? { role: 'default', priority: 10 } : false), mount: mountUniverse },
     { id: 'info', label: '信息', match: (d) => (d.kind === 'binary' || d.kind === 'large' ? { role: 'default' } : false), mount: mountInfo },
@@ -1440,9 +1459,9 @@ import { parse } from '/core/format.js';
   function fpState() {
     if (!fp || !fp.info) return;
     const i = fp.info;
-    $('fp-state').innerHTML = (fp.dirty ? '<span class="dirty">● 未保存</span> · ' : '') + `${fmtBytes(i.size)} · 改于 ${ago(i.mtime)}`
+    $('fp-state').innerHTML = (fpDirty() ? '<span class="dirty">● 未保存</span> · ' : '') + `${fmtBytes(i.size)} · 改于 ${ago(i.mtime)}`
       + (i.readonly ? ' · 只读' : i.kind === 'text' && !i.editable ? ' · 超过 2 MB,只读' : '');
-    $('fp-save').style.display = fp.full && i.editable && (fp.dirty || fp.handler === 'text') ? '' : 'none';
+    $('fp-save').style.display = fp.full && i.editable && (fpDirty() || fp.handler === 'text') ? '' : 'none';
     const more = $('fp-more');
     more.hidden = !(i.kind === 'text' && !fp.full);
     if (!more.hidden) more.textContent = `只显示了开头 ${fmtBytes(new Blob([fp.text || '']).size)} / ${fmtBytes(i.size)}` + (i.editable ? ' · 点进编辑框或滚到底载入全部' : '');
@@ -1454,7 +1473,7 @@ import { parse } from '/core/format.js';
     $('fp-gutter').scrollTop = t.scrollTop;
   }
   const gutterSoon = debounce(gutter, 120);
-  const markDirty = () => { if (!fp.dirty) { fp.dirty = true; fpState(); } };
+  const markDirty = debounce(() => { if (fp) fpState(); }, 120);   // 状态栏跟着重算(脏是比出来的)
 
   /** 按当前文件挑视图并挂上去;「打开方式」不止一个时显示成分段按钮,旁边的「记住」= 以后这类扩展名都用它 */
   function renderFileBody() {
@@ -1468,6 +1487,7 @@ import { parse } from '/core/format.js';
     $('fp-remember').title = remembered ? `已记住:.${d.ext} 文件用「${FILE_HANDLERS.find((h) => h.id === fp.handler).label}」打开(再点取消)` : `以后 .${d.ext} 文件都用「${(FILE_HANDLERS.find((h) => h.id === fp.handler) || {}).label}」打开`;
     const body = $('fp-body');
     body.className = 'h-' + (fp.handler || 'none'); body.innerHTML = '';
+    fp.renderView = null; fp.onEditRender = false;
     const h = FILE_HANDLERS.find((x) => x.id === fp.handler);
     if (h) h.mount(body); else body.innerHTML = '<div id="fp-media">没有能打开它的视图</div>';
     fpState();
@@ -1475,10 +1495,11 @@ import { parse } from '/core/format.js';
   /** 内容变了(载入全文 / 磁盘上的新版本):原文视图就地更新(保留光标与滚动),别的视图重画 */
   function refreshBody() {
     const t = $('fp-text');
-    if (fp.handler === 'text' && t) {
+    if (t && (fp.handler === 'text' || fp.opts.split)) {   // 原文(或并排时上面的编辑器)就地更新,预览跟着重画
       const focused = document.activeElement === t, keep = [t.selectionStart, t.selectionEnd, t.scrollTop];
       t.value = fp.text; t.readOnly = !fp.full || !fp.info.editable; gutter();
       [t.selectionStart, t.selectionEnd, t.scrollTop] = keep; if (focused) t.focus();
+      if (fp.renderView) fp.renderView();
       fpState();
     } else {
       const sc = $('fp-body').firstElementChild ? $('fp-body').firstElementChild.scrollTop : 0;
@@ -1501,7 +1522,7 @@ import { parse } from '/core/format.js';
     t.value = fp.text; t.readOnly = !fp.full || !fp.info.editable; fp.lines = 0; gutter();
     t.addEventListener('focus', () => loadFull());
     t.addEventListener('scroll', () => { $('fp-gutter').scrollTop = t.scrollTop; if (!fp.full && t.scrollTop + t.clientHeight > t.scrollHeight - 120) loadFull(); });
-    t.addEventListener('input', () => { fp.text = t.value; markDirty(); gutterSoon(); });
+    t.addEventListener('input', () => { fp.text = t.value; markDirty(); gutterSoon(); if (fp.onEditRender) pvRenderSoon(); });
     t.addEventListener('keydown', (ev) => {
       if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') { ev.preventDefault(); saveFile(false); }
       else if (ev.key === 'Tab' && !ev.shiftKey && !t.readOnly) { ev.preventDefault(); document.execCommand('insertText', false, fp.indent); }
@@ -1522,11 +1543,41 @@ import { parse } from '/core/format.js';
     body.innerHTML = `<div id="fp-media">${fp.info.kind === 'large' ? `文件太大(${fmtBytes(fp.info.size)}),不在这里显示` : `二进制文件(${fmtBytes(fp.info.size)}),无法以文本显示`}<br><span class="tag">可以用右上角的 VS Code 打开</span></div>`;
   }
 
-  // ---- Markdown 预览:零依赖的小渲染器。先整体转义,不放行任何原始 HTML;项目里的相对链接点了就在星图里打开那个文件 ----
+  // ---- 预览的公共部分:每个预览自己的开关(这个文件开着时有效;新预览的默认值在设置 → 文件预览里)、并排编辑 ----
+  // 并排编辑:上面是原文编辑器,下面是预览,打字时预览跟着走(Markdown 总是跟着;HTML 在「实时」打开时跟着)。
+  function previewBar(items) {
+    return '<div class="pv-bar">' + items.map(([cmd, label, on, title]) =>
+      `<span class="pv-opt ${on === undefined ? 'act' : on ? 'on' : ''}" data-cmd="${esc(cmd)}" title="${esc(title || '')}">${on === undefined ? '' : `<i>${on ? '☑' : '☐'}</i>`}${esc(label)}</span>`).join('') + '</div>';
+  }
+  /** 预览类视图的骨架:并排时上面挂原文编辑器;renderView(paneEl) 画预览,打字时被再次调用 */
+  function mountPreview(body, renderView) {
+    if (fp.opts.split && fp.info.kind === 'text') {
+      body.classList.add('split');
+      body.innerHTML = '<div class="sp-edit"></div><div class="sp-view"></div>';
+      mountText(body.querySelector('.sp-edit'));
+      if (!fp.full) loadFull();
+    } else body.innerHTML = '<div class="sp-view"></div>';
+    const pane = body.querySelector('.sp-view');
+    fp.renderView = () => renderView(pane);
+    fp.renderView();
+  }
+  const pvRenderSoon = debounce(() => { if (fp && fp.renderView && fp.onEditRender) fp.renderView(); }, 250);
+
+  // ---- Markdown 预览:零依赖的小渲染器;项目里的相对链接点了就在星图里打开那个文件 ----
+  // 「渲染 HTML」关着:原始 HTML 原样显示成文字;开着:照样渲染,但先清理(只留排版用的标签和属性,去掉脚本、iframe、表单、
+  // 事件属性、javascript: 链接;id 加前缀,免得和查看器自己的元素撞名)。
   function mountMarkdown(body) {
-    body.innerHTML = `<div id="fp-md" class="md">${renderMarkdown(fp.text, fp.path)}${fp.full ? '' : '<p class="md-more">…(只载入了开头,滚到底载入全部)</p>'}</div>`;
-    const md = $('fp-md');
-    md.addEventListener('scroll', () => { if (!fp.full && md.scrollTop + md.clientHeight > md.scrollHeight - 80) loadFull(); });
+    fp.onEditRender = true;
+    mountPreview(body, (pane) => {
+      const sc = pane.querySelector('#fp-md') ? pane.querySelector('#fp-md').scrollTop : 0;
+      const html = fp.opts.html, out = renderMarkdown(fp.text, fp.path, html);
+      pane.innerHTML = previewBar([[`preview html toggle`, '渲染 HTML', html, '把 Markdown 里的原始 HTML 也渲染出来(先清理掉脚本等);新预览的默认在设置 → 文件预览'],
+        [`preview split toggle`, '并排编辑', fp.opts.split, '上面编辑原文,下面实时看预览']])
+        + `<div id="fp-md" class="md">${html ? sanitizeHtml(out, fp.path) : out}${fp.full ? '' : '<p class="md-more">…(只载入了开头,滚到底载入全部)</p>'}</div>`;
+      const md = pane.querySelector('#fp-md');
+      md.scrollTop = sc;
+      md.addEventListener('scroll', () => { if (!fp.full && md.scrollTop + md.clientHeight > md.scrollHeight - 80) loadFull(); });
+    });
   }
   function mdResolve(base, rel) {   // 相对 base 文件所在目录解析成项目里的路径
     const parts = (rel.startsWith('/') ? [] : base.split('/').slice(0, -1));
@@ -1535,14 +1586,15 @@ import { parse } from '/core/format.js';
   }
   const mdSlug = (t) => t.toLowerCase().replace(/<[^>]*>/g, '').replace(/[^\p{L}\p{N}\s-]/gu, '').trim().replace(/\s+/g, '-');
   function mdHref(href, base, img) {
-    const u = href.replace(/&amp;/g, '&');
-    if (/^(javascript|data|vbscript):/i.test(u)) return null;
-    if (/^(https?:|mailto:)/i.test(u)) return { ext: u };
+    const u = href.replace(/&amp;/g, '&').trim();
+    if (/^(javascript|data|vbscript|file):/i.test(u)) return null;
+    if (/^(https?:|mailto:)/i.test(u) || u.startsWith('//')) return { ext: u };
     if (u.startsWith('#')) return { anchor: mdSlug(decodeURIComponent(u.slice(1))) };
-    const path = mdResolve(base, decodeURIComponent(u.split(/[?#]/)[0]));
+    let path;
+    try { path = mdResolve(base, decodeURIComponent(u.split(/[?#]/)[0])); } catch { return null; }
     return img ? { ext: rawUrl(path) } : { open: path };
   }
-  function mdInline(s, base) {   // s 已转义
+  function mdInline(s, base) {   // s 已转义(或只含占位符和转义过的文字)
     const codes = [];
     s = s.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
     s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^)]*&quot;)?\)/g, (all, alt, src) => { const h = mdHref(src, base, true); return h && h.ext ? `<img alt="${alt}" src="${esc(h.ext)}">` : all; });
@@ -1559,11 +1611,21 @@ import { parse } from '/core/format.js';
     s = s.replace(/~~(.+?)~~/g, '<del>$1</del>');
     return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[+i]}</code>`);
   }
+  /** 一段行内原文 → HTML。html 开着时原始标签原样保留(之后统一清理),只转义标签之外的文字;代码里的标签永远是文字 */
+  const MD_TAG = /(<\/?[A-Za-z][\w-]*(?:\s(?:[^<>"']|"[^"]*"|'[^']*')*)?\/?>|<!--[\s\S]*?-->)/;
+  function mdText(raw, base, html) {
+    if (!html) return mdInline(esc(raw), base);
+    const keep = [], hold = (x) => { keep.push(x); return `\u0001${keep.length - 1}\u0001`; };
+    let s = raw.replace(/`([^`]+)`/g, (_, c) => hold(`<code>${esc(c)}</code>`));
+    s = s.split(MD_TAG).map((part, i) => (i % 2 ? hold(part) : esc(part))).join('');
+    return mdInline(s, base).replace(/\u0001(\d+)\u0001/g, (_, i) => keep[+i]);
+  }
   const MD_ITEM = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
-  function renderMarkdown(src, base) {
+  const MD_HTML_BLOCK = /^\s{0,3}(<\/?[A-Za-z][\w-]*(\s|\/?>|$)|<!--)/;
+  function renderMarkdown(src, base, html) {
     const lines = src.replace(/\r\n?/g, '\n').split('\n'), para = [];
     let out = '', i = 0;
-    const flush = () => { if (para.length) { out += `<p>${mdInline(esc(para.join('\n')), base).replace(/ {2,}\n/g, '<br>').replace(/\n/g, ' ')}</p>`; para.length = 0; } };
+    const flush = () => { if (para.length) { out += `<p>${mdText(para.join('\n'), base, html).replace(/ {2,}\n/g, '<br>').replace(/\n/g, ' ')}</p>`; para.length = 0; } };
     const cells = (l) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
     while (i < lines.length) {
       const l = lines[i];
@@ -1573,34 +1635,39 @@ import { parse } from '/core/format.js';
         while (i < lines.length && !lines[i].trimStart().startsWith(fence)) buf.push(lines[i++]);
         i++; out += `<pre><code${m[2] ? ` class="lang-${esc(m[2])}"` : ''}>${esc(buf.join('\n'))}</code></pre>`; continue;
       }
-      if ((m = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(l))) { flush(); const inner = mdInline(esc(m[2]), base); out += `<h${m[1].length} id="${esc(mdSlug(m[2]))}">${inner}</h${m[1].length}>`; i++; continue; }
+      if (html && !para.length && MD_HTML_BLOCK.test(l)) {   // HTML 块:到空行为止原样保留(之后统一清理)
+        const buf = [];
+        while (i < lines.length && lines[i].trim()) buf.push(lines[i++]);
+        out += buf.join('\n') + '\n'; continue;
+      }
+      if ((m = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(l))) { flush(); out += `<h${m[1].length} id="md-${esc(mdSlug(m[2]))}">${mdText(m[2], base, html)}</h${m[1].length}>`; i++; continue; }
       if (/^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(l)) { flush(); out += '<hr>'; i++; continue; }
       if (/^\s*>/.test(l)) {
         flush(); const buf = [];
         while (i < lines.length && /^\s*>/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, ''));
-        out += `<blockquote>${renderMarkdown(buf.join('\n'), base)}</blockquote>`; continue;
+        out += `<blockquote>${renderMarkdown(buf.join('\n'), base, html)}</blockquote>`; continue;
       }
       if (/\|/.test(l) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(lines[i + 1])) {
         flush();
         const head = cells(l), al = cells(lines[i + 1]).map((c) => (c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : ''));
         i += 2; const rows = [];
         while (i < lines.length && /\|/.test(lines[i]) && lines[i].trim()) rows.push(cells(lines[i++]));
-        const td = (tag, c, k) => `<${tag}${al[k] ? ` style="text-align:${al[k]}"` : ''}>${mdInline(esc(c), base)}</${tag}>`;
+        const td = (tag, c, k) => `<${tag}${al[k] ? ` style="text-align:${al[k]}"` : ''}>${mdText(c, base, html)}</${tag}>`;
         out += `<table><thead><tr>${head.map((c, k) => td('th', c, k)).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c, k) => td('td', c, k)).join('')}</tr>`).join('')}</tbody></table>`;
         continue;
       }
-      if (MD_ITEM.test(l)) {   // 列表:连续的项、比项缩进更深的续行、夹在中间的空行
+      if (MD_ITEM.test(l)) {   // 列表:连续的项、比项缩进更深的续行、夹在中间的空行;同一层换了列表种类(- → 1.)另起一个
         flush(); const start = i, base0 = MD_ITEM.exec(l)[1].length, ord = /\d/.test(MD_ITEM.exec(l)[2]);
         i++;
         while (i < lines.length) {
           const x = lines[i], ind = /^\s*/.exec(x)[0].length, mi = MD_ITEM.exec(x);
-          if (mi && ind <= base0 + 1 && /\d/.test(mi[2]) !== ord) break;   // 同一层换了列表种类(- → 1.):另起一个列表
+          if (mi && ind <= base0 + 1 && /\d/.test(mi[2]) !== ord) break;
           if (mi && ind >= base0) { i++; continue; }
           if (x.trim() && ind > base0) { i++; continue; }
           if (!x.trim() && i + 1 < lines.length && (MD_ITEM.test(lines[i + 1]) || /^\s*/.exec(lines[i + 1])[0].length > base0) && /^\s*/.exec(lines[i + 1])[0].length >= base0 && lines[i + 1].trim()) { i++; continue; }
           break;
         }
-        out += mdList(lines.slice(start, i), base0, base); continue;
+        out += mdList(lines.slice(start, i), base0, base, html); continue;
       }
       if (!l.trim()) { flush(); i++; continue; }
       para.push(l.trim()); i++;
@@ -1608,7 +1675,7 @@ import { parse } from '/core/format.js';
     flush();
     return out;
   }
-  function mdList(lines, base0, base) {
+  function mdList(lines, base0, base, html) {
     const items = [];
     for (const l of lines) {
       const m = MD_ITEM.exec(l);
@@ -1618,16 +1685,82 @@ import { parse } from '/core/format.js';
     const tag = items[0] && items[0].ordered ? 'ol' : 'ul';
     return `<${tag}>` + items.map((it) => {
       const task = /^\[([ xX])\]\s+/.exec(it.head);
-      const head = (task ? `<input type="checkbox" disabled${task[1] !== ' ' ? ' checked' : ''}> ` : '') + mdInline(esc(task ? it.head.slice(task[0].length) : it.head), base);
-      return `<li>${head}${it.rest.join('\n').trim() ? renderMarkdown(it.rest.join('\n'), base) : ''}</li>`;
+      const head = (task ? `<input type="checkbox" disabled${task[1] !== ' ' ? ' checked' : ''}> ` : '') + mdText(task ? it.head.slice(task[0].length) : it.head, base, html);
+      return `<li>${head}${it.rest.join('\n').trim() ? renderMarkdown(it.rest.join('\n'), base, html) : ''}</li>`;
     }).join('') + `</${tag}>`;
+  }
+  // 清理:白名单里的标签和属性才留下;整段丢掉脚本、样式表、iframe、表单等;链接和图片按项目路径改写
+  const SAFE_TAGS = new Set(('a abbr b bdi bdo blockquote br caption center cite code col colgroup dd del details dfn div dl dt em figcaption figure font '
+    + 'h1 h2 h3 h4 h5 h6 hr i img input ins kbd li mark ol p picture pre q rp rt ruby s samp small source span strike strong sub summary sup '
+    + 'table tbody td tfoot th thead time tr tt u ul var wbr audio video').split(' '));
+  const DROP_TAGS = new Set('script style iframe frame frameset object embed applet link meta base noscript template form textarea select button svg math'.split(' '));
+  const SAFE_ATTRS = new Set('href src alt title width height align valign colspan rowspan open id name start reversed type checked disabled class lang dir datetime cite color face size style controls loop muted poster data-open data-anchor'.split(' '));
+  function sanitizeHtml(html, base) {
+    const tpl = document.createElement('template');
+    tpl.innerHTML = html;   // template 里的内容是惰性的:脚本不跑、图片不加载
+    const walk = (parent) => {
+      for (const el of [...parent.children]) {
+        const tag = el.tagName.toLowerCase();
+        if (DROP_TAGS.has(tag)) { el.remove(); continue; }
+        walk(el);
+        if (!SAFE_TAGS.has(tag)) { el.replaceWith(...el.childNodes); continue; }   // 不认识的标签:去壳留内容
+        for (const a of [...el.attributes]) if (!SAFE_ATTRS.has(a.name.toLowerCase())) el.removeAttribute(a.name);
+        if (tag === 'input') { if (el.getAttribute('type') !== 'checkbox') { el.remove(); continue; } el.setAttribute('disabled', ''); }
+        if (el.hasAttribute('style')) el.setAttribute('style', el.getAttribute('style').replace(/position\s*:\s*(fixed|sticky)/gi, '').replace(/url\s*\(/gi, ''));
+        if (el.id && !el.id.startsWith('md-')) el.id = 'md-' + el.id;
+        if (el.hasAttribute('href')) {
+          const h = mdHref(el.getAttribute('href'), base, false);
+          el.removeAttribute('href');
+          if (h && h.ext) { el.setAttribute('href', h.ext); el.setAttribute('target', '_blank'); el.setAttribute('rel', 'noopener noreferrer'); }
+          else if (h && h.anchor !== undefined) el.dataset.anchor = h.anchor;
+          else if (h && h.open) { el.dataset.open = h.open; el.title = el.title || h.open; }
+        }
+        if (el.hasAttribute('src')) { const h = mdHref(el.getAttribute('src'), base, true); if (h && h.ext) el.setAttribute('src', h.ext); else el.removeAttribute('src'); }
+      }
+    };
+    walk(tpl.content);
+    return tpl.innerHTML;
   }
   $('fp-body').addEventListener('click', (ev) => {   // 预览里的链接:项目里的文件 → 在星图里打开;#锚点 → 滚过去
     const a = ev.target.closest('#fp-md a[data-open], #fp-md a[data-anchor]'); if (!a) return;
     ev.preventDefault();
-    if (a.dataset.anchor !== undefined) { const h = $('fp-md').querySelector(`[id="${CSS.escape(a.dataset.anchor)}"]`); if (h) h.scrollIntoView({ behavior: 'smooth' }); return; }
+    if (a.dataset.anchor !== undefined) { const h = $('fp-md').querySelector(`[id="md-${CSS.escape(a.dataset.anchor)}"]`); if (h) h.scrollIntoView({ behavior: 'smooth' }); return; }
     exec('open ' + quoteArg(a.dataset.open), 'ui');
   });
+
+  // ---- HTML 预览:沙箱 iframe(不同源,碰不到查看器和 token)。脚本:每个预览可开关;实时:跟着编辑器里没保存的改动走,
+  // 关掉则显示保存了的版本。项目里其它文件变了(serve --watch 的实时信号)也刷新 —— 像 VS Code 的 Live Preview。
+  // 相对路径的 css / js / 图片从 /preview/<token>/<项目>/… 取,所以页面引用的资源都能加载。
+  const previewUrl = (path) => `/preview/${token}/${(project && project.id) || '_'}/` + path.split('/').map(encodeURIComponent).join('/');
+  function mountHtml(body) {
+    fp.onEditRender = !!fp.opts.live;
+    mountPreview(body, (pane) => {
+      const o = fp.opts;
+      fp.onEditRender = !!o.live;
+      if (!pane.querySelector('iframe') || pane.dataset.mode !== `${o.scripts}|${o.live}`) {
+        pane.dataset.mode = `${o.scripts}|${o.live}`;
+        pane.innerHTML = previewBar([
+          ['preview scripts toggle', '脚本', o.scripts, '允许这个预览运行 JavaScript(在沙箱里);新预览的默认在设置 → 文件预览'],
+          ['preview live toggle', '实时', o.live, '跟着编辑器里还没保存的改动走;关掉则只显示保存了的版本(保存后刷新)'],
+          ['preview split toggle', '并排编辑', o.split, '上面编辑原文,下面看预览'],
+          ['preview reload', '↻ 重新加载'],
+        ]) + `<a class="pv-opt act pv-out" href="${esc(previewUrl(fp.path))}" target="_blank" rel="noopener" title="在新标签页里打开(同样在沙箱里)">新标签页 ↗</a>`
+          + `<iframe id="fp-html" referrerpolicy="no-referrer" title="HTML 预览"></iframe>`;
+        pane.querySelector('.pv-bar').appendChild(pane.querySelector('.pv-out'));
+      }
+      const old = pane.querySelector('iframe'), f = document.createElement('iframe');   // 换一个新的 iframe = 干净地重新加载
+      f.id = 'fp-html'; f.title = 'HTML 预览'; f.referrerPolicy = 'no-referrer';
+      f.setAttribute('sandbox', o.scripts ? 'allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox' : '');
+      if (o.live) {
+        const dir = fp.path.includes('/') ? fp.path.replace(/[^/]*$/, '') : '';
+        const baseTag = `<base href="${esc(location.origin + previewUrl(dir))}">`;
+        const t = fp.text;
+        f.srcdoc = /<head[^>]*>/i.test(t) ? t.replace(/<head[^>]*>/i, (h) => h + baseTag) : /<html[^>]*>/i.test(t) ? t.replace(/<html[^>]*>/i, (h) => h + baseTag) : baseTag + t;
+      } else f.src = previewUrl(fp.path) + '?v=' + Math.round(fp.info.mtime);
+      old.replaceWith(f);
+    });
+  }
+  const htmlRefreshSoon = debounce(() => { if (fp && fp.handler === 'html' && fp.renderView) fp.renderView(); }, 300);
 
   // ---- LLF 表单:文件里的类型标签就是 schema(和设置面板同一套控件);改动按路径写回同一份缓冲,停手 0.6 秒自动保存 ----
   const exprStr = (e) => e.name + (e.types.length ? `<${e.types.map(exprStr).join(',')}>` : '') + (e.args.length ? `(${e.args.join(',')})` : '');
@@ -1671,7 +1804,7 @@ import { parse } from '/core/format.js';
     if (!fp || !fp.full || !fp.info.editable) return;
     try { fp.text = fn(fp.text); } catch (e) { fpBar('改不了:' + esc(e.message)); return; }
     markDirty();
-    clearTimeout(formSaveTimer); formSaveTimer = setTimeout(() => { if (fp && fp.dirty) saveFile(false); }, 600);
+    clearTimeout(formSaveTimer); formSaveTimer = setTimeout(() => { if (fpDirty()) saveFile(false); }, 600);
     if (rerender) refreshBody();
   }
   const pathOf = (el) => JSON.parse(el.dataset.path);
@@ -1737,14 +1870,15 @@ import { parse } from '/core/format.js';
   async function loadFile(id) {
     const path = fileOf(raw.get(id));
     const req = fpNext && fpNext.id === id ? fpNext : null; fpNext = null;
-    const cur = fp = { id, path, info: null, text: '', dirty: false, full: false, indent: '  ', want: req && req.want, handler: null };
+    const cur = fp = { id, path, info: null, text: '', base: '', full: false, indent: '  ', want: req && req.want, handler: null,
+      opts: { html: !!P.mdHtml, scripts: !!P.htmlScripts, live: !!P.htmlLive, split: false } };   // 这个预览自己的开关,默认来自设置 → 文件预览
     $('fp-body').innerHTML = '<div id="fp-media">载入中…</div>'; $('fp-state').textContent = ''; $('fp-more').hidden = true; fpBar(null);
     $('fp-save').style.display = 'none'; $('fp-with').innerHTML = ''; $('fp-remember').hidden = true;
     let info;
     try { info = await api('/api/file?head=' + HEAD + '&path=' + enc(path)); }
     catch (e) { if (fp === cur) $('fp-body').innerHTML = `<div id="fp-media">打不开:${esc(e.message)}</div>`; return; }
     if (fp !== cur) return;
-    cur.info = info; cur.text = info.content ?? ''; cur.full = info.kind === 'text' && !info.partial;
+    cur.info = info; cur.text = cur.base = normEol(info.content ?? ''); cur.full = info.kind === 'text' && !info.partial;
     cur.indent = info.content && /\n\t/.test(info.content) ? '\t' : '  ';
     $('fp-code').href = 'vscode://file/' + info.abs.replace(/\\/g, '/');
     renderFileBody();
@@ -1753,7 +1887,7 @@ import { parse } from '/core/format.js';
     if (orphan) { // 上次切走时没能保存的修改:放回来,让你决定
       fpOrphan = null;
       await loadFull(); if (fp !== cur) return;
-      cur.text = orphan.content; cur.dirty = true; refreshBody();
+      cur.text = orphan.content; refreshBody();   // 基线是磁盘版本,所以它是脏的
       fpBar(`你上次切走时的修改没能保存:文件在你打开之后被别处改过了。<span class="btn" data-fp="load">载入磁盘版本(丢弃我的)</span><span class="btn" data-fp="force">用我的覆盖</span>`);
     }
     if (req && req.focus) focusPrimary();
@@ -1767,16 +1901,16 @@ import { parse } from '/core/format.js';
     try { info = await api('/api/file?path=' + enc(cur.path)); } catch (e) { cur.loading = false; fpBar('载入全文失败:' + esc(e.message)); return; }
     cur.loading = false;
     if (fp !== cur) return;
-    cur.info = info; cur.full = true; cur.text = info.content;
+    cur.info = info; cur.full = true; cur.text = cur.base = normEol(info.content);
     refreshBody();
   }
   /** 收起文件;有未保存的修改就在后台保存,失败了把修改留下来,提示你回去处理 */
   function releaseFile() {
     const cur = fp; fp = null; clearInterval(fpPoll); clearTimeout(formSaveTimer);
     $('side').classList.remove('file'); $('fp-body').innerHTML = ''; fpBar(null);
-    if (!cur || !cur.dirty || !cur.full) return;
+    if (!fpDirty(cur)) return;
     const content = cur.text;
-    api('/api/file', { path: cur.path, content, mtime: cur.info.mtime })
+    api('/api/file', saveBody(cur, content, false))
       .then(() => toast(`已保存 ${esc(cur.path)}`))
       .catch((e) => { fpOrphan = { id: cur.id, content }; toast(`${esc(cur.path)} 的修改没能保存:${esc(e.message)} <span class="btn" data-sel="${esc(cur.id)}">回去处理</span>`, true, 15000); });
   }
@@ -1788,7 +1922,15 @@ import { parse } from '/core/format.js';
     let st;
     try { st = await api('/api/file?stat=1&path=' + enc(cur.path)); } catch { return; }
     if (fp !== cur || Math.abs(st.mtime - cur.info.mtime) <= 1) return;
-    if (cur.dirty) { fpBar(`磁盘上的文件在 ${ago(st.mtime)} 被改过了,和你未保存的修改冲突。<span class="btn" data-fp="load">载入磁盘版本</span><span class="btn" data-fp="force">用我的覆盖</span>`); return; }
+    if (fpDirty(cur)) {
+      // 磁盘上的新版本恰好就是我改成的样子(别处存了同样的内容):不算冲突,基线跟上即可
+      let disk = null;
+      try { disk = await api('/api/file?path=' + enc(cur.path)); } catch { /* 下面按冲突提示 */ }
+      if (fp !== cur) return;
+      if (disk && disk.kind === 'text' && normEol(disk.content) === cur.text) { cur.info = disk; cur.base = cur.text; fpState(); return; }
+      fpBar(`磁盘上的文件在 ${ago(st.mtime)} 被改过了,和你未保存的修改冲突。<span class="btn" data-fp="load">载入磁盘版本</span><span class="btn" data-fp="force">用我的覆盖</span>`);
+      return;
+    }
     await reloadFile(`已载入磁盘上的新版本(${ago(st.mtime)})`);
   }
   async function reloadFile(note) {
@@ -1796,17 +1938,19 @@ import { parse } from '/core/format.js';
     let info;
     try { info = await api('/api/file?' + (cur.full ? '' : 'head=' + HEAD + '&') + 'path=' + enc(cur.path)); } catch (e) { fpBar('重新载入失败:' + esc(e.message)); return; }
     if (fp !== cur) return;
-    cur.info = info; cur.text = info.content ?? ''; cur.dirty = false; cur.full = info.kind === 'text' && !info.partial;
+    cur.info = info; cur.text = cur.base = normEol(info.content ?? ''); cur.full = info.kind === 'text' && !info.partial;
     refreshBody();
     if (note) fpFlash(esc(note)); else fpBar(null);
   }
   async function saveFile(force) {
     if (!fp || !fp.full || !fp.info.editable) return;
     const cur = fp, content = cur.text;
+    if (!force && !fpDirty(cur)) { fpFlash('没有改动,不用保存'); return; }   // 和基线一样:连请求都不发
     try {
-      const r = await api('/api/file', { path: cur.path, content, mtime: force ? null : cur.info.mtime });
+      const r = await api('/api/file', saveBody(cur, content, force));
       cur.info = { ...cur.info, mtime: r.mtime, size: r.size, content };
-      if (cur.text === content) cur.dirty = false;   // 保存期间又改了:还是脏的
+      cur.base = content;   // 新基线;保存期间又改了的话,当前文本 ≠ 基线,自然还是脏的
+      if (cur.handler === 'html' && !cur.opts.live) htmlRefreshSoon();   // 只看保存版本的 HTML 预览:存完刷新
       fpFlash('已保存');
     } catch (e) {
       if (/改过/.test(e.message)) fpBar(`保存被拒绝:文件在你打开之后被别处改过了。<span class="btn" data-fp="load">载入磁盘版本(丢弃我的)</span><span class="btn" data-fp="force">用我的覆盖</span>`);
@@ -1818,7 +1962,7 @@ import { parse } from '/core/format.js';
     const b = ev.target.closest('[data-fp]'); if (!b) return;
     if (b.dataset.fp === 'load') reloadFile('已载入磁盘版本'); else saveFile(true);
   });
-  addEventListener('beforeunload', (ev) => { if (fp && fp.dirty) { ev.preventDefault(); ev.returnValue = ''; } });
+  addEventListener('beforeunload', (ev) => { if (fpDirty()) { ev.preventDefault(); ev.returnValue = ''; } });
 
   // ---------- 侧栏宽度:拖左边缘调整(看文件时和平时各记各的),双击恢复默认 ----------
   (() => {
@@ -1954,7 +2098,7 @@ import { parse } from '/core/format.js';
     return out;
   }
   // 双击:节点的种类 → 命令(keys.llf 的 dblclick;$id / $path / $dir 换成被双击的那个)
-  const DBL_TYPES = { container: '容器', file: '文件', image: '图片', markdown: 'Markdown', form: 'LLF 配置', universe: '宇宙文件', node: '其它节点' };
+  const DBL_TYPES = { container: '容器', file: '文件', image: '图片', markdown: 'Markdown', html: 'HTML', form: 'LLF 配置', universe: '宇宙文件', node: '其它节点' };
   function dblOf(text) {
     const out = new Map();
     let doc; try { doc = llfParseDoc(text, CFG_OPTS); } catch { return out; }
@@ -3649,6 +3793,21 @@ import { parse } from '/core/format.js';
       }
       fpNext = { id, want: o.with, focus };
       select(id, true);
+    },
+  });
+  defCmd('preview', {
+    group: '文件', title: '侧栏预览的开关:html(Markdown 渲染 HTML)、scripts(HTML 运行脚本)、live(HTML 实时)、split(并排编辑);reload 重新加载',
+    usage: 'preview <html|scripts|live|split> [on|off|toggle] · preview reload',
+    args: [{ name: '开关', values: () => ['html', 'scripts', 'live', 'split', 'reload'] }, { name: '值', values: () => ['on', 'off', 'toggle'] }],
+    palette: () => (fp && fp.info && ['markdown', 'html'].includes(fp.handler) ? [
+      ...(fp.handler === 'markdown' ? [{ line: 'preview html toggle', title: 'Markdown:开 / 关渲染 HTML' }] : [{ line: 'preview scripts toggle', title: 'HTML 预览:开 / 关脚本' }, { line: 'preview live toggle', title: 'HTML 预览:开 / 关实时' }, { line: 'preview reload', title: 'HTML 预览:重新加载' }]),
+      { line: 'preview split toggle', title: '开 / 关并排编辑' }] : []),
+    run: ([k, v]) => {
+      if (!fp || !fp.info || !['markdown', 'html'].includes(fp.handler)) return false;
+      if (k === 'reload') { if (fp.renderView) fp.renderView(); return; }
+      if (!['html', 'scripts', 'live', 'split'].includes(k)) throw new Error('用法:preview <html|scripts|live|split> [on|off|toggle] · preview reload');
+      fp.opts[k] = onOff(v, !!fp.opts[k]);
+      if (k === 'split') renderFileBody(); else if (fp.renderView) fp.renderView();
     },
   });
   defCmd('edit', {

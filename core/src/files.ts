@@ -1,17 +1,30 @@
 // 在查看器里看/改项目里的文件(不依赖 VS Code)。
 //   · 路径一律限制在项目目录之内(../ 出不去),.git 里的东西与宇宙自己的存储只读
 //   · 写入带"读到时的修改时间":磁盘上的文件在这之后被别人改过就拒绝(409),由查看器决定载入还是覆盖
-//   · 原来是 CRLF 的文件保存时仍是 CRLF(浏览器的文本框会把换行统一成 \n)
+//   · 原来是 CRLF 的文件保存时仍是 CRLF(浏览器的文本框会把换行统一成 \n);还原之后和磁盘上一样就不写(不碰修改时间)
+//   · 保存可以只传改动的一段(patchProjectFile):按内容的哈希确认基线,比修改时间可靠
 //   · 点一下就打开,所以要轻:head=N 只读开头 N 字节(切在最后一个换行处),点进编辑框或滚到底再要全文
 import { closeSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs';
 import { extname, relative, resolve, sep } from 'node:path';
 import { StarsError } from './model.ts';
 import { isStorage } from './scan.ts';
+import { textHash, textNormEol, textPatch, type TextPatch } from './textsync.ts';
 
 export const MAX_TEXT = 2 << 20;
 export const IMAGE_TYPES: Record<string, string> = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
   '.svg': 'image/svg+xml', '.bmp': 'image/bmp', '.ico': 'image/x-icon', '.avif': 'image/avif',
+};
+
+/** /preview 提供项目文件时的类型(HTML 预览引用的 css / js / 图片 / 字体……) */
+export const PREVIEW_TYPES: Record<string, string> = {
+  ...IMAGE_TYPES,
+  '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8', '.xhtml': 'application/xhtml+xml; charset=utf-8',
+  '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8', '.map': 'application/json; charset=utf-8', '.txt': 'text/plain; charset=utf-8',
+  '.md': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8', '.csv': 'text/csv; charset=utf-8',
+  '.wasm': 'application/wasm', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf',
+  '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.wav': 'audio/wav', '.mp4': 'video/mp4', '.webm': 'video/webm', '.pdf': 'application/pdf',
 };
 
 export interface FileInfo {
@@ -75,15 +88,36 @@ export function readProjectFile(baseDir: string, rel: string, opts: { self?: str
 }
 
 /** baseMtime = 打开时的修改时间;null = 不检查(用户选择了"用我的覆盖") */
-export function writeProjectFile(baseDir: string, rel: string, content: string, baseMtime: number | null, opts: { self?: string } = {}): { size: number; mtime: number } {
+/** 写入;内容和磁盘上一字不差时什么也不做(不改修改时间,也不算冲突),返回 unchanged: true */
+export function writeProjectFile(baseDir: string, rel: string, content: string, baseMtime: number | null, opts: { self?: string } = {}): { size: number; mtime: number; unchanged?: boolean } {
   const abs = resolveInside(baseDir, rel);
   const r = relOf(baseDir, abs);
   if (readonlyPath(r, opts.self)) throw new StarsError(`这个文件只读(宇宙自己的存储或 .git): ${r}`);
   const st = statSync(abs);
   if (!st.isFile()) throw new StarsError(`不是文件: ${rel}`);
+  const disk = readFileSync(abs, 'utf8');
+  if (!content.includes('\r\n') && disk.includes('\r\n')) content = content.replace(/\n/g, '\r\n');
+  if (content === disk) return { size: st.size, mtime: st.mtimeMs, unchanged: true };
   if (baseMtime !== null && Math.abs(st.mtimeMs - baseMtime) > 1) throw new FileConflict(st.mtimeMs);
-  if (!content.includes('\r\n') && readFileSync(abs, 'utf8').includes('\r\n')) content = content.replace(/\n/g, '\r\n');
   writeFileSync(abs, content);
   const after = statSync(abs);
   return { size: after.size, mtime: after.mtimeMs };
+}
+
+/** 增量保存:磁盘上的内容(换行折成 LF)哈希等于 baseHash 才把补丁拼进去,否则是别处改过了(409)。
+ *  原来是 CRLF 的文件拼完仍写成 CRLF;拼完和磁盘上一样就不写。返回新内容的哈希,查看器拿它当新基线的凭证 */
+export function patchProjectFile(baseDir: string, rel: string, patch: TextPatch, baseHash: string, opts: { self?: string } = {}): { size: number; mtime: number; hash: string; unchanged?: boolean } {
+  const abs = resolveInside(baseDir, rel);
+  const r = relOf(baseDir, abs);
+  if (readonlyPath(r, opts.self)) throw new StarsError(`这个文件只读(宇宙自己的存储或 .git): ${r}`);
+  const st = statSync(abs);
+  if (!st.isFile()) throw new StarsError(`不是文件: ${rel}`);
+  const disk = readFileSync(abs, 'utf8'), base = textNormEol(disk);
+  if (textHash(base) !== baseHash) throw new FileConflict(st.mtimeMs);
+  const next = textPatch(base, patch);
+  const out = disk.includes('\r\n') ? next.replace(/\n/g, '\r\n') : next;
+  if (out === disk) return { size: st.size, mtime: st.mtimeMs, hash: textHash(next), unchanged: true };
+  writeFileSync(abs, out);
+  const after = statSync(abs);
+  return { size: after.size, mtime: after.mtimeMs, hash: textHash(next) };
 }

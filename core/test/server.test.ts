@@ -282,6 +282,25 @@ test('文件:在查看器里读写项目文件 —— 出不了项目目录、�
     const w = await get('/api/file?path=win.txt');
     await save({ path: 'win.txt', content: w.body.content.replace(/\r\n/g, '\n').replace('l2', 'L2'), mtime: w.body.mtime });
     assert.equal(readFileSync(join(dir, 'win.txt'), 'utf8'), 'l1\r\nL2\r\n', 'CRLF 文件保存后仍是 CRLF');
+    // 增量保存:只传改动的一段 + 基线哈希;CRLF 文件拼完仍是 CRLF;基线不对 → 409,文件不动;补丁越界 → 400
+    const { textDiff, textHash } = await import('../src/textsync.ts');
+    const winBase = 'l1\nL2\n', winNext = 'l1\nL2 改\nl3\n';
+    const pr = await save({ path: 'win.txt', patch: textDiff(winBase, winNext), baseHash: textHash(winBase) });
+    assert.equal(pr.status, 200);
+    assert.equal(readFileSync(join(dir, 'win.txt'), 'utf8'), 'l1\r\nL2 改\r\nl3\r\n', '补丁拼进去,CRLF 还原');
+    assert.equal(pr.body.hash, textHash(winNext), '返回新内容的哈希');
+    const stale = await save({ path: 'win.txt', patch: textDiff(winBase, 'x'), baseHash: textHash(winBase) });
+    assert.equal(stale.status, 409, '基线已经不是磁盘上那一版');
+    assert.equal(readFileSync(join(dir, 'win.txt'), 'utf8'), 'l1\r\nL2 改\r\nl3\r\n');
+    assert.equal((await save({ path: 'win.txt', patch: { start: 3, end: 999, insert: '' }, baseHash: textHash(winNext) })).status, 400);
+    writeFileSync(join(dir, 'win.txt'), 'l1\r\nL2\r\n');
+    // 内容和磁盘上一样(查看器里的文本框把 CRLF 折成了 LF 也算一样):不写、不改修改时间,也不算冲突
+    const before = statSync(join(dir, 'win.txt')).mtimeMs;
+    await new Promise((r) => setTimeout(r, 20));
+    const same = await save({ path: 'win.txt', content: 'l1\nL2\n', mtime: 1 });
+    assert.equal(same.status, 200, '内容没变时旧的修改时间也不算冲突');
+    assert.equal(same.body.unchanged, true);
+    assert.equal(statSync(join(dir, 'win.txt')).mtimeMs, before, '没有碰文件');
 
     assert.equal((await fetch(`${base}/api/raw?path=pic.png`)).status, 403, 'raw 也要 token');
     const img = await fetch(`${base}/api/raw?path=pic.png&t=${srv.token}`);
@@ -333,7 +352,7 @@ test('共享模块:浏览器拿到的 /core/*.js 去掉了类型、能直接 imp
   await new Promise((r) => setTimeout(r, 150));
   const out = mkdtempSync(join(tmpdir(), 'stars-js-'));
   try {
-    for (const name of ['model', 'expr', 'view', 'ops', 'proposals', 'query', 'llf', 'format']) {
+    for (const name of ['model', 'expr', 'view', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync']) {
       const r = await fetch(`http://127.0.0.1:${port}/core/${name}.js`);
       assert.equal(r.status, 200, name);
       const js = await r.text();
