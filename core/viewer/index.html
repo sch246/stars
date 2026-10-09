@@ -130,7 +130,7 @@
     <span class="btn" id="ed-del" title="删除宇宙里的这个自定义视图">删除</span>
   </div>
   <details id="ed-ref"><summary>字段速查</summary>
-    <div><code>select</code> onlyTypes / hideTypes / withRelations · <code>expand</code> depth, auto.radiusPx</div>
+    <div><code>select</code> onlyTypes / hideTypes / withRelations · <code>expand</code> depth, maxNodes(平面布局的节点预算,默认 1500)· <code>tags</code> relation, depth</div>
     <div><code>size[]</code> when, attr | signal(+recency.halfLifeDays) | by:"degree", rollup, scale(sqrt/log/linear), range</div>
     <div><code>color[]</code> when, by: type | attr:x | group | recency(signal, halfLifeDays, from, to, rollup), value</div>
     <div><code>style[]</code> when, shape: dot/star/nebula/ringed/pulsar</div>
@@ -231,7 +231,7 @@ import { trackProposals } from '/core/proposals.js';
     .force('link', d3.forceLink().id((d) => d.id)
       .distance((l) => (l.distance ?? 90) + l.source.r + l.target.r)
       .strength((l) => l.strength ?? 0.3))
-    .force('charge', d3.forceManyBody().strength((d) => -(18 + d.r * d.r * 1.1)).distanceMax(500))
+    .force('charge', d3.forceManyBody().strength((d) => (d.tx !== undefined ? 0 : -(18 + d.r * d.r * 1.1))).distanceMax(500)) // 有 tag 锚点的节点不互斥:位置由锚点给,碰撞防重叠
     .force('center', d3.forceCenter(0, 0).strength(0.05))
     .force('collide', d3.forceCollide().radius((d) => d.r * 1.3 + 2))
     .alphaDecay(0.012).alphaTarget(0.035).velocityDecay(0.42);
@@ -249,21 +249,39 @@ import { trackProposals } from '/core/proposals.js';
     }
   });
 
+  // tag 视图:每个节点被拉向自己的锚点(见 layoutTags)。只拉向"组心"是不行的 —— 初始位置随机时所有组心都在中间,
+  // 各组永远分不开,结果是一个均匀的圆盘。
   simulation.force('tags', (alpha) => {
-    const groups = new Map();
-    for (const n of simulation.nodes()) {
-      if (!n.tags || !n.tags.length || n.x === undefined) continue;
-      for (const [key, w] of [[n.tags[0], 0.02], [n.tags.join('/'), 0.05]]) {
-        let g = groups.get(key); if (!g) { g = { x: 0, y: 0, n: 0, w, m: [] }; groups.set(key, g); }
-        g.x += n.x; g.y += n.y; g.n++; g.m.push(n);
-      }
-    }
-    for (const g of groups.values()) {
-      if (g.n < 2) continue;
-      const cx = g.x / g.n, cy = g.y / g.n;
-      for (const n of g.m) { n.vx += (cx - n.x) * g.w * alpha; n.vy += (cy - n.y) * g.w * alpha; }
-    }
+    const k = 0.3 * alpha;
+    for (const n of simulation.nodes()) if (n.tx !== undefined) { n.vx += (n.tx - n.x) * k; n.vy += (n.ty - n.y) * k; }
   });
+  /**
+   * 按 tag 的层级做圆堆积(d3.pack):顶层 tag 一团,团里按第二层 tag 再分小团,节点是最里面的圆。
+   * 结果作为每个节点的锚点;新节点直接出生在锚点上,所以上万个节点也不会"爆炸"。只在节点集合变化时重算。
+   */
+  let tagKey = '';
+  let tagGroups = [];                // tag 团的位置(第 1、2 层),用来在团上写名字
+  function layoutTags(nodes) {
+    const tagged = nodes.some((n) => n.tags && n.tags.length);
+    const key = tagged ? nodes.length + '|' + nodes.map((n) => n.id).join('\n').length : '';
+    if (key === tagKey && (!tagged || nodes.every((n) => n.tx !== undefined))) return; // 节点对象换过(切项目)就得重算
+    tagKey = key;
+    if (!tagged) { for (const n of nodes) { n.tx = undefined; n.ty = undefined; } tagGroups = []; return; }
+    const root = { kids: new Map(), leaves: [] };
+    for (const n of nodes) {
+      let g = root;
+      for (const t of n.tags || []) { let c = g.kids.get(t); if (!c) { c = { kids: new Map(), leaves: [] }; g.kids.set(t, c); } g = c; }
+      g.leaves.push(n);
+    }
+    const toH = (g, id) => ({ id, children: [...[...g.kids].map(([t, c]) => toH(c, t)), ...g.leaves.map((n) => ({ n }))] });
+    const h = d3.hierarchy(toH(root, null), (d) => d.children);
+    d3.pack().radius((d) => d.data.n.r * 1.5 + 3).padding((d) => (d.depth === 0 ? 40 : d.depth === 1 ? 14 : 4))(h);
+    const leaves = h.leaves().filter((l) => l.data.n);
+    const mx = leaves.reduce((a, l) => a + l.x, 0) / leaves.length, my = leaves.reduce((a, l) => a + l.y, 0) / leaves.length;
+    for (const l of leaves) { l.data.n.tx = l.x - mx; l.data.n.ty = l.y - my; } // 锚点的重心放在原点,和 forceCenter 不打架
+    tagGroups = h.descendants().filter((d) => d.depth >= 1 && d.depth <= 2 && !d.data.n && d.data.id)
+      .map((d) => ({ id: d.data.id, x: d.x - mx, y: d.y - my, r: d.r, depth: d.depth }));
+  }
 
   // 域与域之间互相推开(祖孙除外),让每个域保持独立的疆界
   simulation.force('regions', () => {
@@ -441,13 +459,16 @@ import { trackProposals } from '/core/proposals.js';
       Object.assign(n, sn);
       n.rgb = hex2rgb(sn.color);
       n.core = mix(n.rgb, [255, 255, 255], 0.65);
+      n.dot = mix(n.rgb, [255, 255, 255], 0.25);
       n.kidRgb = sn.kids ? sn.kids.map(([c, r]) => [hex2rgb(c), r]) : null;
       n.tilt = (n.phase - 3) * 0.3;
     }
     for (const id of [...sim.keys()]) if (!seen.has(id)) sim.delete(id);
-    // 新出现的节点:出生在父容器/邻居旁边(展开时像从容器里涌出)
+    layoutTags([...sim.values()]);
+    // 新出现的节点:出生在父容器/邻居旁边(展开时像从容器里涌出);有 tag 锚点的直接出生在锚点上
     for (const n of sim.values()) {
       if (n.x !== undefined) continue;
+      if (n.tx !== undefined) { n.x = n.tx; n.y = n.ty; n.vx = 0; n.vy = 0; continue; }
       const p = n.parent && sim.get(n.parent);
       const e = scene.edges.find((e) => (e.from === n.id && sim.get(e.to)?.x !== undefined) || (e.to === n.id && sim.get(e.from)?.x !== undefined));
       const nb = p && p.x !== undefined ? p : e ? sim.get(e.from === n.id ? e.to : e.from) : null;
@@ -1495,8 +1516,10 @@ import { trackProposals } from '/core/proposals.js';
     if (!vis.length) return;
     const xs = vis.map((n) => n.x), ys = vis.map((n) => n.y);
     const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-    const k = Math.min(2.2, 0.82 * Math.min((innerWidth - 340) / Math.max(80, x1 - x0), innerHeight / Math.max(80, y1 - y0)));
-    const t = d3.zoomIdentity.translate(innerWidth / 2 - 20, innerHeight / 2).scale(k).translate(-(x0 + x1) / 2, -(y0 + y1) / 2);
+    const bar = $('tagbar').hidden ? 0 : $('tagbar').getBoundingClientRect().height + 16; // 底部的 tag 栏会挡住一块
+    const H = innerHeight - bar;
+    const k = Math.min(2.2, 0.82 * Math.min((innerWidth - 340) / Math.max(80, x1 - x0), H / Math.max(80, y1 - y0)));
+    const t = d3.zoomIdentity.translate(innerWidth / 2 - 20, H / 2).scale(k).translate(-(x0 + x1) / 2, -(y0 + y1) / 2);
     d3.select(canvas).transition().duration(700).call(zoom.transform, t);
   }
 
@@ -1693,6 +1716,27 @@ import { trackProposals } from '/core/proposals.js';
     }
   }
 
+  /** tag 视图:在每个团上写 tag 名。第 1 层写在团的上沿;第 2 层团在屏幕上够大时写在团中间。放大到团里面就不写了。 */
+  function drawTagGroups(k, TX, TY, VW, VH) {
+    if (!tagGroups.length) return;
+    const big = Math.min(VW, VH);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const g of tagGroups) {
+      const R = g.r * k, sx = g.x * k + TX, sy = g.y * k + TY;
+      if ((g.depth === 2 && R < 36) || R > big * 0.8) continue;
+      if (sx + R < 0 || sx - R > VW || sy + R < 0 || sy - R > VH) continue;
+      const name = raw.get(g.id)?.label || g.id, px = g.depth === 1 ? 15 : 11.5;
+      ctx.font = `600 ${px / k}px -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif`;
+      if (g.depth === 2 && ctx.measureText(name).width * k > R * 1.9) continue;
+      const on = activeTags.has(g.id), col = hex2rgb(tagColor.get(g.id) || '#c8c8e0');
+      const y = g.depth === 1 ? g.y - g.r - 10 / k : g.y;
+      ctx.globalAlpha = activeTags.size && !on ? 0.25 : g.depth === 1 ? 0.95 : 0.7;
+      ctx.strokeStyle = 'rgba(2,2,10,0.85)'; ctx.lineWidth = 4 / k; ctx.strokeText(name, g.x, y);
+      ctx.fillStyle = rgba(on ? [255, 255, 255] : mix(col, [255, 255, 255], 0.45), 1); ctx.fillText(name, g.x, y);
+    }
+    ctx.globalAlpha = 1;
+  }
+
   function draw(now) {
     const frameStart = performance.now();
     const dpr = devicePixelRatio || 1;
@@ -1796,8 +1840,8 @@ import { trackProposals } from '/core/proposals.js';
     for (const n of nodes) {
       if (!onScreen(n, 6.5)) continue;
       if (n.r * k < 2.4 && n !== hovered && n.id !== selected) { // 小到看不清发光细节的节点:一个点就够了
-        const q = Math.max(1.2, n.r * 0.9);
-        ctx.fillStyle = rgba(n.core, 0.9 * alphaOf(n)); ctx.fillRect(n.x - q / 2, n.y - q / 2, q, q);
+        const q = Math.max(1.6 / k, n.r * 0.9);   // 屏幕上至少 1.6px,否则上万个点糊成一片灰
+        ctx.fillStyle = rgba(n.dot, 0.9 * alphaOf(n)); ctx.fillRect(n.x - q / 2, n.y - q / 2, q, q);
         continue;
       }
       drawNode(n, now, alphaOf(n) * (n === hovered ? 1.25 : 1));
@@ -1829,8 +1873,11 @@ import { trackProposals } from '/core/proposals.js';
         ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 1.5 + 6, 0, TAU); ctx.stroke();
       }
     }
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.lineJoin = 'round';
-    const fs = 11 / Math.max(k, 0.55);
+    ctx.lineJoin = 'round';
+    drawTagGroups(k, TX, TY, VW, VH);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    const tiny = k < 0.35;                 // 缩得太小:普通标签读不出来,只留"必须"的,按屏幕上的固定字号画
+    const fs = tiny ? 11 / k : 11 / Math.max(k, 0.55);
     ctx.font = `${fs}px -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif`;
     // 标签避让:按重要性排序,和已放置的标签重叠就不画(选中/悬停/聚焦邻居/搜索命中优先)。
     // 规划(排序+重叠检测)较贵,节流到约每 160ms 或交互状态变化时才重做,每帧只按最新位置画。
@@ -1838,7 +1885,7 @@ import { trackProposals } from '/core/proposals.js';
     const planKey = `${selected}|${query}|${hovered && hovered.id}|${Math.round(k * 20)}|${shown.length}`;
     if (planKey !== labelKey || now - labelAt > 160) {
       labelKey = planKey; labelAt = now;
-      const cands = shown.filter((n) => must(n) || k > 1.7 || n.r >= 6 || shown.length <= 14)
+      const cands = shown.filter((n) => must(n) || (!tiny && (k > 1.7 || n.r >= 6 || shown.length <= 14)))
         .sort((a, b) => (must(b) - must(a)) || (b.r - a.r)).slice(0, 160);
       const placed = [];
       labelNodes = [];

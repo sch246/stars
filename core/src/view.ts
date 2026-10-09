@@ -67,8 +67,13 @@ export interface RelationRule {
 /** 容器(沿 relation 有子节点的节点)的展开规则。 */
 export interface ExpandRule {
   relation?: string; // 默认 contains
-  /** 默认展开到第几层:离根 < depth 的容器展开。省略 = 全部展开 */
+  /** 默认展开到第几层:离根 < depth 的容器展开。省略 = 全部展开(但受 maxNodes 限制) */
   depth?: number;
+  /**
+   * 画面里最多放多少个节点(平面布局)。一层一层往下展开,同一层先展开小的容器,放不下的保持收起(一个小星系)。
+   * 省略:没写 depth 时默认 1500,写了 depth 就不限。用户手动展开/收起的不受它约束。
+   */
+  maxNodes?: number;
   /** 语义缩放:容器在屏幕上的视觉半径超过 radiusPx 就自动展开(由查看器执行) */
   auto?: { radiusPx: number };
 }
@@ -160,6 +165,8 @@ export interface FoldOptions {
   collapsed?: Iterable<string>;
   /** 覆盖 spec.expand.depth */
   depth?: number;
+  /** 覆盖 spec.expand.maxNodes */
+  maxNodes?: number;
 }
 export type EvalOptions = CompileOptions & FoldOptions;
 
@@ -212,6 +219,9 @@ const GALAXY_STYLE: StyleRule[] = [
   { when: { type: 'module' }, shape: 'ringed' },
   { when: { type: 'concept' }, shape: 'pulsar' },
 ];
+
+/** 平面布局默认最多放多少个节点:力导向在浏览器里能流畅跑、标签还看得清的量级 */
+export const DEFAULT_MAX_NODES = 1500;
 
 export const BUILTIN_VIEWS: Record<string, ViewSpec> = {
   // 默认:从全局开始,放大哪里哪里展开成一个"域";收起的目录是一个小星系
@@ -733,10 +743,38 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
   function fold(f: FoldOptions = {}): Scene {
     // 1. 哪些容器展开
     const maxDepth = f.depth ?? spec.expand?.depth ?? Infinity;
+    const budget = f.maxNodes ?? spec.expand?.maxNodes ?? (maxDepth === Infinity ? DEFAULT_MAX_NODES : Infinity);
+    const forced = new Int8Array(N); // 用户手动:1 展开,-1 收起
+    for (const id of f.expanded ?? []) { const i = idx.get(id); if (i !== undefined) forced[i] = 1; }
+    for (const id of f.collapsed ?? []) { const i = idx.get(id); if (i !== undefined) forced[i] = -1; }
     const open = new Uint8Array(N);
-    for (let i = 0; i < N; i++) open[i] = depth[i]! < maxDepth ? 1 : 0;
-    for (const id of f.expanded ?? []) { const i = idx.get(id); if (i !== undefined) open[i] = 1; }
-    for (const id of f.collapsed ?? []) { const i = idx.get(id); if (i !== undefined) open[i] = 0; }
+    if (budget === Infinity) {
+      for (let i = 0; i < N; i++) open[i] = forced[i] ? (forced[i]! > 0 ? 1 : 0) : depth[i]! < maxDepth ? 1 : 0;
+    } else {
+      // 一层一层往下:这一层可见的容器里,先展开孩子少的,直到再展开就超出预算。
+      // 不在画面里的容器(没被选中,比如 tags 视图隐藏的目录)是"透明"的:收起它只会把内容藏起来,所以总是展开。
+      const vis = new Uint8Array(N), kidsOf = (v: number) => treeKids.start[v + 1]! - treeKids.start[v]!;
+      let count = 0;
+      for (let k = 0; k < N;) {
+        const d = depth[order[k]!]!, cands: number[] = [];
+        let room = budget;
+        for (; k < N && depth[order[k]!] === d; k++) {
+          const v = order[k]!, p = parent[v]!;
+          if (p >= 0 && !(vis[p] && open[p])) continue;
+          vis[v] = 1;
+          if (selected[v]) count++;
+          if (kidsOf(v) === 0) continue;
+          if (forced[v]) open[v] = forced[v]! > 0 ? 1 : 0;
+          else if (d >= maxDepth) open[v] = 0;
+          else if (!selected[v]) open[v] = 1;
+          else { cands.push(v); continue; }
+          if (open[v]) room -= kidsOf(v);
+        }
+        room -= count;
+        cands.sort((a, b) => kidsOf(a) - kidsOf(b));
+        for (const v of cands) { if (kidsOf(v) > room) break; open[v] = 1; room -= kidsOf(v); }
+      }
+    }
 
     // 2. 可见性与代表节点:按深度从小到大扫一遍
     const treeVis = new Uint8Array(N), rep = new Int32Array(N);
@@ -951,7 +989,7 @@ export function listViews(u: Universe): { specs: Record<string, ViewSpec>; error
 const KEYS = {
   spec: ['look', 'layout', 'space', 'tags', 'select', 'expand', 'size', 'color', 'style', 'relations'],
   select: ['onlyTypes', 'hideTypes', 'withRelations', 'schema', 'where'],
-  expand: ['relation', 'depth', 'auto'],
+  expand: ['relation', 'depth', 'maxNodes', 'auto'],
   size: ['when', 'attr', 'expr', 'signal', 'recency', 'by', 'rollup', 'scale', 'range'],
   color: ['when', 'by', 'relation', 'level', 'value', 'expr', 'signal', 'halfLifeDays', 'from', 'to', 'rollup'],
   style: ['when', 'shape', 'expr'],

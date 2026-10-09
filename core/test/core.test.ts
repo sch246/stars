@@ -179,6 +179,27 @@ test('折叠:默认只展开到第一层,收起的容器带"缩影",大小不因
   assert.ok(all.nodes.some((n) => n.id === 'a/x.ts'));
 });
 
+test('折叠:节点预算 —— 一层层展开、先展开小的,放不下的保持收起;手动展开不受限;透明容器不会把内容藏起来', async () => {
+  const { evaluateView, BUILTIN_VIEWS, DEFAULT_MAX_NODES } = await import('../src/view.ts');
+  const u = genesis();
+  const files = [...Array.from({ length: 200 }, (_, i) => `big/f${i}.ts`), ...[1, 2, 3, 4, 5].flatMap((k) => [`s${k}/a.ts`, `s${k}/b.ts`, `s${k}/sub/c.ts`])];
+  apply(u, planScan(u, files, 'repo', 'demo', () => ({ size: 100 })));
+  const orbit = BUILTIN_VIEWS.orbit!;
+  const all = evaluateView(u, orbit, { maxNodes: Infinity });
+  assert.ok(all.nodes.length > 215, '不限预算时全部展开');
+  const cut = evaluateView(u, orbit, { maxNodes: 40 });
+  const has = (sc: typeof cut, id: string) => sc.nodes.some((n) => n.id === id);
+  assert.ok(cut.nodes.length <= 40, `预算内(实际 ${cut.nodes.length})`);
+  assert.equal(cut.nodes.find((n) => n.id === 'big/')!.expanded, false, '大的容器保持收起');
+  assert.ok(has(cut, 's1/a.ts') && has(cut, 's5/sub/c.ts'), '小的先展开,预算够就继续往下');
+  const forced = evaluateView(u, orbit, { maxNodes: 40, expanded: ['big/'] });
+  assert.ok(has(forced, 'big/f199.ts'), '手动展开不受预算限制');
+  assert.ok(evaluateView(u, orbit, { depth: 99 }).nodes.length > 215, '显式给了 depth 就不套默认预算');
+  assert.ok(DEFAULT_MAX_NODES >= 1000);
+  const tags = evaluateView(u, BUILTIN_VIEWS.tags!, { maxNodes: 40 });
+  assert.equal(tags.nodes.filter((n) => n.id.endsWith('.ts')).length, 215, 'tags 视图隐藏了目录:目录透明,不能因为预算把文件藏掉');
+});
+
 test('折叠:内部关系消失,跨容器关系提升到容器上并汇总计数', async () => {
   const { evaluateView, BUILTIN_VIEWS } = await import('../src/view.ts');
   const FLAT_FOLD = { ...BUILTIN_VIEWS.galaxy!, layout: 'flat' as const, expand: { relation: 'contains', depth: 1 } };
