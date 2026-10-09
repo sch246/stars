@@ -1488,11 +1488,13 @@ import { trackProposals } from '/core/proposals.js';
   //  · 双击 / E = 显式的就地展开:把子空间以同样的尺度画在原地(内部物理仍独立),父空间给它让出位置。
   const isSpaces = () => !!compiled && compiled.layout === 'spaces';
   // 缩放时的交叉淡入淡出:只由 ρ(容器在屏幕上的盘半径;在子空间里时用子空间的范围折算)决定,
-  // 所以切换前后是同一幅画面 —— 切换本身(进入 ρ ≥ T、退出 ρ < 0.54T,有滞后)只改变"当前空间"是谁。
+  // 所以切换前后是同一幅画面 —— 切换本身只改变"当前空间"是谁。进入 ρ ≥ T、退出 ρ < 0.95T:
+  // 只留 5% 防抖(画面是连续的,来回切换也看不出来),放大一点进去、缩小一点就出来。
   const smooth = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
   const enterT = () => (P.enterAt > 0 ? P.enterAt : compiled.enterAt) * Math.min(innerWidth, innerHeight);
   const innerAlpha = (r) => smooth((r - 0.4) / 0.6);                                          // r = ρ / T
   const outerAlpha = (r) => (1 - 0.85 * smooth((r - 0.6) / 1.6)) * (1 - smooth(r - 3));
+  const EXIT_AT = 0.95;
   let pointerXY = null, stickyFocus = null;
   const spaces = new Map();          // 容器 id('' = 顶层)→ 空间
   let spaceVer = 0;
@@ -1906,7 +1908,7 @@ import { trackProposals } from '/core/proposals.js';
         if (!best || h.depth > best.depth || (h.depth === best.depth && h.R < best.R)) best = h;
       }
       if (best) requestAnimationFrame(() => enterSpace(best.n.id));
-    } else if (curSpaceId !== null && getSpace(curSpaceId).E * transform.k < 0.5 * T) requestAnimationFrame(() => exitSpace());
+    } else if (curSpaceId !== null && getSpace(curSpaceId).E * transform.k / 0.92 < EXIT_AT * T) requestAnimationFrame(() => exitSpace());
   }
 
   function pickHit(px, py) {
