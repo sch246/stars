@@ -864,7 +864,7 @@ import { trackProposals } from '/core/proposals.js';
     return simulation.find((px - transform.x) / kk, (py - transform.y) / kk, 16 / kk + 6);
   };
   const zoom = d3.zoom().scaleExtent([0.08, 10])
-    .filter((ev) => !(ev.type === 'mousedown' && find(ev.offsetX, ev.offsetY)) && !ev.button)
+    .filter((ev) => !(ev.type === 'mousedown' && (isSpaces() ? pickHit(ev.offsetX, ev.offsetY) : find(ev.offsetX, ev.offsetY))) && !ev.button)
     .on('zoom', (ev) => {
       const prevK = transform.k;
       transform = ev.transform;
@@ -881,7 +881,7 @@ import { trackProposals } from '/core/proposals.js';
   let drag = null;   // { sx, sy, h, n, sim, moved, warmed, tx, ty }
   d3.select(canvas).call(d3.drag()
     .subject((ev) => {
-      if (isSpaces()) { const h = pickHit(ev.x, ev.y); return h && !h.domain ? { h, x: ev.x, y: ev.y } : null; }
+      if (isSpaces()) { const h = pickHit(ev.x, ev.y); return h ? { h, x: ev.x, y: ev.y } : null; }   // 疆界(domain)也可拖:整组一起搬
       return find(ev.x, ev.y);
     })
     .on('start', (ev) => {
@@ -894,6 +894,7 @@ import { trackProposals } from '/core/proposals.js';
       if (!drag.moved) {
         if (Math.hypot(px - drag.sx, py - drag.sy) < 3) return;   // 手抖不算拖动
         drag.moved = true;
+        if (followId || followPend) select(null);   // 锁定时一拖就解锁并取消选定:镜头就地解冻,节点随手动
         const running = drag.h ? heated.has(drag.h.sp) : heatOn(); // 拖动只影响这个节点所在的空间(物理独立)
         if (!running) { drag.warmed = true; if (drag.h) drag.h.sp.dragging = true; drag.sim.alpha(Math.max(drag.sim.alpha(), P.heatLevel)).alphaTarget(P.heatLevel).restart(); }
       }
@@ -1716,6 +1717,7 @@ import { trackProposals } from '/core/proposals.js';
     if (sp.forces && sp.forces.length) for (const f of sp.forces) { try { f(sp.nodes, sp.links, sp.sim.alpha(), { space: sp.key, k: transform.k }); } catch { /* 用户函数出错不该拖垮渲染 */ } }
     measure(sp);
     if (sp.id === null || !expandedSet.has(sp.id)) return;
+    if (P.compact > 0) return; // 紧凑模式:父空间占用固定为容器盘,内部 E 怎么变都不用给父空间让位
     // 保持热量时子空间每帧都在动:疆域半径变化够大才通知父空间,否则父空间会被不停地重新加热、抖个不停
     if (sp.sentE !== undefined && Math.abs(sp.E - sp.sentE) < 2) return;
     sp.sentE = sp.E;
@@ -1753,8 +1755,9 @@ import { trackProposals } from '/core/proposals.js';
   function toggleExpandSpace(id) {
     const n = compiled.node(id);
     if (!n || !n.container) return;
-    if (expandedSet.has(id)) expandedSet.delete(id); else expandedSet.add(id);
     const ps = holderOf(id);
+    if (expandedSet.has(id)) expandedSet.delete(id);
+    else { expandedSet.add(id); const pn = ps.byId.get(id); if (pn) pn.ics = 0; }   // 展开时重新适配一次尺度
     updateFootprints(ps); applyForces(ps);
     ps.sim.alpha(0.7).restart(); // 父空间动画地让出(或收回)位置
     renderSide();
@@ -1987,7 +1990,14 @@ import { trackProposals } from '/core/proposals.js';
   }
 
   // ---------- 空间切换(有来源有目的 → 连续的过渡)----------
-  const scOf = (n, child) => (expandedSet.has(n.id) && !(P.compact > 0) ? 1 : (n.D * 0.92) / child.E);
+  // 就地展开的子空间"定一次尺度就不动":否则拖动里面的成员会让 E 变大 → 自动缩放到装得下 → 整组往中间缩,
+  // 拖动时还正反馈(尺度变小 → 世界坐标目标更远 → E 更大 → 尺度更小)。收起再展开会重新适配一次。
+  const scOf = (n, child) => {
+    if (!expandedSet.has(n.id)) return (n.D * 0.92) / Math.max(child.E, 1);
+    if (!(P.compact > 0)) return 1;
+    if (!(n.ics > 0)) n.ics = (n.D * 0.92) / Math.max(child.E, 1);
+    return n.ics;
+  };
   /** 从当前空间走到目标容器:中间必须都是就地展开的(那样目标在画面里是看得见的) */
   function pathWithin(fromId, targetId) {
     const chain = compiled.ancestors(targetId);
