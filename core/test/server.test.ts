@@ -234,6 +234,24 @@ test('多项目:列目录、打开已有宇宙、在空目录建立宇宙;事件
     const projects = (await get('/api/projects')).body;
     assert.equal(projects.open.length, 3);
     assert.equal(projects.main, snapA.project.id);
+
+    // 关项目:看着它的页面收到 closed;主项目不能关;不删任何文件,以后还能再打开
+    const events: string[] = [];
+    const ctl = new AbortController();
+    void fetch(`${base}/events?p=${pc.body.id}`, { signal: ctl.signal }).then(async (res) => {
+      const reader = res.body!.getReader(), dec = new TextDecoder();
+      for (;;) { const { value, done } = await reader.read(); if (done) break; events.push(dec.decode(value)); }
+    }).catch(() => {});
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal((await post('/api/close', { id: pc.body.id })).status, 200);
+    await new Promise((r) => setTimeout(r, 100));
+    ctl.abort();
+    assert.ok(events.join('').includes(`event: closed\ndata: {"id":"${pc.body.id}"}`), '看着它的页面收到 closed');
+    assert.equal((await get('/api/projects')).body.open.length, 2);
+    assert.ok(existsSync(join(c, 'universe.stars')), '不删文件');
+    assert.equal((await post('/api/close', { id: snapA.project.id })).status, 400, '主项目不能关');
+    assert.equal((await post('/api/close', { id: 'nope' })).status, 404);
+    assert.equal((await post('/api/open', { dir: c })).status, 200, '关了以后还能再打开');
   } finally { srv.close(); }
 });
 
@@ -355,7 +373,7 @@ test('共享模块:浏览器拿到的 /core/*.js 去掉了类型、能直接 imp
   await new Promise((r) => setTimeout(r, 150));
   const out = mkdtempSync(join(tmpdir(), 'stars-js-'));
   try {
-    for (const name of ['model', 'expr', 'view', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync', 'bridge']) {
+    for (const name of ['model', 'expr', 'view', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync', 'bridge', 'cmdline']) {
       const r = await fetch(`http://127.0.0.1:${port}/core/${name}.js`);
       assert.equal(r.status, 200, name);
       const js = await r.text();
@@ -453,7 +471,7 @@ test('遥控:stars ui 找到正在运行的服务,命令推给页面执行,页�
       if (e !== 'ui') return;
       const m = d as { id: string; line: string; from: string };
       got.push(`${m.line} ← ${m.from}`);
-      const result = m.line === 'nope' ? { ok: false, error: '没有这个命令:nope' } : { ok: true, out: `做了 ${m.line}` };
+      const result = m.line === 'nope' ? { ok: false, error: '没有这个命令:nope' } : m.line === 'select q' ? { ok: true, out: '选中 q', data: { id: 'q' } } : { ok: true, out: `做了 ${m.line}` };
       void fetch(`http://127.0.0.1:${port}/api/ui-result`, { method: 'POST', headers: { 'x-stars-token': srv.token, 'content-type': 'application/json' }, body: JSON.stringify({ id: m.id, ...result }) });
     });
     await new Promise((r) => setTimeout(r, 100));
@@ -463,6 +481,17 @@ test('遥控:stars ui 找到正在运行的服务,命令推给页面执行,页�
       const bad = await cli('nope');
       assert.equal(bad.code, 1); assert.match(bad.err, /没有这个命令/);
       assert.deepEqual(got, ['select "a b" ← human', 'nope ← human']);
+      // --json:一行一个 { ok, out, data }
+      const j = await cli('--json', 'select', 'q');
+      assert.deepEqual(JSON.parse(j.out), { ok: true, out: '选中 q', data: { id: 'q' } });
+      // 脚本里的界面命令(不是内核命令)也转给页面
+      writeFileSync(join(dir, 's.mjs'), "export default async (stars) => (await stars.exec('fit')).out + ' / ' + (await stars.cmd.select('q')).data.id;\n");
+      const r = await new Promise<{ code: number | null; out: string; err: string }>((ok) => {
+        execFile(process.execPath, [new URL('../src/cli.ts', import.meta.url).pathname, '-f', file, 'run', join(dir, 's.mjs')], { env: process.env, cwd: dir }, (e, out, err) => ok({ code: e ? (e as { code?: number }).code ?? 1 : 0, out, err }));
+      });
+      assert.equal(r.code, 0, r.err);
+      assert.equal(r.out.trim(), '做了 fit / q');
+      assert.deepEqual(got.slice(-2), ['fit ← script:s.mjs', 'select q ← script:s.mjs'], '作者默认是 script:<相对路径>');
     } finally { stop(); }
   } finally { srv.close(); }
   assert.ok(!existsSync(reg), '关掉服务后登记删除');

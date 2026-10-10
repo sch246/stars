@@ -1,4 +1,5 @@
-// 页面桥:侧栏预览里的页面(开了脚本的 HTML)通过 window.stars 调星罗的命令 —— 写一个观察并改动图谱的 agent 页面就靠它。
+// 页面桥:侧栏预览里的页面(开了脚本的 HTML)和查看器里 run 起来的脚本,通过 window.stars 调星罗的命令 ——
+// 写一个观察并改动图谱的 agent 页面 / 脚本就靠它。(Node 里 stars run 的脚本拿到的是同样形状的对象,见 script.ts)
 //   · 页面拿不到 token:唯一的出口是 postMessage 给查看器,查看器照常走命令表执行(和控制台、快捷键、遥控同一个入口),
 //     执行前按这个页面的授权级别检查
 //   · 级别是累加的:读 ⊂ 界面 ⊂ 提议 ⊂ 写。每个命令声明自己的作用(effect);没声明的(个人设置、保存文件、开项目……)不给页面用
@@ -42,9 +43,16 @@ export function bridgeShim(nonce: string): string {
   window.stars = Object.freeze({
     /** 执行一条命令(写法同控制台),得到 { out, data } */
     exec: function (line) { return call('exec', { line: String(line) }); },
+    /** 同 exec(查看器里的命令本来就都在界面里执行;和 Node 版对齐) */
+    ui: function (line) { return call('exec', { line: String(line) }); },
+    /** 结构化调用:stars.cmd.link('a', 'dependsOn', 'b', { proposed: true }) = exec('link a dependsOn b --proposed') */
+    cmd: new Proxy({}, { get: function (_t, name) {
+      if (typeof name !== 'string' || name === 'then') return undefined;
+      return function () { return call('cmd', { name: name, args: Array.prototype.slice.call(arguments) }); };
+    } }),
     /** 整个宇宙的快照:{ nodes, edges, proposals } */
     graph: function () { return call('graph'); },
-    /** 这个页面:{ path, project, level, selected, view } */
+    /** 这个页面 / 脚本:{ runner, path, project, level, selected, view } */
     info: function () { return call('info'); },
     /** 订阅:change(宇宙变了)、select(选中变了)、level(授权变了);返回取消订阅的函数 */
     on: function (ev, f) {
@@ -53,6 +61,10 @@ export function bridgeShim(nonce: string): string {
       subs.get(ev).add(f);
       return function () { subs.get(ev).delete(f); };
     },
+    /** 打印到查看器的控制台(脚本里的 console.log 也会转到这里) */
+    print: function () { send({ kind: 'print', text: Array.prototype.map.call(arguments, function (x) { if (typeof x === 'string') return x; try { return JSON.stringify(x); } catch (e) { return String(x); } }).join(' ') }); },
+    /** 脚本:结束(停止订阅、关掉);页面里没有作用 */
+    exit: function () { send({ kind: 'exit' }); },
     /** 按页面存的小数据(沙箱里没有 localStorage):存在查看器那边的浏览器里,按项目目录 + 页面路径分开 */
     store: Object.freeze({
       get: function (k) { return call('store', { op: 'get', key: String(k) }); },

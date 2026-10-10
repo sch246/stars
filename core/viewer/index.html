@@ -348,6 +348,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
 import { parse } from '/core/format.js';
 import { textDiff, textHash, textNormEol } from '/core/textsync.js';
 import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } from '/core/bridge.js';
+import { cmdLine, cmdQuote, cmdTokenize } from '/core/cmdline.js';
 (() => {
   const TAU = Math.PI * 2;
   const canvas = document.getElementById('c');
@@ -357,7 +358,9 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
 
   let data = { nodes: [], edges: [], issues: [], log: [] };
   let uni = null;                    // 内核里的 Universe(Map 结构)
-  let bridge = null;                 // 页面桥:当前挂着的、连上了的 HTML 预览 { nonce, frame, path, level, subs }(见「页面桥」一节)
+  const bridges = new Map();         // 页面桥:暗号 → { nonce, frame, path, level, subs, kind: page | script, author }(见「页面桥」一节)
+  let bridge = null;                 // 其中侧栏里的那个页面
+  const scripts = new Map();         // 查看器里跑着的脚本:路径 → { path, frame, b, started, state, finished }(见「脚本」一节)
   let specs = {}, viewErrors = [], viewNames = [];
   let scene = { look: 'galaxy', nodes: [], edges: [], expand: { relation: 'contains' } };
   const manual = new Map();          // id -> true/false:用户手动展开/收起,优先级最高
@@ -391,6 +394,7 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
   let hist = null;                 // git 提交图
   let lastUserZoom = -1e9;         // 语义缩放只响应用户自己的缩放/平移,不响应自动适应窗口
   let fresh = true;                 // 第一次收到某个视图的数据:不播放出生动画,并自动适应窗口
+  let placeTimer = null;            // 记住所在的空间与展开状态(见 savePlace)
   let issueByNode = new Map();
   let edgeColors = new Map();
 
@@ -624,6 +628,12 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
     es.onerror = () => { $('status').textContent = '连接断开,重连中…'; };
     // 个人设置 / 快捷键在别处改了(编辑器、别的标签页、stars ui):立即生效
     es.addEventListener('config', (ev) => { const m = JSON.parse(ev.data); adoptCfg(m.name, m); });
+    // 看着的项目被关掉了(别的标签页、project --close):回到主项目
+    es.addEventListener('closed', () => {
+      if (!projectId) return;   // 自己关的、已经切回主项目了
+      toast(`项目 ${esc(project ? project.name : '')} 已关闭,回到主项目`);
+      api('/api/projects').then((r) => switchProject(r.open.find((x) => x.primary))).catch(() => { projectId = null; setHash(); connect(); });
+    });
     // 遥控:stars ui <命令> → 在这里执行 → 把输出回报给服务端,由它交回 CLI
     es.addEventListener('ui', (ev) => {
       const m = JSON.parse(ev.data);
@@ -633,6 +643,10 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
 
   // ---------- 增量协议:snapshot 一次,之后只收新增的日志条目(ops)与实时信号(signals) ----------
   let lastN = 0, staleLive = false, recomputeTimer = null, lastCompile = 100;
+  // 等日志推回来:写命令在查看器里应用了这一条才算完成,这样脚本 / 页面写完马上读(graph、show)就能看到自己写的
+  const appliedWaiters = [];
+  const waitApplied = (n) => (lastN >= n ? Promise.resolve() : new Promise((ok) => { const w = { n, ok }; appliedWaiters.push(w); setTimeout(() => { const i = appliedWaiters.indexOf(w); if (i >= 0) appliedWaiters.splice(i, 1); ok(); }, 3000); }));
+  function wakeApplied() { for (let i = appliedWaiters.length - 1; i >= 0; i--) if (appliedWaiters[i].n <= lastN) appliedWaiters.splice(i, 1)[0].ok(); }
   function handle(m) {
     if (m.type === 'ops' || m.type === 'signals' || m.type === 'issues') {
       if (replay) { staleLive = true; return; } // 回放中:实时更新先不动画面,退出回放时重新同步
@@ -668,6 +682,7 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
     renderReview();
     renderStatus();
     if (done.length) bridgeEmit('change', { n: lastN, ops: done.map((e) => ({ n: e.n, author: e.author, t: e.t, op: e.op })) });
+    wakeApplied();
   }
   function applySignals(m) {
     if (fp && fp.handler === 'html' && m.changed && Object.keys(m.changed).some((id) => id !== fp.id || !fp.opts.live)) htmlRefreshSoon();   // 页面引用的 css / js 改了
@@ -701,6 +716,7 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
     if (replay) return;
     applyData(snap);
     bridgeEmit('change', { n: lastN, reset: true });   // 整份重新载入(重连、切项目……)
+    wakeApplied();
     if (!$('editor').hidden && !editorDirty) loadEditor(false);
   }
 
@@ -718,6 +734,7 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
       const cur = issueByNode.get(id);
       if (!cur || i.severity === 'error' || (i.severity === 'warn' && cur !== 'error')) issueByNode.set(id, i.severity);
     }
+    if (fresh && !replay) restorePlace();
     recompute();
     known = new Set(snap.nodes.map((n) => n.id));
     if (fresh) { fresh = false; userMoved = false; setTimeout(fit, 900); setTimeout(() => { if (!userMoved) fit(); }, 3600); }
@@ -871,6 +888,7 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
     if (!v || v === currentView) return;
     currentView = v; setHash(); fresh = true; selected = null; hiddenTypes.clear(); manual.clear(); auto.clear();
     curSpaceId = null; expandedSet.clear(); fade = null; spaces.clear(); activeTags.clear(); zoomFocusId = null;
+    restorePlace();   // 每个视图记着自己的位置
     for (const n of sim.values()) n.born = 0;
     recompute();
     fresh = false; userMoved = false; setTimeout(fit, 900); setTimeout(() => { if (!userMoved) fit(); }, 3600);
@@ -950,7 +968,7 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
     const edgeRow = (e, other, arrow) => `<div class="row link" data-id="${esc(other)}"><span class="tag">${arrow}</span>`
       + `<span style="color:${edgeColors.get(`${e.from}|${e.type}|${e.to}`) || '#8a8aa8'}">${esc(e.type)}</span><span>${esc(raw.get(other)?.label || other)}</span>`
       + (e.attrs.status === 'proposed' ? `<span class="sev-warn">待确认</span><span class="mini ok" data-act="accept" data-from="${esc(e.from)}" data-type="${esc(e.type)}" data-to="${esc(e.to)}">✓</span><span class="mini no" data-act="reject" data-from="${esc(e.from)}" data-type="${esc(e.type)}" data-to="${esc(e.to)}">✗</span>` : (e.attrs.status ? `<span class="sev-warn">${esc(e.attrs.status)}</span>` : '')) + '</div>';
-    const myIssues = data.issues.filter((i) => i.nodes.includes(n.id));
+    const myIssues = data.issues.filter((i) => i.nodes.includes(n.id) && i.rule !== 'proposed');   // 待确认的上面已经有 ✓ ✗ 了(体检结果要等 1.5 秒才推,不用它)
     el.innerHTML = `<h3 style="color:${sn ? sn.color : '#fff'}">${esc(n.label)}</h3>
       <div class="sub">${esc(n.id)}${n.attrs.type ? ' · ' + esc(n.attrs.type) : ''}${sn && sn.value !== undefined ? ' · 视图值 ' + esc(sn.value) : ''}</div>
       ${n.attrs.status === 'proposed' ? (() => { const who = (data.proposals || {})[nodeProposalKey(n.id)]; return `<div class="sec"><div class="row"><span class="sev-warn">待确认的节点</span><span>${who ? esc(who.author) + ' · ' + ago(who.t) : '来源未知'}</span><span class="mini ok" data-act="accept" data-id="${esc(n.id)}" title="接受">✓</span><span class="mini no" data-act="reject" data-id="${esc(n.id)}" title="拒绝(删除这个节点和它的边)">✗</span></div></div>`; })() : ''}
@@ -1351,6 +1369,7 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
     toggleProjects(false);
     if (project && info.id === project.id) return;
     if (fp) releaseFile();   // 有修改会先自动保存
+    for (const s of [...scripts.values()]) stopScript(s, '切换了项目');
     stopPlay(); replay = null; liveSnap = null; staleLive = false; hist = null; histLimit = 300; histScope = 'auto'; renderReplayBar();
     $('timeline').hidden = true; $('btn-time').classList.remove('on');
     draftSpec = null; editorDirty = false; toggleEditor(false);
@@ -1385,7 +1404,8 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
     try { r = await api('/api/projects'); } catch (e) { pjMsg(e.message, true); return; }
     openList = r.open;
     $('pj-open').innerHTML = r.open.map((p) => `<div class="pj-row ${project && p.id === project.id ? 'cur' : ''}" data-pid="${p.id}"><b>${esc(p.name)}</b><span class="d">${esc(p.dir)}</span>`
-      + `${p.watching ? '<span class="git" style="color:#7be0a0" title="实时同步中">●</span>' : ''}</div>`).join('');
+      + `${p.watching ? '<span class="git" style="color:#7be0a0" title="实时同步中">●</span>' : ''}`
+      + `${p.primary ? '' : `<span class="mini no" data-close="${p.id}" title="关闭这个项目(不删除任何文件;以后还能从「最近」里再打开)">✕</span>`}</div>`).join('');
     $('pj-recent-wrap').hidden = !r.recent.length;
     $('pj-recent').innerHTML = r.recent.map((d) => `<div class="pj-row" data-dir="${esc(d.dir)}" data-has="${d.hasUniverse ? 1 : ''}"><b>${d.hasUniverse ? '<span class="mark">★</span> ' : ''}${esc(d.name)}</b><span class="d">${esc(d.dir)}</span></div>`).join('');
   }
@@ -1406,9 +1426,18 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
     pjMsg(create ? '正在扫描并建立宇宙…' : '正在打开…');
     try { switchProject(await api('/api/open', { dir, create })); pjMsg(''); } catch (e) { pjMsg(e.message, true); }
   }
+  /** 关掉一个打开着的项目;正看着它就回到主项目 */
+  async function closeProject(id) {
+    const p = openList.find((x) => x.id === id);
+    await api('/api/close', { id });
+    if (project && project.id === id) switchProject(openList.find((x) => x.primary));
+    if (!$('projects').hidden) await renderProjects();
+    return p ? `已关闭 ${p.name}` : '已关闭';
+  }
   $('projects').addEventListener('click', (ev) => {
-    const t = ev.target.closest('[data-go],[data-pid],[data-dir],[data-ls]'); if (!t) return;
-    if (t.dataset.go) openDir(t.dataset.go);
+    const t = ev.target.closest('[data-close],[data-go],[data-pid],[data-dir],[data-ls]'); if (!t) return;
+    if (t.dataset.close) closeProject(t.dataset.close).then(pjMsg, (e) => pjMsg(e.message, true));
+    else if (t.dataset.go) openDir(t.dataset.go);
     else if (t.dataset.pid) switchProject(openList.find((p) => p.id === t.dataset.pid));
     else if (t.dataset.dir) { if (t.dataset.has) openDir(t.dataset.dir); else ls(t.dataset.dir); }
     else if (t.dataset.ls) ls(t.dataset.ls);
@@ -1416,6 +1445,62 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
   $('pj-up').addEventListener('click', () => { if (lsCur && lsCur.parent) ls(lsCur.parent); });
   $('pj-path').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') ls($('pj-path').value.trim()); });
   $('pj-here').addEventListener('click', () => { if (lsCur) openDir(lsCur.dir, !lsCur.hasUniverse); });
+
+  // ---------- 脚本:run tools/x.js —— 在隐藏的沙箱 iframe 里跑一个 JS 模块,接上页面桥(级别、提议、日志作者都和页面一样)----------
+  // 脚本拿到的 stars 和页面里的一样(exec / cmd / graph / on / store / print / exit),全局还有 args。可以 export default async (stars, args) => {…},
+  // 也可以直接写顶层代码;console.log 转到控制台。跑完了:没订阅事件就关掉;订阅了就一直听着,直到 stop 或 stars.exit()。
+  // 写入的作者是 script:<路径>;没单独授权的脚本用设置里的默认级别(默认「读」),要写就 connect propose <路径>。
+  const scriptRunner = (nonce, url, args) => `
+globalThis.args = ${JSON.stringify(args).replace(/</g, '\\u003c')};
+const fmt = (x) => typeof x === 'string' ? x : x instanceof Error ? (x.stack || String(x)) : (() => { try { return JSON.stringify(x); } catch (e) { return String(x); } })();
+for (const k of ['log', 'info', 'warn', 'error']) { const o = console[k].bind(console); console[k] = (...a) => { o(...a); stars.print((k === 'error' ? '✗ ' : k === 'warn' ? '⚠ ' : '') + a.map(fmt).join(' ')); }; }
+const done = (ok, value) => parent.postMessage({ stars: ${JSON.stringify(nonce)}, kind: 'done', ok, value }, '*');
+addEventListener('error', (e) => console.error(e.error || e.message));
+addEventListener('unhandledrejection', (e) => console.error('未处理的异常:', e.reason));
+try {
+  const m = await import(${JSON.stringify(url)});
+  let v = typeof m.default === 'function' ? await m.default(stars, globalThis.args) : undefined;
+  v = v === undefined ? null : v;
+  try { structuredClone(v); } catch (e) { v = fmt(v); }
+  done(true, v);
+} catch (e) { done(false, fmt(e)); }
+`;
+  function runScript(path, args) {
+    if (window.__STARS_STATIC__) throw new Error('静态导出不能跑脚本');
+    if (!/\.m?js$/i.test(path)) throw new Error('查看器里只能跑 .js / .mjs(.ts 用 stars run 在 Node 里跑)');
+    const level = levelOf(path);
+    if (level === 'off') throw new Error(`${path} 的连接级别是「关」:先 connect read ${quoteArg(path)}(或更高)`);
+    const old = scripts.get(path);
+    if (old) stopScript(old, '重新运行');
+    const nonce = bridgeNonce(), f = document.createElement('iframe');
+    f.hidden = true; f.title = '脚本 ' + path; f.setAttribute('sandbox', 'allow-scripts');
+    const dir = path.includes('/') ? path.replace(/[^/]*$/, '') : '';
+    f.srcdoc = `<!doctype html><meta charset="utf-8"><base href="${esc(location.origin + previewUrl(dir))}">${bridgeShim(nonce)}`
+      + `<script type="module">${scriptRunner(nonce, location.origin + previewUrl(path) + '?v=' + Date.now(), args)}<\/script>`;
+    const b = { nonce, frame: f, path, level, subs: new Set(), kind: 'script', author: 'script:' + path };
+    const s = { path, frame: f, b, started: Date.now(), state: '运行中', finished: false };
+    const p = new Promise((ok, no) => { s.resolve = ok; s.reject = no; });
+    scripts.set(path, s); bridges.set(nonce, b);
+    document.body.appendChild(f);
+    return p;
+  }
+  /** 脚本结束:ok = true / false / 'exit'(stars.exit()) */
+  function scriptDone(s, ok, value) {
+    if (ok === 'exit') { if (!s.finished) { s.finished = true; s.resolve({ out: `■ ${s.path} 退出了` }); } stopScript(s, null); return; }
+    if (s.finished) return;
+    s.finished = true;
+    if (ok !== true) { stopScript(s, null); s.reject(new Error(`${s.path} 出错了:${value}`)); return; }
+    const listening = [...s.b.subs];
+    if (listening.length) s.state = '监听中 ' + listening.join(' / '); else stopScript(s, null);
+    const v = value === null ? '' : ':' + (typeof value === 'string' ? value : JSON.stringify(value));
+    s.resolve({ out: `✓ ${s.path} 跑完了${v}${listening.length ? `(还在监听 ${listening.join(' / ')};stop ${quoteArg(s.path)} 停掉)` : ''}`, data: value });
+  }
+  function stopScript(s, why) {
+    s.frame.remove(); bridges.delete(s.b.nonce);
+    if (scripts.get(s.path) === s) scripts.delete(s.path);
+    if (!s.finished) { s.finished = true; s.reject(new Error(`${s.path} 被停止${why ? ':' + why : ''}`)); }
+    else if (why) conLog(`■ ${s.path} 停了:${why}`, 'dim');
+  }
 
   // ---------- 文件:选中文件节点,侧栏下半就是它的内容(不依赖 VS Code,像原版星罗)----------
   // 点一下就打开,所以要轻:先只要开头 24 KB(只读预览),点进编辑框或滚到底才载入全文、变成可编辑。
@@ -1507,7 +1592,7 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
     $('fp-remember').title = remembered ? `已记住:.${d.ext} 文件用「${FILE_HANDLERS.find((h) => h.id === fp.handler).label}」打开(再点取消)` : `以后 .${d.ext} 文件都用「${(FILE_HANDLERS.find((h) => h.id === fp.handler) || {}).label}」打开`;
     const body = $('fp-body');
     body.className = 'h-' + (fp.handler || 'none'); body.innerHTML = '';
-    fp.renderView = null; fp.onEditRender = false; bridge = null;
+    fp.renderView = null; fp.onEditRender = false; setPageBridge(null);
     const h = FILE_HANDLERS.find((x) => x.id === fp.handler);
     if (h) h.mount(body); else body.innerHTML = '<div id="fp-media">没有能打开它的视图</div>';
     fpState();
@@ -1614,17 +1699,26 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
     try { path = mdResolve(base, decodeURIComponent(u.split(/[?#]/)[0])); } catch { return null; }
     return img ? { ext: rawUrl(path) } : { open: path };
   }
+  /** 引用式链接的定义([标签]: 地址),整篇文档共用;renderMarkdown 进来时收集 */
+  let mdRefs = new Map();
+  const mdRefKey = (l) => l.replace(/&(amp|lt|gt|quot);/g, (_, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"' }[e])).trim().replace(/\s+/g, ' ').toLowerCase();
+  function mdImg(alt, src, base) { const h = mdHref(src, base, true); return h && h.ext ? `<img alt="${alt}" src="${esc(h.ext)}">` : null; }
+  function mdLink(t, href, base) {
+    const h = mdHref(href, base, false);
+    if (!h) return t;
+    if (h.ext) return `<a href="${esc(h.ext)}" target="_blank" rel="noopener noreferrer">${t}</a>`;
+    if (h.anchor !== undefined) return `<a data-anchor="${esc(h.anchor)}">${t}</a>`;
+    return `<a data-open="${esc(h.open)}" title="${esc(h.open)}">${t}</a>`;
+  }
   function mdInline(s, base) {   // s 已转义(或只含占位符和转义过的文字)
     const codes = [];
     s = s.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
-    s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^)]*&quot;)?\)/g, (all, alt, src) => { const h = mdHref(src, base, true); return h && h.ext ? `<img alt="${alt}" src="${esc(h.ext)}">` : all; });
-    s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+&quot;[^)]*&quot;)?\)/g, (all, t, href) => {
-      const h = mdHref(href, base, false);
-      if (!h) return t;
-      if (h.ext) return `<a href="${esc(h.ext)}" target="_blank" rel="noopener noreferrer">${t}</a>`;
-      if (h.anchor !== undefined) return `<a data-anchor="${esc(h.anchor)}">${t}</a>`;
-      return `<a data-open="${esc(h.open)}" title="${esc(h.open)}">${t}</a>`;
-    });
+    s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^)]*&quot;)?\)/g, (all, alt, src) => mdImg(alt, src, base) ?? all);
+    // 引用式:![替代文字][标签]、[文字][标签]、[文字][](标签 = 文字)、[文字](只在有这个定义时)—— README 的徽章多是这么写的
+    s = s.replace(/!\[([^\]]*)\]\[([^\]]*)\]/g, (all, alt, ref) => { const u = mdRefs.get(mdRefKey(ref || alt)); return (u && mdImg(alt, u, base)) ?? all; });
+    s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+&quot;[^)]*&quot;)?\)/g, (all, t, href) => mdLink(t, href, base));
+    s = s.replace(/\[([^\]]+)\]\[([^\]]*)\]/g, (all, t, ref) => { const u = mdRefs.get(mdRefKey(ref || t)); return u ? mdLink(t, u, base) : all; });
+    s = s.replace(/\[([^\]]+)\](?![(\[:])/g, (all, t) => { const u = mdRefs.size && !/^[ xX]$/.test(t) ? mdRefs.get(mdRefKey(t)) : null; return u ? mdLink(t, u, base) : all; });
     s = s.replace(/&lt;(https?:\/\/[^\s&]+)&gt;/g, (_, u) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`);
     s = s.replace(/\*\*(.+?)\*\*|__(.+?)__/g, (_, a, b) => `<strong>${a ?? b}</strong>`);
     s = s.replace(/(^|[^*\w])\*(?!\s)(.+?)\*(?!\w)/g, '$1<em>$2</em>').replace(/(^|[^_\w])_(?!\s)(.+?)_(?!\w)/g, '$1<em>$2</em>');
@@ -1642,8 +1736,21 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
   }
   const MD_ITEM = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
   const MD_HTML_BLOCK = /^\s{0,3}(<\/?[A-Za-z][\w-]*(\s|\/?>|$)|<!--)/;
+  /** 整篇:先收走引用式链接的定义行(代码块里的不算),再逐块渲染 */
   function renderMarkdown(src, base, html) {
-    const lines = src.replace(/\r\n?/g, '\n').split('\n'), para = [];
+    const refs = new Map(), keep = [];
+    let fence = null;
+    for (const l of src.replace(/\r\n?/g, '\n').split('\n')) {
+      const f = /^\s*(```+|~~~+)/.exec(l);
+      if (f && (!fence || f[1].startsWith(fence))) fence = fence ? null : f[1];
+      const m = !fence && !f && /^ {0,3}\[([^\]]+)\]:\s*<?([^\s>]+)>?(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*$/.exec(l);
+      if (m) { const k = mdRefKey(esc(m[1])); if (!refs.has(k)) refs.set(k, m[2]); } else keep.push(l);
+    }
+    mdRefs = refs;
+    return mdBlocks(keep.join('\n'), base, html);
+  }
+  function mdBlocks(src, base, html) {
+    const lines = src.split('\n'), para = [];
     let out = '', i = 0;
     const flush = () => { if (para.length) { out += `<p>${mdText(para.join('\n'), base, html).replace(/ {2,}\n/g, '<br>').replace(/\n/g, ' ')}</p>`; para.length = 0; } };
     const cells = (l) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
@@ -1665,7 +1772,7 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
       if (/^\s*>/.test(l)) {
         flush(); const buf = [];
         while (i < lines.length && /^\s*>/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, ''));
-        out += `<blockquote>${renderMarkdown(buf.join('\n'), base, html)}</blockquote>`; continue;
+        out += `<blockquote>${mdBlocks(buf.join('\n'), base, html)}</blockquote>`; continue;
       }
       if (/\|/.test(l) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(lines[i + 1])) {
         flush();
@@ -1706,7 +1813,7 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
     return `<${tag}>` + items.map((it) => {
       const task = /^\[([ xX])\]\s+/.exec(it.head);
       const head = (task ? `<input type="checkbox" disabled${task[1] !== ' ' ? ' checked' : ''}> ` : '') + mdText(task ? it.head.slice(task[0].length) : it.head, base, html);
-      return `<li>${head}${it.rest.join('\n').trim() ? renderMarkdown(it.rest.join('\n'), base, html) : ''}</li>`;
+      return `<li>${head}${it.rest.join('\n').trim() ? mdBlocks(it.rest.join('\n'), base, html) : ''}</li>`;
     }).join('') + `</${tag}>`;
   }
   // 清理:白名单里的标签和属性才留下;整段丢掉脚本、样式表、iframe、表单等;链接和图片按项目路径改写
@@ -1768,10 +1875,10 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
         f.srcdoc = bridgeInject(fp.text, `<base href="${esc(location.origin + previewUrl(dir))}">` + (nonce ? bridgeShim(nonce) : ''));
       } else f.src = previewUrl(fp.path) + '?v=' + Math.round(fp.info.mtime) + (nonce ? '&bridge=' + nonce : '');
       old.replaceWith(f);
-      bridge = nonce ? { nonce, frame: f, path: fp.path, level, subs: new Set() } : null;
+      setPageBridge(nonce ? { nonce, frame: f, path: fp.path, level, subs: new Set(), kind: 'page', author: 'page:' + fp.path } : null);
       // 第二次 load = 页面里点了链接、换成了别的文档:断开(事件不再发过去;要连就 ↻ 重新加载,或在星图里打开那个文件)
       let loads = 0;
-      if (nonce) f.addEventListener('load', () => { if (++loads > 1 && bridge && bridge.frame === f) bridge = null; });
+      if (nonce) f.addEventListener('load', () => { if (++loads > 1 && bridge && bridge.frame === f) setPageBridge(null); });
     });
   }
   /** HTML 预览的工具条:脚本 / 实时 / 并排 / 重新加载;开了脚本时还有「连接」(页面桥的级别);最右是新标签页 */
@@ -1803,18 +1910,24 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
   function setGrant(path, level) { cfgEdit('grants', { path: ['pages', projDir(), path], value: level === null ? undefined : level }); grantsChanged(); }
   /** 授权或默认值变了:要加上 / 去掉 window.stars 就重新载入页面;只是级别变了就就地改(页面会收到 level 事件) */
   function grantsChanged() {
+    for (const s of [...scripts.values()]) {   // 跑着的脚本:关了就停,别的级别就地改
+      const lv = levelOf(s.path);
+      if (lv === 'off') stopScript(s, '连接被关掉了');
+      else if (lv !== s.b.level) { s.b.level = lv; bridgePost(s.b, 'level', lv); }
+    }
     if (!fp || fp.handler !== 'html' || !fp.renderView || !fp.info) return;
     const lv = fp.opts.scripts ? levelOf(fp.path) : 'off', cur = bridge && bridge.path === fp.path ? bridge.level : 'off';
     if ((lv === 'off') !== (cur === 'off')) { fp.renderView(); return; }
-    if (bridge && lv !== bridge.level) { bridge.level = lv; bridgeEmit('level', lv); }
+    if (bridge && lv !== bridge.level) { bridge.level = lv; bridgePost(bridge, 'level', lv); }
     const pane = $('fp-body').querySelector('.sp-view');
     if (pane && pane.querySelector('.pv-bar')) htmlBar(pane);
   }
-  function bridgeEmit(event, value) {
-    const b = bridge;
-    if (!b || !b.subs.has(event) || !b.frame.isConnected || !b.frame.contentWindow) return;
+  function setPageBridge(b) { if (bridge) bridges.delete(bridge.nonce); bridge = b; if (b) bridges.set(b.nonce, b); }
+  function bridgePost(b, event, value) {
+    if (!b.subs.has(event) || !b.frame.isConnected || !b.frame.contentWindow) return;
     try { b.frame.contentWindow.postMessage({ stars: b.nonce, event, value }, '*'); } catch { /* 克隆不了的值:这次不发 */ }
   }
+  function bridgeEmit(event, value) { for (const b of bridges.values()) bridgePost(b, event, value); }
   /** 按页面存的小数据(沙箱里的页面没有 localStorage):存在查看器这边,按项目目录 + 页面路径分开 */
   function bridgeStore(b, m) {
     const k = 'stars.page:' + projDir() + ':' + b.path;
@@ -1830,8 +1943,8 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
     return true;
   }
   window.addEventListener('message', (ev) => {
-    const b = bridge, m = ev.data;
-    if (!b || !m || typeof m !== 'object' || m.stars !== b.nonce || !b.frame.isConnected || ev.source !== b.frame.contentWindow) return;
+    const m = ev.data, b = m && typeof m === 'object' ? bridges.get(m.stars) : null;
+    if (!b || !b.frame.isConnected || ev.source !== b.frame.contentWindow) return;
     const reply = (ok, v) => {
       if (m.id === undefined) return;
       try { ev.source.postMessage(ok ? { stars: b.nonce, re: m.id, ok: true, value: v } : { stars: b.nonce, re: m.id, ok: false, error: String(v) }, '*'); }
@@ -1839,13 +1952,16 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
     };
     try {
       if (m.kind === 'sub') { if (['change', 'select', 'level'].includes(m.event)) b.subs.add(m.event); return; }
-      if (m.kind === 'info') { reply(true, { path: b.path, project: project ? { id: project.id, name: project.name, dir: project.dir } : null, level: b.level, selected, view: currentView }); return; }
+      if (m.kind === 'info') { reply(true, { runner: b.kind, path: b.path, project: project ? { id: project.id, name: project.name, dir: project.dir } : null, level: b.level, selected, view: currentView }); return; }
       if (m.kind === 'graph') { reply(true, { nodes: data.nodes, edges: data.edges, proposals: data.proposals || {}, n: lastN }); return; }
       if (m.kind === 'store') { reply(true, bridgeStore(b, m)); return; }
-      if (m.kind === 'exec') {
-        const spec = CMDS.get(tokenize(String(m.line || ''))[0] || '');
-        if (spec && spec.effect === 'ui' && bridgeAllows('ui', b.level) && fp && fp.path === b.path && !fp.pinned) { fp.pinned = true; fpState(); }   // 页面动界面(选中、跳转……):先把自己固定住,不然选中别的就把自己换掉了
-        exec(m.line, 'page', (r) => reply(r.ok, r.ok ? { out: r.out, data: r.data } : r.error), 'page:' + b.path, b.level);
+      if (m.kind === 'print') { conLog(`[${b.path.replace(/^.*\//, '')}] ${String(m.text ?? '')}`, /^✗ /.test(m.text) ? 'err' : ''); return; }
+      if (m.kind === 'exit' || m.kind === 'done') { const s = scripts.get(b.path); if (s && s.b === b) scriptDone(s, m.kind === 'exit' ? 'exit' : m.ok, m.value); return; }
+      if (m.kind === 'exec' || m.kind === 'cmd') {
+        const line = m.kind === 'cmd' ? cmdLine(String(m.name), Array.isArray(m.args) ? m.args : []) : String(m.line || '');
+        const spec = CMDS.get(tokenize(line)[0] || '');
+        if (b.kind === 'page' && spec && spec.effect === 'ui' && bridgeAllows('ui', b.level) && fp && fp.path === b.path && !fp.pinned) { fp.pinned = true; fpState(); }   // 页面动界面(选中、跳转……):先把自己固定住,不然选中别的就把自己换掉了
+        exec(line, 'page', (r) => reply(r.ok, r.ok ? { out: r.out, data: r.data } : r.error), b.author, b.level);
         return;
       }
       throw new Error('不认识的请求:' + m.kind);
@@ -2572,6 +2688,7 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
     const n = sim.get(id);
     if (!n || !n.container) return;
     manual.set(id, !n.expanded);
+    savePlace();
     recompute(false);
   }
   // 双击不在这里处理:统一走 handleTap() 的"原地双击"(作用在第一次点击的目标上),镜头移动也不会点空。
@@ -2775,6 +2892,7 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
     const ps = holderOf(id);
     if (expandedSet.has(id)) expandedSet.delete(id);
     else expandedSet.add(id);
+    savePlace();
     updateFootprints(ps); applyForces(ps);
     ps.sim.alpha(0.7).restart(); // 父空间动画地让出(或收回)位置
     renderSide();
@@ -3080,7 +3198,25 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
     else fitSpace(false);
     afterSwitch();
   }
-  function afterSwitch() { renderStatus(); renderCrumbs(); }
+  function afterSwitch() { renderStatus(); renderCrumbs(); savePlace(); }
+  // ---- 记住所在的位置:刷新后回到同一个空间、同样的展开(按项目目录 + 视图,存在浏览器里;选中不记,免得一刷新就打开文件)----
+  const placeKey = () => 'stars.place:' + (project ? project.dir : '_') + ':' + currentView;
+  function savePlace() {
+    clearTimeout(placeTimer);
+    placeTimer = setTimeout(() => {
+      if (!compiled || replay || window.__STARS_STATIC__) return;
+      const v = { space: curSpaceId, expanded: [...expandedSet], manual: [...manual] };
+      try { if (v.space === null && !v.expanded.length && !v.manual.length) localStorage.removeItem(placeKey()); else localStorage.setItem(placeKey(), JSON.stringify(v)); } catch { /* 隐私模式 */ }
+    }, 400);
+  }
+  function restorePlace() {
+    let v = null;
+    try { v = JSON.parse(localStorage.getItem(placeKey()) || 'null'); } catch { /* 隐私模式 / 坏数据 */ }
+    if (!v || window.__STARS_STATIC__) return;
+    curSpaceId = v.space && raw.has(v.space) ? v.space : null;   // 编译后还会再核对一次是不是容器
+    expandedSet.clear(); for (const id of v.expanded || []) if (raw.has(id)) expandedSet.add(id);
+    manual.clear(); for (const [id, on] of v.manual || []) if (raw.has(id)) manual.set(id, !!on);
+  }
   function fitSpace(animate) {
     const sp = getSpace(curSpaceId);
     let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
@@ -3688,20 +3824,7 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
   // effect:这个命令对页面(页面桥)来说算什么 —— read 读 / ui 界面 / write 写;不写 = 页面不能用(个人设置、保存文件、开项目……)
   const CMDS = new Map();
   const defCmd = (name, spec) => CMDS.set(name, { name, group: '其它', ...spec });
-  /** 按空白切词;"…" 里可用 \" \\ 转义,'…' 原样 */
-  function tokenize(line) {
-    const out = []; let cur = null, q = null;
-    for (let i = 0; i < line.length; i++) {
-      const c = line[i];
-      if (q) { if (c === q) q = null; else if (c === '\\' && q === '"' && i + 1 < line.length) cur += line[++i]; else cur += c; continue; }
-      if (c === '"' || c === "'") { q = c; cur = cur ?? ''; continue; }
-      if (/\s/.test(c)) { if (cur !== null) { out.push(cur); cur = null; } continue; }
-      cur = (cur ?? '') + c;
-    }
-    if (cur !== null) out.push(cur);
-    return out;
-  }
-  function quoteArg(s) { s = String(s); return /^[^\s"'\\]+$/.test(s) ? s : '"' + s.replace(/["\\]/g, '\\$&') + '"'; }
+  const tokenize = cmdTokenize, quoteArg = cmdQuote;   // 切词与加引号:和 CLI、脚本共用一套(core/src/cmdline.ts)
   /** 位置参数 + 选项(-t x / --type x / --proposed;-a k=v 可重复)。只有声明了 flags/bools 的命令才认选项,别的命令里 -0.5 之类原样当参数 */
   function parseArgs(spec, toks) {
     const a = [], o = {};
@@ -3725,6 +3848,7 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
   const need = (a, n, spec) => { if (a.length < n) throw new Error('用法:' + (spec.usage || spec.name)); };
   const nodeIds = (p) => { const r = []; for (const id of raw.keys()) if (id.startsWith(p) && !id.startsWith('~')) { r.push(id); if (r.length >= 60) break; } return r; };
   const nodeArg = (name = 'id') => ({ name, values: nodeIds });
+  const projectFiles = (p, re) => { const r = []; for (const n of raw.values()) { const f = fileOf(n); if (f && re.test(f) && f.startsWith(p)) { r.push(f); if (r.length >= 60) break; } } return r; };
 
   /** 执行一行命令。src:console / palette(你敲的)、key / ui / mouse(界面操作,回显)、remote(stars ui 遥控)、
    *  page(侧栏预览里的页面,经页面桥;from = page:<路径>,level = 它的连接级别,执行前按命令的 effect 检查)。
@@ -3747,8 +3871,9 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
     };
     if (!spec) { fail(`没有这个命令:${toks[0]}(help 看全部)`); return null; }
     if (page && !bridgeAllows(spec.effect, level)) {
-      const need = { read: 'read', ui: 'ui', write: 'propose' }[spec.effect];
-      fail(need ? `这个页面的连接级别是「${LEVEL_NAMES[level]}」,${toks[0]} 至少要「${LEVEL_NAMES[need]}」` : `页面不能用 ${toks[0]}(个人设置、保存文件、开项目这类命令只给你自己用)`);
+      const need = { read: 'read', ui: 'ui', write: 'propose' }[spec.effect], who = from.startsWith('script:') ? '脚本' : '页面';
+      fail(need ? `这个${who}的连接级别是「${LEVEL_NAMES[level]}」,${toks[0]} 至少要「${LEVEL_NAMES[need]}」(授权:connect ${need} ${quoteArg(from.replace(/^\w+:/, ''))})`
+        : `${who}不能用 ${toks[0]}(个人设置、保存文件、开项目、跑脚本这类命令只给你自己用)`);
       return null;
     }
     if (page && spec.effect !== 'read') { conLog(line + `   ← ${from}`, 'remote'); echoed = true; }   // 页面做的界面操作和写入,控制台里都看得到
@@ -3864,7 +3989,7 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
   });
   defCmd('collapse-all', {
     group: '空间', effect: 'ui', title: '全部收起',
-    run: () => { if (isSpaces()) { expandedSet.clear(); spaceVer++; renderStatus(); } else { manual.clear(); auto.clear(); recompute(false); } },
+    run: () => { if (isSpaces()) { expandedSet.clear(); spaceVer++; renderStatus(); } else { manual.clear(); auto.clear(); recompute(false); } savePlace(); },
   });
   defCmd('enter', {
     group: '空间', effect: 'ui', title: '进入选中的空间;选中的是文件就打开它(= open)', usage: 'enter [id]', args: [nodeArg()],
@@ -3925,10 +4050,10 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
     },
   });
   defCmd('connect', {
-    group: '文件', title: '侧栏 HTML 预览的页面连接:页面里的 window.stars 能调哪些命令(按页面记在 ~/.config/stars/grants.llf;default = 用设置里的默认);不带参数列出',
-    usage: 'connect [off|read|ui|propose|write|default]', args: [{ name: '级别', values: () => [...BRIDGE_LEVELS, 'default'] }],
+    group: '文件', title: '页面连接:侧栏 HTML 预览(或给路径:某个页面 / 脚本)里的 window.stars 能调哪些命令(按路径记在 ~/.config/stars/grants.llf;default = 用设置里的默认);不带参数列出',
+    usage: 'connect [off|read|ui|propose|write|default] [页面或脚本的路径]', args: [{ name: '级别', values: () => [...BRIDGE_LEVELS, 'default'] }, { name: '路径', values: (p) => projectFiles(p, /\.(html?|m?js)$/i) }],
     palette: () => (fp && fp.info && fp.handler === 'html' ? [...BRIDGE_LEVELS, 'default'].map((l) => ({ line: 'connect ' + l, title: `这个页面的连接:${LEVEL_NAMES[l] || '用默认'}` })) : []),
-    run: ([lv]) => {
+    run: ([lv, path]) => {
       if (!lv) {
         const rows = [];
         try {
@@ -3939,8 +4064,27 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
         return cur + `默认:${LEVEL_NAMES[P.pageBridge] || P.pageBridge}(设置 → 文件预览 → 页面连接)\n` + (rows.length ? '单独授权过的页面:\n' + rows.join('\n') : '(还没有单独授权过的页面)');
       }
       if (lv !== 'default' && !bridgeIsLevel(lv)) throw new Error('应为 off / read / ui / propose / write / default');
-      if (!fp || !fp.info || fp.handler !== 'html') return false;
-      setGrant(fp.path, lv === 'default' ? null : lv);
+      path = path ? path.replace(/^\.\//, '') : fp && fp.info && fp.handler === 'html' ? fp.path : null;   // 不给路径 = 侧栏里的 HTML 页面
+      if (!path) return false;
+      setGrant(path, lv === 'default' ? null : lv);
+    },
+  });
+  defCmd('run', {
+    group: '脚本', title: '在查看器里跑一个 JS 脚本(隐藏的沙箱里,用页面桥调命令;级别同页面:connect <级别> <路径>);不带参数列出正在跑的',
+    usage: 'run [脚本.js] [参数…]', args: [{ name: '脚本', values: (p) => projectFiles(p, /\.m?js$/i) }],
+    run: ([path, ...args]) => {
+      if (!path) return [...scripts.values()].map((s) => `${s.path.padEnd(24)} ${s.state}  ${LEVEL_NAMES[s.b.level]}  ${ago(s.started)}`).join('\n') || '(没有正在跑的脚本)';
+      if (raw.has(path) && fileOf(raw.get(path))) path = fileOf(raw.get(path));
+      return runScript(path.replace(/^\.\//, ''), args);
+    },
+  });
+  defCmd('stop', {
+    group: '脚本', title: '停掉正在跑(或还在监听)的脚本;不带参数 = 全部', usage: 'stop [脚本路径]', args: [{ name: '脚本', values: () => [...scripts.keys()] }],
+    run: ([path]) => {
+      const list = path ? [scripts.get(path.replace(/^\.\//, ''))].filter(Boolean) : [...scripts.values()];
+      if (!list.length) return path ? false : '(没有正在跑的脚本)';
+      for (const s of list) { if (!s.finished) { s.finished = true; s.resolve({ out: `■ ${s.path} 被停止` }); } stopScript(s, null); }
+      return `已停止 ${list.map((s) => s.path).join('、')}`;
     },
   });
   defCmd('edit', {
@@ -4042,9 +4186,16 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
 
   // ---- 项目 ----
   defCmd('project', {
-    group: '项目', title: '列出已打开的项目;带目录 = 打开那个文件夹(--create 没有宇宙就新建)', usage: 'project [目录] [--create]', bools: ['create'],
+    group: '项目', title: '列出已打开的项目;带目录 = 打开那个文件夹(--create 没有宇宙就新建);--close [目录] 关掉一个打开着的项目(默认当前的)', usage: 'project [目录] [--create] · project --close [目录]', bools: ['create', 'close'],
     run: ([dir], o) => {
       if (window.__STARS_STATIC__) throw new Error('静态导出不能切换项目');
+      if (o.close) return api('/api/projects').then((r) => {
+        openList = r.open;
+        const want = dir ? dir.replace(/[\\/]+$/, '') : null;
+        const p = want ? r.open.find((x) => x.dir === want || x.name === want || x.id === want) : r.open.find((x) => project && x.id === project.id);
+        if (!p) throw new Error(`没有打开着的项目:${dir}`);
+        return closeProject(p.id);
+      });
       if (!dir) return api('/api/projects').then((r) => r.open.map((p) => `${project && p.id === project.id ? '*' : ' '} ${p.name}  ${p.dir}`)
         .concat(r.recent.length ? ['最近:', ...r.recent.map((d) => `  ${d.dir}${d.hasUniverse ? '' : '   (还没有宇宙,加 --create 新建)'}`)] : []).join('\n'));
       return openDir(dir, !!o.create);
@@ -4081,6 +4232,7 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
   async function commitOp(op, done, c, pendingKey) {
     const r = await api('/api/op', { op, author: (c && c.author) || 'viewer' });
     if (pendingKey) pagePending.set(pendingKey, { author: c.author, n: r.n });
+    await waitApplied(r.n);
     if (!$('review').hidden) rvMsg(`${done}(操作 #${r.n},可撤销)`);
     return { out: `${done}   #${r.n}`, data: { n: r.n } };
   }
@@ -4145,7 +4297,7 @@ import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } 
     group: '宇宙', effect: 'write', title: '撤销最近一次写入',
     run: async (a, o, c) => {
       noProposing(c, '撤销');
-      const r = await api('/api/undo', {}); if (!$('review').hidden) rvMsg(`已撤销(操作 #${r.n})`);
+      const r = await api('/api/undo', {}); await waitApplied(r.n); if (!$('review').hidden) rvMsg(`已撤销(操作 #${r.n})`);
       return { out: `已撤销   #${r.n}`, data: { n: r.n } };
     },
   });

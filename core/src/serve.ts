@@ -31,7 +31,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const viewerDir = resolve(here, '..', 'viewer');
 
 /** 浏览器能直接 import 的共享模块(都不依赖 Node)。 */
-const SHARED = new Set(['model', 'view', 'expr', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync', 'bridge']);
+const SHARED = new Set(['model', 'view', 'expr', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync', 'bridge', 'cmdline']);
 
 function sharedModule(name: string): string {
   const ts = readFileSync(resolve(here, `${name}.ts`), 'utf8');
@@ -374,7 +374,7 @@ export function startServer(
       }
       if (req.method === 'POST') {
         if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return json(res, 415, { error: '需要 application/json' });
-        const body = JSON.parse(await readBody(req, url.pathname === '/api/file' ? 8 << 20 : 1 << 20) || '{}') as {
+        const body = JSON.parse(await readBody(req, url.pathname === '/api/file' || url.pathname === '/api/ui-result' ? 8 << 20 : 1 << 20) || '{}') as {
           op?: Op; author?: string; dir?: string; create?: boolean; path?: string; content?: string; mtime?: number | null;
           name?: string; line?: string; file?: string; from?: string; id?: string; wait?: number;
           patch?: { start: number; end: number; insert: string }; baseHash?: string;
@@ -413,6 +413,15 @@ export function startServer(
         }
         if (url.pathname === '/api/ui-result') {
           if (typeof body.id === 'string') pendingUi.get(body.id)?.(body);
+          return json(res, 200, { ok: true });
+        }
+        if (url.pathname === '/api/close') {   // 关掉一个打开着的项目(不删任何文件);看着它的页面收到 closed,回到主项目
+          const p = typeof body.id === 'string' ? projects.get(body.id) : undefined;
+          if (!p) return json(res, 404, { error: '没有这个项目' });
+          if (p === main) return json(res, 400, { error: '主项目(启动服务时的那个)不能关' });
+          broadcast('closed', { id: p.id }, [p]);
+          projects.delete(p.id);
+          p.close();
           return json(res, 200, { ok: true });
         }
         if (url.pathname === '/api/open') {
