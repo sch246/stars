@@ -70,15 +70,20 @@ test('操作:batch 中途失败会整体回滚', () => {
 
 test('lint:环、多上级、未声明类型、孤儿、待确认、文件缺失', () => {
   const u = genesis();
-  for (const id of ['a', 'b', 'c', 'lonely']) apply(u, { op: 'addNode', id, label: id, attrs: id === 'c' ? { type: 'ghost', file: 'nope.ts' } : {} });
+  apply(u, { op: 'addNode', id: '~owns', label: '归属', attrs: { kind: 'edgeType', 'single-parent': 'true' } });
+  for (const id of ['a', 'b', 'c', 'lonely', 'kid']) apply(u, { op: 'addNode', id, label: id, attrs: id === 'c' ? { type: 'ghost', file: 'nope.ts' } : {} });
   apply(u, { op: 'addEdge', from: 'a', type: 'contains', to: 'b' });
   apply(u, { op: 'addEdge', from: 'b', type: 'contains', to: 'a' });
   apply(u, { op: 'addEdge', from: 'c', type: 'contains', to: 'b' });
+  apply(u, { op: 'addEdge', from: 'a', type: 'owns', to: 'kid' });
+  apply(u, { op: 'addEdge', from: 'c', type: 'owns', to: 'kid' });
   apply(u, { op: 'addEdge', from: 'a', type: 'mystery', to: 'c', attrs: { status: 'proposed' } });
   const rules = new Set(lint(u, { baseDir: '/x', fileExists: () => false }).map((i) => i.rule));
   for (const r of ['cycle', 'multiple-parents', 'undeclared-edge-type', 'undeclared-node-type', 'orphan', 'proposed', 'missing-file']) {
     assert.ok(rules.has(r), `应报告 ${r}`);
   }
+  const multi = lint(u).filter((i) => i.rule === 'multiple-parents');
+  assert.deepEqual(multi.map((i) => i.nodes), [['kid']], 'contains 可以有多个上级(b 在 a 和 c 里不算错),声明了 single-parent 的 owns 才报');
 });
 
 test('lint:干净的创世文件没有 error/warn', () => {
@@ -410,4 +415,26 @@ test('tag:容器不显示为节点,而是作为 tag 打在节点上', async () =
   assert.equal(n.get('top.md')!.tags, undefined, '挂载根不算 tag');
   assert.equal(n.get('a/b/x.ts')!.color, n.get('a/y.ts')!.color, '颜色 = 顶层文件夹');
   assert.deepEqual(validateSpec(BUILTIN_VIEWS.tags), []);
+});
+
+test('contains 可以有多个上级:文件夹那条进容器树,别的容器画成淡线(平铺和空间都看得见)', async () => {
+  const { evaluateView, compileView } = await import('../src/view.ts');
+  const u = genesis();
+  apply(u, { op: 'addNode', id: 'root', label: 'root', attrs: { type: 'dir' } });
+  apply(u, { op: 'addNode', id: 'src/', label: 'src', attrs: { type: 'dir', file: 'src/' } });
+  apply(u, { op: 'addNode', id: 'f.ts', label: 'f.ts', attrs: { type: 'file', file: 'src/f.ts' } });
+  apply(u, { op: 'addNode', id: 'auth', label: 'auth', attrs: { type: 'module' } });
+  // 模块那条先写:容器树仍然取和文件路径对得上的那条(不取决于边的先后)
+  for (const [a, b] of [['root', 'src/'], ['root', 'auth'], ['auth', 'f.ts'], ['src/', 'f.ts']]) apply(u, { op: 'addEdge', from: a!, type: 'contains', to: b! });
+  assert.deepEqual(lint(u).filter((i) => i.severity === 'error'), [], '不算错');
+  const spec = { relations: { contains: { mode: 'region' as const, distance: 40 } } };
+  const scene = evaluateView(u, spec, { depth: 9 });
+  assert.equal(scene.nodes.find((n) => n.id === 'f.ts')!.parent, 'src/', '容器树取和文件路径对得上的那条 contains');
+  const e = (from: string, to: string) => scene.edges.find((x) => x.from === from && x.to === to);
+  assert.equal(e('src/', 'f.ts')!.mode, 'region');
+  assert.deepEqual([e('auth', 'f.ts')!.mode, e('auth', 'f.ts')!.distance, e('auth', 'f.ts')!.arrow], ['faint', undefined, true], '第二个容器:淡线');
+  const c = compileView(u, { ...spec, layout: 'spaces' });
+  const sp = c.space('root');
+  assert.equal(sp.edges.find((x) => x.from === 'auth' && x.to === 'src/')?.mode, 'faint', '空间里汇总到 src/ 上,照样是淡线');
+  assert.equal(c.space('auth').nodes.length, 0, 'auth 不是 f.ts 的容器(空间里没有它)');
 });

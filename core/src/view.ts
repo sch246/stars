@@ -474,10 +474,22 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
   const eprop = new Uint8Array(E0);
   const parent = new Int32Array(N).fill(-1);
   let E = 0;
+  // 一个节点在几个容器里时(contains 没有 single-parent):和文件路径对得上的那条(目录包含文件)进容器树,
+  // 不然取第一条 —— 不取决于边在文件里的先后,模块包含文件时文件夹层级也不会被打乱
+  const fsPair = (from: Node, to: Node): boolean => {
+    const tf = to.attrs.file;
+    if (from.attrs.type !== 'dir' || !tf) return false;
+    const ff = from.attrs.file;
+    return ff ? ff.endsWith('/') && tf.startsWith(ff) && tf !== ff : !tf.replace(/\/$/, '').includes('/');
+  };
+  const fsParent = new Uint8Array(N);
   for (const e of u.edges.values()) {
     const a = idx.get(e.from), b = idx.get(e.to);
     if (a === undefined || b === undefined) continue;
-    if (e.type === relation && parent[b] === -1 && a !== b) parent[b] = a;
+    if (e.type === relation && a !== b && (parent[b] === -1 || !fsParent[b])) {
+      const fs = fsPair(nodeList[a]!, nodeList[b]!);
+      if (parent[b] === -1 || fs) { parent[b] = a; fsParent[b] = fs ? 1 : 0; }
+    }
     ef[E] = a; et[E] = b; ety[E] = typeId(e.type);
     eprop[E] = e.attrs.status === 'proposed' ? 1 : 0;
     E++;
@@ -524,6 +536,10 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     for (let i = 0; i < N; i++) if (parent[i]! >= 0) list[fill[parent[i]!]!++] = i;
     return { start, list };
   })();
+  // 第二个、第三个容器:一个节点可以在几个容器里(contains 没有 single-parent),容器树只用第一条;
+  // 其余的(和断环时断开的那条)画成淡线 —— 不是疆界,但看得见"它也属于那里"
+  const second = new Uint8Array(E);
+  { const rt = typeIdx.get(relation); if (rt !== undefined) for (let e = 0; e < E; e++) if (ety[e] === rt && parent[et[e]!] !== ef[e]) second[e] = 1; }
   const desc = new Int32Array(N);
   for (let k = N - 1; k >= 0; k--) { const v = order[k]!, p = parent[v]!; if (p >= 0) desc[p]! += desc[v]! + 1; }
 
@@ -889,7 +905,7 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     for (let i = 0; i < N; i++) visible[i] = treeVis[i]! & selected[i]!;
 
     // 3. 边:折叠掉的内部关系提升到容器上,按 (起点,类型,终点) 汇总
-    interface Agg { from: number; to: number; type: number; count: number; real: boolean; proposed: boolean }
+    interface Agg { from: number; to: number; type: number; count: number; real: boolean; proposed: boolean; sec: number }
     const aggs = new Map<number, Agg>();
     for (let e = 0; e < E; e++) {
       const t = ety[e]!;
@@ -898,9 +914,9 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
       if (a === b || !visible[a] || !visible[b]) continue;
       const lifted = a !== ef[e] || b !== et[e];
       if (lifted && tSym[t] && ids[a]! > ids[b]!) { const x = a; a = b; b = x; }
-      const key = (a * N + b) * nT + t;
+      const key = ((a * N + b) * nT + t) * 2 + second[e]!;
       let g = aggs.get(key);
-      if (!g) { g = { from: a, to: b, type: t, count: 0, real: false, proposed: true }; aggs.set(key, g); }
+      if (!g) { g = { from: a, to: b, type: t, count: 0, real: false, proposed: true, sec: second[e]! }; aggs.set(key, g); }
       g.count++;
       if (!lifted) g.real = true;
       if (!eprop[e]) g.proposed = false;
@@ -938,17 +954,7 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
       nodes.push(sn);
     }
     const edges: SceneEdge[] = [];
-    for (const g of aggs.values()) {
-      const te = tEdge[g.type]!;
-      const edge: SceneEdge = {
-        from: ids[g.from]!, to: ids[g.to]!, type: typeNames[g.type]!, mode: te.mode,
-        color: tColor[g.type]!, width: te.width, arrow: te.arrow, proposed: g.proposed, count: g.count, lifted: !g.real,
-      };
-      if (te.distance !== undefined) edge.distance = te.distance;
-      if (te.strength !== undefined) edge.strength = te.strength;
-      if (te.spin !== undefined) edge.spin = te.spin;
-      edges.push(edge);
-    }
+    for (const g of aggs.values()) edges.push(mkEdge(g.from, g.to, g.type, g.count, g.real, g.proposed, g.sec));
     const expand: Scene['expand'] = { relation };
     if (expandAuto) expand.auto = expandAuto;
     return { look, nodes, edges, expand };
@@ -975,17 +981,20 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     }
     return sn;
   };
-  const mkEdge = (from: number, to: number, t: number, count: number, real: boolean, proposed: boolean): SceneEdge => {
+  /** sec:第二个容器的 contains(见 second):疆界 / 轨道画不出"也属于",改成淡线,不带距离、公转 */
+  function mkEdge(from: number, to: number, t: number, count: number, real: boolean, proposed: boolean, sec = 0): SceneEdge {
     const te = tEdge[t]!;
+    const weak = sec === 1 && (te.mode === 'region' || te.mode === 'orbit');
     const edge: SceneEdge = {
-      from: ids[from]!, to: ids[to]!, type: typeNames[t]!, mode: te.mode,
-      color: tColor[t]!, width: te.width, arrow: te.arrow, proposed, count, lifted: !real,
+      from: ids[from]!, to: ids[to]!, type: typeNames[t]!, mode: weak ? 'faint' : te.mode,
+      color: tColor[t]!, width: te.width, arrow: weak ? true : te.arrow, proposed, count, lifted: !real,
     };
+    if (weak) return edge;
     if (te.distance !== undefined) edge.distance = te.distance;
     if (te.strength !== undefined) edge.strength = te.strength;
     if (te.spin !== undefined) edge.spin = te.spin;
     return edge;
-  };
+  }
   const chainOf = (v: number): number[] => { const c: number[] = []; for (let x = v; x >= 0; x = parent[x]!) c.push(x); return c.reverse(); };
   const spaceCache = new Map<number, SpaceScene>();
 
@@ -1014,7 +1023,7 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     }
     const here = ci < 0 ? new Set<number>() : new Set<number>(chainOf(ci));
 
-    interface Agg { from: number; to: number; type: number; count: number; real: boolean; proposed: boolean }
+    interface Agg { from: number; to: number; type: number; count: number; real: boolean; proposed: boolean; sec: number }
     const internal = new Map<number, Agg>();
     const external = new Map<string, ExternalLink & { _k: string }>();
     for (let e = 0; e < E; e++) {
@@ -1027,15 +1036,15 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
         let a = ra, b = rb;
         const lifted = a !== ef[e] || b !== et[e];
         if (lifted && tSym[t] && ids[a]! > ids[b]!) { const x = a; a = b; b = x; }
-        const key = (a * N + b) * nT + t;
+        const key = ((a * N + b) * nT + t) * 2 + second[e]!;
         let g = internal.get(key);
-        if (!g) { g = { from: a, to: b, type: t, count: 0, real: false, proposed: true }; internal.set(key, g); }
+        if (!g) { g = { from: a, to: b, type: t, count: 0, real: false, proposed: true, sec: second[e]! }; internal.set(key, g); }
         g.count++;
         if (!lifted) g.real = true;
         if (!eprop[e]) g.proposed = false;
         continue;
       }
-      if (t === relTypeIdx) continue; // 结构性的"包含"关系不当作外部链接
+      if (t === relTypeIdx && !second[e]) continue; // 容器树上的"包含"是空间本身,不当作外部链接;第二个容器的照样伸出去
       const out = ra >= 0, inside = out ? ra : rb, otherIdx = out ? et[e]! : ef[e]!;
       let other = otherIdx;
       for (const v of chainOf(otherIdx)) if (!here.has(v)) { other = v; break; } // 两条祖先链分叉处
@@ -1047,7 +1056,7 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     const out: SpaceScene = {
       id,
       nodes: children.map(mkNode),
-      edges: [...internal.values()].map((g) => mkEdge(g.from, g.to, g.type, g.count, g.real, g.proposed)),
+      edges: [...internal.values()].map((g) => mkEdge(g.from, g.to, g.type, g.count, g.real, g.proposed, g.sec)),
       external: [...external.values()].map(({ _k, ...rest }) => rest),
     };
     spaceCache.set(ci, out);
