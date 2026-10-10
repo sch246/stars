@@ -493,6 +493,11 @@ import { draftNodeOf, draftPreview, draftSummary } from '/core/draft.js';
     try { doc = llfParseDoc(text, { tags: true }); } catch (e) { return { out, warnings, error: e.message }; }
     for (const g of doc.root.entries || []) {
       for (const e of (g.kind === 'map' ? g.entries : [g])) {
+        if (e.key === 'compact' && g.kind === 'map' && g.key === 'volume') {   // 旧版的一个开关:拆成 fit + volRadius
+          const one = parseSetting({ kind: 'bool' }, e.kind === 'null' ? undefined : e.value);
+          if (one !== undefined) { out.fit = one ? '压入' : '铺开'; out.volRadius = one; }
+          continue;
+        }
         const it = SET.items[e.key];
         if (!it || it.path[0] !== g.key) { warnings.push(`不认识的设置:${g.kind === 'map' ? g.key + '.' : ''}${e.key}`); continue; }
         const v = parseSetting(it.w, e.kind === 'null' ? undefined : e.value);
@@ -869,12 +874,23 @@ import { draftNodeOf, draftPreview, draftSummary } from '/core/draft.js';
    */
   let compiled = null;
   const perf = { compileMs: 0, foldMs: 0, frameMs: 0, regionsMs: 0, edgesMs: 0, nodesMs: 0, labelsMs: 0 };
-  // 真实体积:目录和文件用同一套体积公式(同 scale、同 range);目录仍按 contains 汇总子孙字节数。
+  // 体积半径:目录和文件用同一套体积公式(同 scale、同 range);目录仍按 contains 汇总子孙字节数。「归一化」决定池子:
+  //   合一 = 合并成一条规则(rollup 会连节点自己的 size 一起加,所以文件的汇总就是它自己),同样字节数必得同样半径;
+  //   分开 = 各条规则在各自命中的节点里归一化,各自用满区间。
   function withVolume(spec) {
-    if (!(P.compact > 0) || !spec || !Array.isArray(spec.size)) return spec;
+    if (!(P.volRadius > 0) || !spec || !Array.isArray(spec.size)) return spec;
     const scale = P.volMap === 'log' || P.volMap === 'linear' ? P.volMap : 'sqrt';
     const lo = Number(P.volMin), hi = Number(P.volMax);
     const range = hi > lo ? [lo, hi] : [2, 16];
+    const sized = spec.size.filter((r) => r && r.attr === 'size');
+    const whens = sized.map((r) => r.when);
+    // 只在原规则能约成"哪些 type"时才合并;认不出来就退回分开,免得把 degree 兜底也吃掉
+    if (P.volPool === '合一' && sized.length && whens.every((w) => w && typeof w === 'object' && typeof w.type === 'string')) {
+      const types = [...new Set(whens.map((w) => w.type))];
+      const rollup = (sized.find((r) => r.rollup) || {}).rollup ?? { relation: (spec.expand && spec.expand.relation) || 'contains', op: 'sum' };
+      const rest = spec.size.filter((r) => !(r && r.attr === 'size'));
+      return { ...spec, size: [{ when: types.map((t) => 'type == ' + JSON.stringify(t)).join(' || '), attr: 'size', rollup, scale, range }, ...rest] };
+    }
     return { ...spec, size: spec.size.map((r) => (r && r.attr === 'size') ? { ...r, scale, range } : r) };
   }
   function recompute(structural = true) {
@@ -2544,7 +2560,7 @@ try {
   function afterParams(keys) {
     if (!keys.length) return;
     applyPhys();
-    if (keys.some((k) => k === 'volMin' || k === 'volMax' || k === 'compact' || k === 'volMap')) recompute(); // 体积相关的改的是体积计算本身,要重新编译视图
+    if (keys.some((k) => k === 'volMin' || k === 'volMax' || k === 'volRadius' || k === 'volMap' || k === 'volPool' || k === 'fit')) recompute(); // 体积/展开形态改的是几何本身,要重新编译并重建空间
     if (keys.includes('follow')) scheduleFollow(selected); // 开:从当前镜头平滑锁到选中;关:就地解冻,不跳
     if (keys.includes('bg')) bgMode = Math.max(0, BG_MODES.indexOf(P.bg));
     if (keys.includes('bounds')) showBounds = !!P.bounds;
@@ -2636,9 +2652,10 @@ try {
       return `<div class="sg ${fold ? 'fold' : ''}" data-sg="${esc(g.id)}"><div class="sg-h"><span class="${g.keys.some(setMod) ? 'mod' : ''}">${esc(g.label)}</span></div><div class="sg-b">`
         + (toggles.length ? '<div class="sg-tg">' + toggles.map((k) => `<div class="st-tog ${P[k] ? 'on' : ''}" data-k="${k}" title="${esc(PHYS[k].hint)}"><span class="sw"></span><b class="${setMod(k) ? 'mod' : ''}">${esc(PHYS[k].label)}</b></div>`).join('') + '</div>' : '')
         + rest.map((k) => {
-          const d = PHYS[k], lab = `<label class="${setMod(k) ? 'mod' : ''}" data-reset="${k}" title="${esc(d.hint)}">${esc(d.label)}</label>`;
-          if (d.kind === 'choice') return `<div class="ph-row">${lab}<span class="seg">` + d.choices.map((c, i) => `<span class="${P[k] === c ? 'on' : ''}" data-k="${k}" data-v="${esc(c)}">${esc(d.names[i])}</span>`).join('') + '</span></div>';
-          if (d.kind === 'range') return `<div class="ph-row ${(k === 'heatLevel' && !heatOn()) || (/^vol(Map|Min|Max)$/.test(k) && !P.compact) ? 'off' : ''}">${lab}`
+          const d = PHYS[k], off = (k === 'heatLevel' && !heatOn()) || (/^vol(Map|Pool|Min|Max)$/.test(k) && !P.volRadius);
+          const lab = `<label class="${setMod(k) ? 'mod' : ''}" data-reset="${k}" title="${esc(d.hint)}">${esc(d.label)}</label>`;
+          if (d.kind === 'choice') return `<div class="ph-row ${off ? 'off' : ''}">${lab}<span class="seg">` + d.choices.map((c, i) => `<span class="${P[k] === c ? 'on' : ''}" data-k="${k}" data-v="${esc(c)}">${esc(d.names[i])}</span>`).join('') + '</span></div>';
+          if (d.kind === 'range') return `<div class="ph-row ${off ? 'off' : ''}">${lab}`
             + `<input type="range" data-k="${k}" min="${d.min}" max="${d.max}" step="${d.step}" value="${P[k]}"><output>${esc(fmtP(k, P[k]))}</output></div>`;
           if (d.kind === 'color') return `<div class="ph-row">${lab}<input type="color" data-k="${k}" value="${esc(P[k])}" style="grid-column:2 / span 2;justify-self:end"></div>`;
           if (d.kind === 'number') return `<div class="ph-row">${lab}<input type="number" class="st-in" data-k="${k}" min="${d.min}" max="${d.max}" step="${d.step}" value="${esc(P[k])}" style="grid-column:2 / span 2"></div>`;
@@ -2995,8 +3012,8 @@ try {
     sp.E = E;
   }
   function updateFootprints(sp) {
-    const compact = P.compact > 0;
-    for (const n of sp.nodes) n.fp = n.container ? (expandedSet.has(n.id) ? (compact ? n.D : getSpace(n.id).E + PAD) : n.D) : n.r * 1.6 + 2;
+    const fit = P.fit === '压入';
+    for (const n of sp.nodes) n.fp = n.container ? (expandedSet.has(n.id) ? (fit ? n.D : getSpace(n.id).E + PAD) : n.D) : n.r * 1.6 + 2;
   }
   // 斥力只负责"把节点匀开",按节点自己的体(收起的盘 / 叶子)线性给;不能按 fp(就地展开后的整个疆域)给,
   // 更不能按平方给:疆域越大斥力越大 → 兄弟被推得越远 → 父疆域更大 → 在上一层斥力更大,层层放大。
@@ -3090,10 +3107,11 @@ try {
   /** 疆域张力:超出自然疆域 E0 的成员被拉回中心(越远越强)—— 就是"越往外越大力的软约束"。
    *  就地展开时,反作用力还会推着外面的容器走(整组跟着离群点);而"进入"某个空间时,同样的软边界照样生效
    *  (防止成员被拖到天边、退出时整组缩成一个点),但**不动外层的容器** —— 你在里面根本看不见它,
-   *  它偷偷挪位只会让人莫名其妙。根空间(宇宙本身)不设边界,保持自由。 */
+   *  它偷偷挪位只会让人莫名其妙。根空间(宇宙本身)不设边界,保持自由。
+   *  和"真实体积"无关:开关只决定展开时压不压、占用撑不撑大,不决定有没有疆界 —— 否则关掉它会连带废掉张力。 */
   function tension(sp) {
     sp.tr = null;
-    if (!(P.compact > 0) || !(P.tether > 0) || !(sp.E0 > 0) || sp.id == null) return null;
+    if (!(P.tether > 0) || !(sp.E0 > 0) || sp.id == null) return null;
     const k = 0.35 * P.tether * heatScale(sp.sim.alpha()), e0 = sp.E0;
     let rx = 0, ry = 0;
     for (const m of sp.nodes) {
@@ -3113,13 +3131,13 @@ try {
     const g = tension(sp);
     if (g && sp.tr && simActive(g.ps)) { const sc = scOf(g.n, sp); g.n.vx += sp.tr.x * sc; g.n.vy += sp.tr.y * sc; }
     if (sp.id === null || !expandedSet.has(sp.id)) return;
-    if (P.compact > 0) return; // 紧凑模式:父空间占用固定为容器盘,内部 E 怎么变都不用给父空间让位
+    if (P.fit === '压入') return; // 压入:父空间占用固定为容器盘,内部 E 怎么变都不用给父空间让位
     // 保持热量时子空间每帧都在动:疆域半径变化够大才通知父空间,否则父空间会被不停地重新加热、抖个不停
     if (sp.sentE !== undefined && Math.abs(sp.E - sp.sentE) < 2) return;
     sp.sentE = sp.E;
     const ps = holderOf(sp.id), n = ps.byId.get(sp.id);
     if (!n) return;
-    n.fp = P.compact > 0 ? n.D : sp.E + PAD;
+    n.fp = P.fit === '压入' ? n.D : sp.E + PAD;
     applyForces(ps);
     if (!heated.has(ps) && ps.sim.alpha() < 0.08) ps.sim.alpha(0.25).restart();
   }
@@ -3453,7 +3471,7 @@ try {
   // 就地展开的子空间按容器体积等比缩放:疆域 E 一变大尺度就变小,把内容装回容器盘里 —— 边界不会被撑大。
   // 代价是拖动成员时整组会往中间缩;抵消它的是"疆域张力"(见 tension):成员越远被拉回的力越大,
   // 反作用力还把整组朝它推。两者收敛到"成员停在疆域边上、整组跟着走",不会失控地缩成一个点。
-  const scOf = (n, child) => (expandedSet.has(n.id) && !(P.compact > 0)) ? 1 : (n.D * 0.92) / Math.max(child.E, 1);
+  const scOf = (n, child) => (expandedSet.has(n.id) && P.fit !== '压入') ? 1 : (n.D * 0.92) / Math.max(child.E, 1);
   /** 从当前空间走到目标容器:中间必须都是就地展开的(那样目标在画面里是看得见的) */
   function pathWithin(fromId, targetId) {
     const chain = compiled.ancestors(targetId);
@@ -4961,6 +4979,16 @@ try {
   dismissible.push(['keys', 'hint', () => toggleKeys(false)]);
 
   window.__stars = { nodes: () => simulation.nodes(), transform: () => transform, scene: () => scene, regions: () => regions, perf, hits: () => frameHits, space: () => curSpaceId, enter: (id) => enterSpace(id, true), exit: () => exitSpace(true), rho: () => (curSpaceId === null ? null : getSpace(curSpaceId).E * transform.k / 0.92 / enterT()), expand: (id) => toggleExpandSpace(id), expanded: () => [...expandedSet], getSpace: (id) => getSpace(id ?? null), hasNode: (id) => !!uni && uni.nodes.has(id), project: () => project, P, heated: () => [...heated].map((sp) => sp.key), flatTarget: () => simulation.alphaTarget(), spaceTarget: (id) => getSpace(id ?? null).sim.alphaTarget(), select: (id) => select(id, false), offset: (id) => screenOffset(id), follow: () => ({ id: followId }), tap: () => (lastTap ? { id: lastTap.id, age: Math.round(performance.now() - lastTap.t) } : null), dragInfo: () => (drag ? { id: drag.n && drag.n.id, sp: drag.h && drag.h.sp && drag.h.sp.key, domain: !!(drag.h && drag.h.domain), g: drag.g ? { n: drag.g.n.id, sp: drag.g.sp.key } : null, push: pullDbg } : null), file: () => fp && { id: fp.id, full: fp.full, dirty: fp.dirty, kind: fp.info && fp.info.kind }, nodeCount: () => uni.nodes.size, lastN: () => lastN, recompute, manual, auto, compiled: () => compiled }; // 调试/自动化用
+  // 旧版的「真实体积」是一个开关(既管半径又管展开形态):有它就一次性拆成 fit + volRadius,再把这个键删掉
+  (function migrateCompactSetting() {
+    let doc; try { doc = llfParseDoc(userCfg.settings.text, CFG_OPTS); } catch { return; }
+    const old = llfFind(doc, ['volume', 'compact']); if (!old) return;
+    if (llfFind(doc, ['volume', 'fit']) || llfFind(doc, ['volume', 'volRadius'])) return;   // 已经拆过了
+    const one = old.kind === 'str' && /^(true|on|yes|1|开)$/i.test(old.value.trim());
+    cfgEdit('settings', { path: ['volume', 'fit'], value: one ? '压入' : '铺开' });
+    cfgEdit('settings', { path: ['volume', 'volRadius'], value: one ? 'true' : 'false' });
+    cfgEdit('settings', { path: ['volume', 'compact'], value: undefined });
+  })();
   // 旧版把设置存在浏览器里(stars.phys / stars.bg / stars.bounds):个人设置文件还不存在时,搬过去一次
   (function migrateLegacySettings() {
     let legacy;
