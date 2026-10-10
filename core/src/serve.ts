@@ -24,6 +24,7 @@ import { StarsError, type Universe } from './model.ts';
 import { apply, type Op } from './ops.ts';
 import { listFiles, planScan, selfRel, statMeta } from './scan.ts';
 import { buildSnapshot } from './snapshot.ts';
+import { planStamp, seenDiff, stampOnSummary } from './stale.ts';
 import { fileSig, Store } from './store.ts';
 import { FsWatcher } from './watch.ts';
 
@@ -144,7 +145,16 @@ class Project {
     } catch { this.send(JSON.parse(this.snapshotLine())); }
   }
 
-  private scheduleIssues(): void {
+  /** 这些文件(相对路径)的内容变了(监听器发现 / 查看器保存):有节点对着它记了版本的话,过期与否可能变了,重新体检 */
+  filesChanged(rels: Iterable<string>): void {
+    const set = new Set(rels);
+    if (set.size === 0) return;
+    for (const n of this.store.peek().nodes.values()) {
+      if (n.attrs.seen && set.has(n.attrs.file?.split('#')[0] ?? '')) { this.scheduleIssues(); return; }
+    }
+  }
+
+  scheduleIssues(): void {
     if (this.issueTimer) return;
     this.issueTimer = setTimeout(() => {
       this.issueTimer = undefined;
@@ -156,6 +166,8 @@ class Project {
   pushLive(l: LiveSignals): void {
     if (Object.keys(l.size).length + Object.keys(l.changed).length === 0) return;
     Object.assign(this.live.size, l.size); Object.assign(this.live.changed, l.changed);
+    const u = this.store.peek();
+    this.filesChanged(Object.keys(l.changed).map((id) => u.nodes.get(id)?.attrs.file ?? id));
     this.pending ??= { size: {}, changed: {} };
     Object.assign(this.pending.size, l.size); Object.assign(this.pending.changed, l.changed);
     this.liveTimer ??= setTimeout(() => {
@@ -344,6 +356,12 @@ export function startServer(
         const head = Number(url.searchParams.get('head')) || undefined;
         return json(res, 200, readProjectFile(proj.baseDir, url.searchParams.get('path') ?? '', { self, statOnly: url.searchParams.has('stat'), head, since: url.searchParams.get('since') ?? undefined }));
       }
+      if (req.method === 'GET' && url.pathname === '/api/seen-diff') { // 写说明之后文件改了什么
+        const n = proj.store.peek().nodes.get(url.searchParams.get('id') ?? '');
+        if (!n) return json(res, 404, { error: '没有这个节点' });
+        const d = seenDiff(proj.baseDir, n.attrs);
+        return d ? json(res, 200, d) : json(res, 400, { error: '这个节点没记文件版本,或文件不在' });
+      }
       if (req.method === 'GET' && url.pathname === '/api/raw') { // 图片预览
         const abs = resolveInside(proj.baseDir, url.searchParams.get('path') ?? '');
         const type = IMAGE_TYPES[extname(abs).toLowerCase()];
@@ -376,15 +394,17 @@ export function startServer(
         if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return json(res, 415, { error: '需要 application/json' });
         const body = JSON.parse(await readBody(req, url.pathname === '/api/file' || url.pathname === '/api/ui-result' ? 8 << 20 : 1 << 20) || '{}') as {
           op?: Op; author?: string; dir?: string; create?: boolean; path?: string; content?: string; mtime?: number | null;
-          name?: string; line?: string; file?: string; from?: string; id?: string; wait?: number;
+          name?: string; line?: string; file?: string; from?: string; id?: string; wait?: number; ids?: string[];
           patch?: { start: number; end: number; insert: string }; baseHash?: string;
         };
         if (url.pathname === '/api/file') {
           // 两种写法:{ path, patch: { start, end, insert }, baseHash }(只传改动的一段)或 { path, content, mtime }(整份;mtime: null = 覆盖)
           if (typeof body.path !== 'string' || (typeof body.content !== 'string' && !(body.patch && typeof body.baseHash === 'string'))) return json(res, 400, { error: '需要 path,以及 content 或 patch + baseHash' });
           try {
-            if (body.patch) return json(res, 200, patchProjectFile(proj.baseDir, body.path, body.patch, body.baseHash!, { self }));
-            return json(res, 200, writeProjectFile(proj.baseDir, body.path, body.content!, typeof body.mtime === 'number' ? body.mtime : null, { self }));
+            const r = body.patch ? patchProjectFile(proj.baseDir, body.path, body.patch, body.baseHash!, { self })
+              : writeProjectFile(proj.baseDir, body.path, body.content!, typeof body.mtime === 'number' ? body.mtime : null, { self });
+            if (!proj.watching) proj.filesChanged([body.path.replace(/\\/g, '/').replace(/^\.\//, '')]);   // 开着监听器时由它发现
+            return json(res, 200, r);
           } catch (err) {
             if (err instanceof FileConflict) return json(res, 409, { error: err.message, mtime: err.mtime });
             if (err instanceof RangeError) return json(res, 400, { error: err.message });
@@ -432,7 +452,15 @@ export function startServer(
         if (url.pathname === '/api/undo') return json(res, 200, { ok: true, n: proj.store.undo({ author }).n });
         if (url.pathname === '/api/op') {
           if (!body.op || typeof body.op !== 'object' || !OPS.has((body.op as { op: string }).op)) return json(res, 400, { error: '无效的操作' });
-          return json(res, 200, { ok: true, n: proj.store.commit(body.op, { author }).entry.n });
+          const op = stampOnSummary(proj.store.peek(), body.op, proj.baseDir);   // 写了 summary 的节点顺手记下文件版本
+          return json(res, 200, { ok: true, n: proj.store.commit(op, { author }).entry.n });
+        }
+        if (url.pathname === '/api/stamp') {   // 说明仍然有效:记下这些节点指向的文件现在的版本
+          if (!Array.isArray(body.ids) || !body.ids.every((x) => typeof x === 'string')) return json(res, 400, { error: '需要 ids' });
+          const p = planStamp(proj.store.peek(), body.ids, proj.baseDir);
+          const n = p.op ? proj.store.commit(p.op, { author }).entry.n : proj.store.logCount();
+          if (!p.op) proj.scheduleIssues();
+          return json(res, 200, { ok: true, n, stamped: p.stamped, skipped: p.skipped });
         }
       }
       return json(res, 404, { error: 'not found' });

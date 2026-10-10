@@ -4,6 +4,7 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { type Universe, SCHEMA_PREFIX, isSchemaId, schemaNode } from './model.ts';
+import { seenPath, seenState } from './stale.ts';
 
 export type Severity = 'error' | 'warn' | 'info';
 
@@ -136,6 +137,17 @@ const missingFile: Rule = (u, o) => {
   return out;
 };
 
+/** 说明写于文件改动之前:节点记的 seen(写说明时文件的版本)和文件现在的内容对不上(见 stale.ts) */
+const stale: Rule = (u, o) => {
+  if (!o.baseDir) return [];
+  const out: Issue[] = [];
+  for (const n of u.nodes.values()) {
+    if (!n.attrs.seen || seenState(o.baseDir, n.attrs) !== 'stale') continue;
+    out.push({ rule: 'stale', severity: 'warn', nodes: [n.id], message: `${n.id} 的说明写于文件改动之前: ${seenPath(n.attrs)}` });
+  }
+  return out;
+};
+
 const orphan: Rule = (u) => {
   const touched = new Set<string>();
   for (const e of u.edges.values()) {
@@ -167,6 +179,7 @@ export const RULES: Record<string, Rule> = {
   cycle,
   'multiple-parents': multipleParents,
   'missing-file': missingFile,
+  stale,
   orphan,
   proposed,
 };

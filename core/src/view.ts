@@ -4,7 +4,7 @@
 // 这个文件同时在 Node(CLI)和浏览器(查看器)里运行:只依赖 model.ts,不碰 DOM、不碰文件系统。
 
 import { type Node, type Universe, SCHEMA_PREFIX, isSchemaId, isSymmetric, schemaNode } from './model.ts';
-import { checkExpr, compileExpr, compileFn, freeIdentifiers, type ExprEnv } from './expr.ts';
+import { checkExpr, compileExpr, compileFn, freeIdentifiers, type ExprEnv, type ExprGraph } from './expr.ts';
 
 export type Shape = 'dot' | 'star' | 'nebula' | 'ringed' | 'pulsar';
 /** region:不画线,子节点被一个"域"包围;orbit:子绕父转;line/faint:连线;hidden:不显示 */
@@ -204,6 +204,24 @@ export interface CompiledView {
   parentOf(id: string): string | undefined;
   /** 在已编译的外观上,按展开状态算出场景:只做线性扫描,不重算任何节点的大小/颜色/样式。 */
   fold(opts?: FoldOptions): Scene;
+  /** 对全部(非模式)节点算一条布尔表达式,返回匹配的 id。和视图规则同一套列与函数;写错了会抛出 */
+  matches(expr: string): string[];
+  /** 保存的查询(~query/<名字>)的结果:算一次缓存;某条算不出来就带 error */
+  queryResults(): QueryResult[];
+}
+
+/** 保存的查询 = 一个节点:~query/<名字>,kind=query,expr 是一条布尔表达式。结果随宇宙变化,所以是"动态区域"。 */
+export const QUERY_PREFIX = `${SCHEMA_PREFIX}query/`;
+export interface SavedQuery { name: string; id: string; label: string; expr: string; color?: string; summary?: string }
+export interface QueryResult extends SavedQuery { members: string[]; error?: string }
+export function listQueries(u: Universe): SavedQuery[] {
+  const out: SavedQuery[] = [];
+  for (const n of u.nodes.values()) {
+    if (!n.id.startsWith(QUERY_PREFIX) || n.attrs.kind !== 'query' || n.attrs.expr === undefined) continue;
+    const name = n.id.slice(QUERY_PREFIX.length);
+    out.push({ name, id: n.id, label: n.label || name, expr: n.attrs.expr, color: n.attrs.color, summary: n.attrs.summary });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 const GALAXY_SIZE: SizeRule[] = [
@@ -589,8 +607,88 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     colCache.set(name, col);
     return col;
   };
+  // ---- 路径条件(表达式里的 from / to / near / out / into / query):全部按参数缓存,惰性计算 ----
+  const dirAdj = new Map<string, Csr>();
+  /** 按方向的邻接表:out 顺着边,in 逆着边,both 都算;对称的边类型两头都算 */
+  const adjDir = (type: string | undefined, dir: 'out' | 'in' | 'both'): Csr => {
+    const key = `${type ?? ''}|${dir}`;
+    let a = dirAdj.get(key);
+    if (a) return a;
+    const t = type === undefined ? -1 : typeIdx.get(type) ?? -2;
+    const A = new Int32Array(2 * E), B = new Int32Array(2 * E);
+    let m = 0;
+    if (t !== -2) for (let e = 0; e < E; e++) {
+      if (t >= 0 && ety[e] !== t) continue;
+      const both = dir === 'both' || tSym[ety[e]!];
+      if (dir === 'out' || both) { A[m] = ef[e]!; B[m] = et[e]!; m++; }
+      if (dir === 'in' || both) { A[m] = et[e]!; B[m] = ef[e]!; m++; }
+    }
+    a = buildCsr(N, A, B, () => true, m);
+    dirAdj.set(key, a);
+    return a;
+  };
+  const reachCache = new Map<string, Uint8Array>();
+  const countCache = new Map<string, Int32Array>();
+  const queryCache = new Map<string, Uint8Array>();
+  const queryStack: string[] = [];
+  const graph: ExprGraph = {
+    cur: { i: 0 },
+    reach(root, type, dir, maxDepth) {
+      const key = `${root}\u0000${type ?? ''}\u0000${dir}\u0000${maxDepth}`;
+      let r = reachCache.get(key);
+      if (r) return r;
+      r = new Uint8Array(N);
+      const s = idx.get(root);
+      if (s !== undefined) {
+        const adj = adjDir(type, dir), seen = new Uint8Array(N);
+        seen[s] = 1;
+        let frontier = [s];
+        for (let d = 0; d < maxDepth && frontier.length > 0; d++) {
+          const next: number[] = [];
+          for (const v of frontier) {
+            for (let k = adj.start[v]!; k < adj.start[v + 1]!; k++) { const w = adj.list[k]!; if (!seen[w]) { seen[w] = 1; r[w] = 1; next.push(w); } }
+          }
+          frontier = next;
+        }
+      }
+      reachCache.set(key, r);
+      return r;
+    },
+    count(type, other, dir) {
+      const key = `${type ?? ''}\u0000${other ?? ''}\u0000${dir}`;
+      let c = countCache.get(key);
+      if (c) return c;
+      c = new Int32Array(N);
+      const t = type === undefined ? -1 : typeIdx.get(type) ?? -2, o = other === undefined ? -1 : idx.get(other) ?? -2;
+      if (t !== -2 && o !== -2) for (let e = 0; e < E; e++) {
+        if (t >= 0 && ety[e] !== t) continue;
+        const a = dir === 'out' ? ef[e]! : et[e]!, b = dir === 'out' ? et[e]! : ef[e]!;
+        if (o < 0 || b === o) c[a]!++;
+        if (tSym[ety[e]!] && (o < 0 || a === o)) c[b]!++; // 对称边:两头都算出边也都算入边
+      }
+      countCache.set(key, c);
+      return c;
+    },
+    query(name) {
+      let r = queryCache.get(name);
+      if (r) return r;
+      const qn = u.nodes.get(QUERY_PREFIX + name);
+      if (!qn || qn.attrs.expr === undefined) throw new Error(`没有保存的查询 "${name}"`);
+      if (queryStack.includes(name)) throw new Error(`查询循环引用: ${[...queryStack, name].join(' → ')}`);
+      queryStack.push(name);
+      const outer = graph.cur.i; // 里面会把 cur 走一遍,算完要还原,外面那条表达式还在算第 outer 个节点
+      try {
+        const f = exprFor(qn.attrs.expr);
+        r = new Uint8Array(N);
+        for (let i = 0; i < N; i++) if (!isSchemaId(ids[i]!) && f(i)) r[i] = 1;
+      } finally { queryStack.pop(); graph.cur.i = outer; }
+      queryCache.set(name, r);
+      return r;
+    },
+  };
+
   const userFns: Record<string, (...args: never[]) => unknown> = {};
-  const exprEnv: ExprEnv = { column: exprColumn, fns: userFns, now };
+  const exprEnv: ExprEnv = { column: exprColumn, fns: userFns, now, graph };
   for (const n of nodeList) { // 函数节点:~fn/<名字>,kind=function,code 是一个函数表达式
     if (!n.id.startsWith(`${SCHEMA_PREFIX}fn/`) || n.attrs.kind !== 'function' || !n.attrs.code) continue;
     userFns[n.id.slice(SCHEMA_PREFIX.length + 3)] = compileFn(n.attrs.code, exprEnv);
@@ -956,8 +1054,22 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     return out;
   }
 
+  const matches = (expr: string): string[] => {
+    const f = compileExpr(expr, exprEnv), out: string[] = [];
+    for (let i = 0; i < N; i++) if (!isSchemaId(ids[i]!) && f(i)) out.push(ids[i]!);
+    return out;
+  };
+  let queryList: QueryResult[] | null = null;
+  const queryResults = (): QueryResult[] => (queryList ??= listQueries(u).map((q): QueryResult => {
+    try {
+      const r = graph.query(q.name), members: string[] = [];
+      for (let i = 0; i < N; i++) if (r[i]) members.push(ids[i]!);
+      return { ...q, members };
+    } catch (err) { return { ...q, members: [], error: (err as Error).message }; }
+  }));
+
   return {
-    nodeCount: N, edgeCount: E, fold, space,
+    nodeCount: N, edgeCount: E, fold, space, matches, queryResults,
     layout: spec.layout ?? 'flat',
     look,
     enterAt: spec.space?.enterAt ?? 0.42,

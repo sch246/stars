@@ -79,6 +79,27 @@ test('对账:删除 —— 纯结构节点被删,带语义关系的保留并标�
   assert.equal(r2.stats.revived, 1);
 });
 
+test('对账:contains 的意思由视图决定 —— 模块包含文件、目录包含概念,文件没了也不跟着删;改名时不会被当成文件夹', () => {
+  const { fsv, u } = setup({ 'a/x.ts': 10, 'a/y.ts': 20, 'b/z.ts': 30 });
+  apply(u, { op: 'addNode', id: 'mod', label: 'mod', attrs: { type: 'module' } });
+  apply(u, { op: 'addEdge', from: 'mod', type: 'contains', to: 'a/x.ts' });
+  apply(u, { op: 'addNode', id: 'idea', label: 'idea' });
+  apply(u, { op: 'addEdge', from: 'b/', type: 'contains', to: 'idea' });
+  fsv.files.delete('a/x.ts'); fsv.files.delete('b/z.ts');
+  sync(u, fsv, ['a/', 'b/']);
+  assert.equal(u.nodes.get('a/x.ts')!.attrs.missing, 'true', '模块包含它:保留并标记 missing');
+  assert.ok(u.edges.has('mod\u0000contains\u0000a/x.ts'));
+  assert.ok(u.nodes.has('b/') && u.edges.has('b/\u0000contains\u0000idea'), '目录包含一个概念:目录保留');
+  // 改名:文件夹里的 contains 跟着走,模块的那条不动
+  fsv.files.set('a/x.ts', { size: 10, mtimeMs: 3 });
+  sync(u, fsv, ['a/']);
+  fsv.files.delete('a/y.ts'); fsv.files.set('a/w.ts', { size: 20, mtimeMs: 4 });
+  apply(u, { op: 'addEdge', from: 'mod', type: 'contains', to: 'a/y.ts' });
+  const r = sync(u, fsv, ['a/']);
+  assert.equal(r.stats.renamed, 1);
+  assert.ok(u.edges.has('mod\u0000contains\u0000a/w.ts') && u.edges.has('a/\u0000contains\u0000a/w.ts'));
+});
+
 test('对账:整个目录被删,子树自底向上处理;含语义关系的文件会让祖先目录一并保留', () => {
   const { fsv, u } = setup({ 'd/e/f.ts': 1, 'd/g.ts': 2, 'k/h.ts': 3 });
   apply(u, { op: 'addNode', id: 'note', label: 'n' });

@@ -30,6 +30,8 @@
   #btn-types:hover { color: var(--text); } #btn-types.on { color: #fff; border-color: var(--accent); } #btn-types i { font-style: normal; font-size: 10px; }
   #types-badge { color: var(--warn); font-weight: 600; } #types-badge[hidden] { display: none; }
   #chips { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; } #chips[hidden] { display: none; }
+  #qbar { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; max-height: 22vh; overflow: auto; } #qbar[hidden] { display: none; }
+  #qbar .qerr { flex-basis: 100%; color: var(--err); font-size: 11.5px; white-space: pre-wrap; } #q.expr { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   /* 工具行:四个入口,图标 + 短名;开着的那个高亮 */
   #modes { display: flex; gap: 4px; margin: 10px -4px -2px; padding-top: 8px; border-top: 1px solid var(--line); }
   .tb { flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 5px 0 4px; border-radius: 8px; cursor: pointer; user-select: none;
@@ -80,6 +82,9 @@
   .rv-row .acts { display: flex; gap: 4px; }
   .mini { cursor: pointer; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line); background: #12121f; user-select: none; }
   .mini.ok { color: #7be0a0; } .mini.no { color: #ff7a90; } .mini:hover { border-color: currentColor; }
+  code.qexpr { display: block; white-space: pre-wrap; word-break: break-all; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #0b0b16; border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+  .seen-diff { margin-top: 6px; max-height: 340px; overflow: auto; font: 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #0b0b16; border: 1px solid var(--line); border-radius: 6px; padding: 4px 0; }
+  .seen-diff > div { white-space: pre; padding: 0 8px; } .seen-diff .da { background: #12301f; color: #9fe6b8; } .seen-diff .dd { background: #3a1520; color: #ff9fae; } .seen-diff .dh { color: var(--accent); opacity: .8; }
   .badge { display: inline-block; min-width: 16px; padding: 0 5px; margin-left: 4px; border-radius: 999px; background: #ffd24a; color: #111; font-size: 11px; text-align: center; }
   .badge[hidden] { display: none; }
   #editor { left: 12px; top: 270px; width: 430px; max-height: calc(100vh - 300px); display: flex; flex-direction: column; gap: 6px; }
@@ -261,6 +266,7 @@
   <div id="views"></div>
   <div id="qrow"><input id="q" placeholder="过滤节点… ( / )" autocomplete="off"><span id="btn-types" data-cmd="panel types" title="按类型显示 / 隐藏节点">类型<b id="types-badge" hidden></b><i>▾</i></span></div>
   <div id="chips" hidden></div>
+  <div id="qbar" hidden></div>
   <div id="status">连接中…</div>
   <div id="modes">
     <span class="tb" id="btn-time" data-cmd="panel timeline" title="时间线:宇宙或所在文件夹的 git 历史,可回放(T)">⏱<i>时间线</i></span>
@@ -342,7 +348,7 @@
 <script type="application/json" id="stars-config">__STARS_CONFIG__</script>
 <script src="/d3.js"></script>
 <script type="module">
-import { compileView, listViews, validateSpec } from '/core/view.js';
+import { compileView, listViews, validateSpec, QUERY_PREFIX } from '/core/view.js';
 import { edgeKey } from '/core/model.js';
 import { apply } from '/core/ops.js';
 import { nodeProposalKey, trackProposals } from '/core/proposals.js';
@@ -392,6 +398,8 @@ import { cmdLine, cmdQuote, cmdTokenize } from '/core/cmdline.js';
   let links = [];
   let hiddenTypes = new Set();
   let selected = null, hovered = null, query = '';
+  // 过滤:query 是过滤框里的字(以 = 开头就是表达式);qActive 是点亮的保存的查询(动态区域)。filt = 两者有一个在起作用
+  let filt = false, qActive = null, qErr = '';
   let transform = d3.zoomIdentity;
   let userMoved = false;
   let curK = 1;                    // 当前正在绘制的空间的屏幕尺度(LOD 用)
@@ -657,7 +665,7 @@ import { cmdLine, cmdQuote, cmdTokenize } from '/core/cmdline.js';
       if (replay) { staleLive = true; return; } // 回放中:实时更新先不动画面,退出回放时重新同步
       if (m.type === 'ops') return applyOps(m.entries);
       if (m.type === 'signals') return applySignals(m);
-      data.issues = m.issues; rebuildIssues(); renderSide(); renderStatus();
+      data.issues = m.issues; onIssues();
       return;
     }
     ingest(m);
@@ -696,6 +704,14 @@ import { cmdLine, cmdQuote, cmdTokenize } from '/core/cmdline.js';
     if (m.replace) { sg.fileChanged = m.fileChanged; sg.touched = m.touched; if (m.size) sg.size = m.size; }
     else { sg.size = Object.assign(sg.size || {}, m.size); sg.fileChanged = Object.assign(sg.fileChanged || {}, m.changed); }
     scheduleRecompute();
+  }
+  /** 过期(stale)也当一个信号给视图用:表达式里写 stale(1 = 说明写于文件改动之前) */
+  let staleKey = '';
+  function staleSignal() { const o = {}; for (const i of data.issues) if (i.rule === 'stale') o[i.nodes[0]] = 1; return o; }
+  function onIssues() {
+    rebuildIssues(); renderSide(); renderStatus();
+    const k = Object.keys(staleSignal()).sort().join('\n');
+    if (k !== staleKey) { staleKey = k; scheduleRecompute(); }
   }
   function rebuildIssues() {
     issueByNode = new Map();
@@ -772,7 +788,7 @@ import { cmdLine, cmdQuote, cmdTokenize } from '/core/cmdline.js';
       const spec0 = base.layout === 'spaces' && hiddenTypes.size // 空间模式下,类型过滤交给内核(被隐藏的容器是"透明"的)
         ? { ...base, select: { ...(base.select || {}), hideTypes: [...((base.select && base.select.hideTypes) || []), ...hiddenTypes] } } : base;
       const spec = withVolume(spec0);
-      try { compiled = compileView(uni, spec, { signals: data.signals || {}, now: Date.now() }); }
+      try { compiled = compileView(uni, spec, { signals: { ...(data.signals || {}), stale: staleSignal() }, now: Date.now() }); }
       catch (err) { banner('视图无法编译: ' + err.message); return; }
     }
     const t1 = performance.now();
@@ -796,6 +812,7 @@ import { cmdLine, cmdQuote, cmdTokenize } from '/core/cmdline.js';
     simulation.restart();
     $('crumbs').hidden = true;
     scene = compiled.fold({ expanded: opened, collapsed: shut });
+    if (structural) computeMatches();   // 保存的查询、表达式过滤的结果跟着宇宙变
     if (structural) lastCompile = t1 - t0;
     perf.compileMs = structural ? t1 - t0 : perf.compileMs; perf.foldMs = performance.now() - t1;
     look = scene.look;
@@ -951,6 +968,10 @@ import { cmdLine, cmdQuote, cmdTokenize } from '/core/cmdline.js';
     const n = selected && raw.get(selected);
     syncFile(n || null);
     const sn = selected && (isSpaces() ? compiled.node(selected) : sim.get(selected));
+    if (!n && qActive && compiled) {
+      const r = compiled.queryResults().find((x) => x.name === qActive);
+      if (r) { el.innerHTML = queryPanel(r); return; }
+    }
     if (!n) {
       const feed = data.log.slice().reverse().slice(0, 14).map((e) =>
         `<div class="row"><span class="tag">#${e.n}</span><span class="author">${esc(e.author)}</span><span>${esc(summ(e))}</span></div>`).join('');
@@ -968,16 +989,17 @@ import { cmdLine, cmdQuote, cmdTokenize } from '/core/cmdline.js';
       return;
     }
     const out = data.edges.filter((e) => e.from === n.id), inn = data.edges.filter((e) => e.to === n.id);
-    const attrs = Object.entries(n.attrs).filter(([k]) => !['type', 'summary'].includes(k))
+    const attrs = Object.entries(n.attrs).filter(([k]) => !['type', 'summary', 'seen'].includes(k))
       .map(([k, v]) => `<div class="row"><span class="tag">${esc(k)}</span><span>${esc(k === 'size' ? fmtBytes(+v) : v)}</span></div>`).join('');
     const edgeRow = (e, other, arrow) => `<div class="row link" data-id="${esc(other)}"><span class="tag">${arrow}</span>`
       + `<span style="color:${edgeColors.get(`${e.from}|${e.type}|${e.to}`) || '#8a8aa8'}">${esc(e.type)}</span><span>${esc(raw.get(other)?.label || other)}</span>`
       + (e.attrs.status === 'proposed' ? `<span class="sev-warn">待确认</span><span class="mini ok" data-act="accept" data-from="${esc(e.from)}" data-type="${esc(e.type)}" data-to="${esc(e.to)}">✓</span><span class="mini no" data-act="reject" data-from="${esc(e.from)}" data-type="${esc(e.type)}" data-to="${esc(e.to)}">✗</span>` : (e.attrs.status ? `<span class="sev-warn">${esc(e.attrs.status)}</span>` : '')) + '</div>';
-    const myIssues = data.issues.filter((i) => i.nodes.includes(n.id) && i.rule !== 'proposed');   // 待确认的上面已经有 ✓ ✗ 了(体检结果要等 1.5 秒才推,不用它)
+    const myIssues = data.issues.filter((i) => i.nodes.includes(n.id) && i.rule !== 'proposed' && i.rule !== 'stale');   // 待确认的上面已经有 ✓ ✗ 了(体检结果要等 1.5 秒才推,不用它);过期有自己的一栏
     el.innerHTML = `<h3 style="color:${sn ? sn.color : '#fff'}">${esc(n.label)}</h3>
       <div class="sub">${esc(n.id)}${n.attrs.type ? ' · ' + esc(n.attrs.type) : ''}${sn && sn.value !== undefined ? ' · 视图值 ' + esc(sn.value) : ''}</div>
       ${n.attrs.status === 'proposed' ? (() => { const who = (data.proposals || {})[nodeProposalKey(n.id)]; return `<div class="sec"><div class="row"><span class="sev-warn">待确认的节点</span><span>${who ? esc(who.author) + ' · ' + ago(who.t) : '来源未知'}</span><span class="mini ok" data-act="accept" data-id="${esc(n.id)}" title="接受">✓</span><span class="mini no" data-act="reject" data-id="${esc(n.id)}" title="拒绝(删除这个节点和它的边)">✗</span></div></div>`; })() : ''}
       ${n.attrs.summary ? `<p>${esc(n.attrs.summary)}</p>` : ''}
+      ${seenSection(n)}
       ${sn && sn.container ? (isSpaces()
         ? `<div class="sec"><div class="row"><span class="tag">空间</span><span>${sn.children} 个直接子项 · ${sn.descendants} 个后代${expandedSet.has(sn.id) ? ' · 已就地展开' : ''}${curSpaceId === sn.id ? ' · 你在这里' : ''}</span></div>`
           + `<div class="btns" style="margin-top:6px"><span class="btn pri" data-act="enter" data-id="${esc(sn.id)}">进入 ⏎</span><span class="btn" data-act="inplace" data-id="${esc(sn.id)}">${expandedSet.has(sn.id) ? '收起' : '就地展开'}(双击 / E)</span></div></div>`
@@ -988,10 +1010,69 @@ import { cmdLine, cmdQuote, cmdTokenize } from '/core/cmdline.js';
       ${out.length || !fileOf(n) ? `<div class="sec"><div class="t">出边 ${out.length}</div>${out.map((e) => edgeRow(e, e.to, '→')).join('') || '<span class="tag">无</span>'}</div>` : ''}
       ${inn.length || !fileOf(n) ? `<div class="sec"><div class="t">入边 ${inn.length}</div>${inn.map((e) => edgeRow(e, e.from, '←')).join('') || '<span class="tag">无</span>'}</div>` : ''}
       ${sn && sn.container && (isSpaces() || !sn.expanded) ? liftedSection(n.id) : ''}
+      ${queryChips(n.id)}
       ${myIssues.length ? `<div class="sec"><div class="t">问题</div>${myIssues.map((i) => `<div class="row sev-${i.severity}">${esc(i.message)}</div>`).join('')}</div>` : ''}`;
+  }
+  /** 点亮的保存的查询:条件、成员;能改条件(放进过滤框)、删除 */
+  function queryPanel(r) {
+    const live = !window.__STARS_STATIC__, rows = r.members.slice(0, 200).map((id) => `<div class="row link" data-id="${esc(id)}"><span>${esc(raw.get(id)?.label || id)}</span><span class="tag">${esc(raw.get(id)?.attrs.type || '')}</span></div>`).join('');
+    return `<h3 style="color:${esc(r.color || '#9db4ff')}">◇ ${esc(r.label)}</h3>
+      <div class="sub">保存的查询 · ${esc(r.id)} · ${r.error ? '算不出来' : r.members.length + ' 个'}</div>
+      ${r.summary ? `<p>${esc(r.summary)}</p>` : ''}
+      <div class="sec"><div class="t">条件</div><code class="qexpr">${esc(r.expr)}</code>${r.error ? `<div class="row sev-error">${esc(r.error)}</div>` : ''}
+        <div class="btns" style="margin-top:6px">${live ? `<span class="btn" data-qact="edit" title="把条件放进过滤框里改,边改边看;改好了点「存为查询」">改条件</span><span class="btn" data-qact="rm">删除</span>` : ''}<span class="btn" data-cmd="region">熄灭</span></div></div>
+      <div class="sec"><div class="t">成员 ${r.members.length}${r.members.length > 200 ? '(只列前 200)' : ''}</div>${rows || '<span class="tag">现在没有</span>'}</div>`;
+  }
+  /** 节点在哪些保存的查询里 */
+  function queryChips(id) {
+    if (!compiled) return '';
+    const res = compiled.queryResults().filter((r) => r.members.includes(id));
+    return res.length ? `<div class="sec"><div class="t">在这些查询里</div><div style="display:flex;flex-wrap:wrap;gap:5px">${res.map((r) => `<span class="tagc ${qActive === r.name ? 'on' : ''}" data-cmd="region ${esc(quoteArg(r.name))}"><i style="background:${esc(r.color || '#9db4ff')}"></i>${esc(r.label)}</span>`).join('')}</div></div>` : '';
+  }
+  /** 说明对应的文件版本(见 core/src/stale.ts):过期了能看改动、确认仍然有效;有说明却没记版本的可以记下 */
+  function seenSection(n) {
+    if (!fileOf(n) || replay) return '';
+    const live = !window.__STARS_STATIC__, id = esc(n.id);
+    if (data.issues.some((i) => i.rule === 'stale' && i.nodes[0] === n.id)) {
+      return `<div class="sec" id="seen-sec"><div class="row"><span class="sev-warn">写说明之后文件改过了</span>`
+        + (live ? `<span class="mini" data-act="seen-diff" data-id="${id}" title="写说明时的那一版 → 现在">看改动</span><span class="mini ok" data-act="stamp" data-id="${id}" title="说明不用改:记下文件现在的版本">仍然有效</span>` : '')
+        + `</div><div class="seen-diff" hidden></div></div>`;
+    }
+    if (n.attrs.seen) return `<div class="sec"><div class="row"><span class="tag">说明</span><span style="color:var(--muted)">对着文件的当前版本写的</span></div></div>`;
+    if (n.attrs.summary && live) return `<div class="sec"><div class="row"><span class="tag">说明</span><span style="color:var(--muted)">没记是对着哪一版文件写的</span><span class="mini" data-act="stamp" data-id="${id}" title="记下文件现在的版本,之后文件改了会提醒">记下</span></div></div>`;
+    return '';
+  }
+  function renderDiff(text) {
+    return text.split('\n').map((l) => `<div class="${l.startsWith('@@') ? 'dh' : l[0] === '+' ? 'da' : l[0] === '-' ? 'dd' : ''}">${esc(l) || ' '}</div>`).join('');
+  }
+  async function showSeenDiff(id, box) {
+    if (!box) return;
+    if (!box.hidden) { box.hidden = true; return; }
+    box.hidden = false; box.innerHTML = '<span class="tag">读取中…</span>';
+    try {
+      const d = await api('/api/seen-diff?id=' + encodeURIComponent(id));
+      box.innerHTML = !d.old ? '<span class="tag">写说明时的那一版不在 git 里(不是 git 仓库,或已被清理),看不到改了什么</span>'
+        : d.diff ? renderDiff(d.diff.replace(/\n$/, '')) : '<span class="tag">只有换行风格不同</span>';
+    } catch (e) { box.innerHTML = `<span class="sev-error">${esc(e.message)}</span>`; }
+  }
+  async function stampNodes(ids, author = 'viewer') {
+    const r = await api('/api/stamp', { ids, author });
+    if (r.stamped.length && r.n) await waitApplied(r.n);
+    // 体检结果要等一会儿才推回来:先在本地把这几条过期去掉,面板马上就对
+    const done = new Set(r.stamped);
+    if (data.issues.some((i) => i.rule === 'stale' && done.has(i.nodes[0]))) { data.issues = data.issues.filter((i) => !(i.rule === 'stale' && done.has(i.nodes[0]))); onIssues(); }
+    return r;
   }
   $('side').addEventListener('click', (ev) => {
     const tg = ev.target.closest('[data-sidetag]'); if (tg) { toggleTag(tg.dataset.sidetag); return; }
+    const qa = ev.target.closest('[data-qact]');
+    if (qa && qActive) {
+      const r = compiled && compiled.queryResults().find((x) => x.name === qActive);
+      if (!r) return;
+      if (qa.dataset.qact === 'edit') { qEditing = r.name; qActive = null; $('q').value = '= ' + r.expr; $('q').dispatchEvent(new Event('input')); $('q').focus(); renderSide(); }
+      if (qa.dataset.qact === 'rm' && confirm(`删除查询「${r.label}」?(只删这个查询,不动它的成员;之后可以 undo)`)) exec(`rm ${quoteArg(r.id)}`, 'ui', (x) => { if (x.ok) setRegion(null); });
+      return;
+    }
     const el = ev.target.closest('.row.link'); if (el) select(el.dataset.id, true);
   });
 
@@ -1212,7 +1293,8 @@ import { cmdLine, cmdQuote, cmdTokenize } from '/core/cmdline.js';
     else { const n = find(ev.offsetX, ev.offsetY); hit = n ? { n } : null; }
     handleTap(ev.clientX, ev.clientY, hit);
   });
-  $('q').addEventListener('input', (ev) => { query = ev.target.value.trim().toLowerCase(); computeMatches(); });
+  $('q').addEventListener('input', (ev) => { query = ev.target.value.trim(); ev.target.classList.toggle('expr', query.startsWith('=')); if (!query) qEditing = null; computeMatches(); });
+  $('qbar').addEventListener('click', (ev) => { if (ev.target.closest('[data-qsave]')) saveQueryFromBox(); });
   addEventListener('keydown', (ev) => onKey(ev));   // 键 → 命令:见下面的「命令」一节(KEYMAP)
 
 
@@ -1345,6 +1427,8 @@ import { cmdLine, cmdQuote, cmdTokenize } from '/core/cmdline.js';
     else if (b.dataset.act === 'enter') { if (!enterSpace(b.dataset.id)) jumpTo(b.dataset.id); }
     else if (b.dataset.act === 'inplace') toggleExpandSpace(b.dataset.id);
     else if (b.dataset.act === 'promote') write({ op: 'addEdge', ...e, attrs: { note: `由 ${b.dataset.count} 条内部关系汇总提升` } }, '已提升为真边');
+    else if (b.dataset.act === 'seen-diff') showSeenDiff(b.dataset.id, b.closest('.sec').querySelector('.seen-diff'));
+    else if (b.dataset.act === 'stamp') stampNodes([b.dataset.id]).then((r) => toast(r.stamped.length ? '已记下文件现在的版本' : '没记上:节点没指向文件,或文件不在', !r.stamped.length)).catch((err) => toast('没记上:' + esc(err.message), true));
   }, true);
 
   // ---------- 项目:一个文件夹一个宇宙;同一个服务里可以同时打开多个,随时切换 ----------
@@ -2964,15 +3048,64 @@ try {
     renderSide();
   }
 
-  const qOK = (n) => !query || matchSet.has(n.id) || (n.container && matchAnc.has(n.id));
+  const qOK = (n) => !filt || matchSet.has(n.id) || (n.container && matchAnc.has(n.id));
+  /** 过滤框以 = 开头:后面是一条表达式(和视图规则、保存的查询同一套) */
+  const exprQuery = () => (query.startsWith('=') ? query.slice(1).trim() : null);
   function computeMatches() {
-    matchSet = new Set(); matchAnc = new Map();
-    if (!query || !compiled) return;
-    for (const n of data.nodes) {
-      if (n.id.startsWith('~') || !`${n.id} ${n.label} ${n.attrs.summary || ''}`.toLowerCase().includes(query)) continue;
-      matchSet.add(n.id);
-      for (let p = compiled.parentOf(n.id); p; p = compiled.parentOf(p)) matchAnc.set(p, (matchAnc.get(p) || 0) + 1);
+    matchSet = new Set(); matchAnc = new Map(); qErr = '';
+    filt = !!((query && exprQuery() !== '') || qActive);   // 只敲了一个 = 还不算过滤
+    if (!filt || !compiled) { renderQbar(); return; }
+    let ids = null;
+    if (qActive) {
+      const r = compiled.queryResults().find((x) => x.name === qActive);
+      if (!r) { qActive = null; filt = !!query; }
+      else if (r.error) { qErr = `查询 ${r.name}:${r.error}`; ids = []; }
+      else ids = r.members;
     }
+    const ex = exprQuery();
+    if (ex !== null) {
+      if (ex) {
+        let got = [];
+        try { got = compiled.matches(ex); } catch (e) { qErr = e.message; }
+        ids = ids ? (() => { const s2 = new Set(got); return ids.filter((id) => s2.has(id)); })() : got;
+      }
+    } else if (query) {
+      const t = query.toLowerCase(), got = [];
+      for (const n of data.nodes) if (!n.id.startsWith('~') && `${n.id} ${n.label} ${n.attrs.summary || ''}`.toLowerCase().includes(t)) got.push(n.id);
+      ids = ids ? (() => { const s2 = new Set(got); return ids.filter((id) => s2.has(id)); })() : got;
+    }
+    for (const id of ids || []) {
+      matchSet.add(id);
+      for (let p = compiled.parentOf(id); p; p = compiled.parentOf(p)) matchAnc.set(p, (matchAnc.get(p) || 0) + 1);
+    }
+    renderQbar();
+  }
+  /** 「查询」一行:保存的查询(点一下点亮它的成员,别的调暗);过滤框里是表达式时可以存成查询 */
+  function renderQbar() {
+    const el = $('qbar');
+    if (!el) return;
+    const res = compiled ? compiled.queryResults() : [];
+    const ex = exprQuery();
+    if (!res.length && ex === null) { el.hidden = true; el.innerHTML = ''; return; }
+    el.hidden = false;
+    el.innerHTML = `<span class="tag" style="font-size:11px">查询</span>`
+      + res.map((r) => `<span class="tagc ${qActive === r.name ? 'on' : ''}" data-q="${esc(r.name)}" data-cmd="region ${esc(quoteArg(r.name))}" title="${esc(r.label + ':' + r.expr + (r.error ? '\n错误:' + r.error : ''))}"><i style="background:${esc(r.color || '#9db4ff')}"></i>${esc(r.label)}<span class="c">${r.error ? '!' : r.members.length}</span></span>`).join('')
+      + (ex ? (qErr ? '' : `<span class="tagc" data-qsave="1" title="把过滤框里的表达式存成一个查询(成员随宇宙变化)">＋ 存为查询 <span class="c">${matchSet.size}</span></span>`) : '')
+      + (qErr ? `<div class="qerr">${esc(qErr)}</div>` : '');
+  }
+  async function saveQueryFromBox() {
+    const ex = exprQuery(); if (!ex) return;
+    const name = (prompt('查询名(字母、数字、_ . -;同名就覆盖)', qEditing || qActive || '') || '').trim();
+    if (!name) return;
+    exec(`query-set ${quoteArg(name)} --expr ${quoteArg(ex)}`, 'ui', (r) => {
+      if (!r.ok) return;
+      $('q').value = ''; query = ''; qEditing = null; qActive = name; computeMatches(); select(null);
+    });
+  }
+  let qEditing = null;   // 「改条件」:把查询的表达式放进过滤框改,存的时候默认还用这个名字
+  function setRegion(name) {
+    qActive = name && name !== qActive ? name : null;
+    computeMatches(); select(null);
   }
   function neighborsIn(sp, id) {
     const s = new Set([id]);
@@ -2991,7 +3124,7 @@ try {
     if (sp) for (const l of sp.links) { if (l.source.id === selected) hlCache.add(l.target.id); if (l.target.id === selected) hlCache.add(l.source.id); }
     return hlCache;
   }
-  const mustLabel = (n) => n.id === selected || (query && matchSet.has(n.id)); // 悬浮不再影响图谱标签布局(改用光标气泡)
+  const mustLabel = (n) => n.id === selected || (filt && matchSet.has(n.id)); // 悬浮不再影响图谱标签布局(改用光标气泡)
 
   // 端点:就地展开的容器,连线停在它的疆界上
   function endPoint(n, other) {
@@ -3103,7 +3236,7 @@ try {
     // 选中:全局变暗。豁免 = 选中的、它的邻居、以及它展开出来的整棵子树(在任意一层都成立)
     const hl = selected && P.highlight > 0 ? hlSet() : null;
     const selSub = !!(hl && sp.id != null && (sp.id === selected || compiled.ancestors(sp.id).includes(selected)));
-    const aOf = (n) => alpha * mE * (n === focus ? 1 - aIn : aOutF) * (query && !qOK(n) ? 0.12 : (hl && !selSub && !hl.has(n.id)) ? 0.3 : 1);
+    const aOf = (n) => alpha * mE * (n === focus ? 1 - aIn : aOutF) * (filt && !qOK(n) ? 0.12 : (hl && !selSub && !hl.has(n.id)) ? 0.3 : 1);
     ctx.globalCompositeOperation = look === 'galaxy' ? 'lighter' : 'source-over';
     drawSpaceEdges(sp, tx, ty, s, morph ? (n) => aOf(n) * mE : aOf, mapN); // 展开中连线晚一点出现(∝ e²)
     const real = (n) => n.real || n;
@@ -3120,8 +3253,8 @@ try {
       else drawNode(n, now, aOf(n), n !== focus); // 焦点容器的旋臂由展开中的粒子代替
       if (real(n) === hovered) hoverRing(real(n));
       hit({ n: real(n), sp, depth, sx, sy, sr: Math.max(R * 0.75, 6), R, tx, ty, s });
-      if (R >= 10 || mustLabel(n) || (query && matchAnc.has(n.id))) {
-        const cnt = query && matchAnc.has(n.id) ? `  ·${matchAnc.get(n.id)} 处匹配` : '';
+      if (R >= 10 || mustLabel(n) || (filt && matchAnc.has(n.id))) {
+        const cnt = filt && matchAnc.has(n.id) ? `  ·${matchAnc.get(n.id)} 处匹配` : '';
         if (lblA > 0.02) frameLabels.push({ text: n.label + cnt, sx, sy: sy + Math.max(R * 0.55, 6) + 3, prio: mustLabel(n) ? 1e9 : 1e5 + R, color: '#dfe3ff', alpha: lab(n), fade: alpha * lblA * (n === focus ? 1 - aIn : aOutF) });
       }
     }
@@ -3442,7 +3575,7 @@ try {
     return { x: Math.random(), y: Math.random(), s: 0.3 + Math.pow(Math.random(), 3) * 1.6, layer: i % 3, ph: Math.random() * TAU, hue: Math.random() };
   });
 
-  const matches = (id) => { if (!query) return true; const n = raw.get(id); return !!n && `${n.id} ${n.label} ${n.attrs.summary || ''}`.toLowerCase().includes(query); };
+  const matches = (id) => !filt || matchSet.has(id);
 
   // 发光用预渲染的精灵图(每种颜色一张),而不是每帧、每个节点 createRadialGradient —— 快一个数量级
   const spriteCache = new Map();
@@ -3715,7 +3848,7 @@ try {
     const focus = selected ? new Set([selected]) : null;
     if (focus) for (const l of links) { if (l.source.id === selected) focus.add(l.target.id); if (l.target.id === selected) focus.add(l.source.id); }
     const tagOK = (n) => !activeTags.size || (n.tags && n.tags.some((t) => activeTags.has(t)));
-    const alphaOf = (n) => (query && !matches(n.id) ? 0.1 : !tagOK(n) ? 0.1 : P.highlight > 0 && focus && !focus.has(n.id) ? 0.2 : 1);
+    const alphaOf = (n) => (filt && !matches(n.id) ? 0.1 : !tagOK(n) ? 0.1 : P.highlight > 0 && focus && !focus.has(n.id) ? 0.2 : 1);
 
     ctx.globalCompositeOperation = galaxy ? 'lighter' : 'source-over';
     const tR = performance.now();
@@ -3843,8 +3976,8 @@ try {
     ctx.font = `${fs}px -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif`;
     // 标签避让:按重要性排序,和已放置的标签重叠就不画(选中/悬停/聚焦邻居/搜索命中优先)。
     // 规划(排序+重叠检测)较贵,节流到约每 160ms 或交互状态变化时才重做,每帧只按最新位置画。
-    const must = (n) => n.id === selected || (focus && focus.has(n.id)) || (query && matches(n.id)); // 悬浮不再重排标签
-    const planKey = `${selected}|${query}|${Math.round(k * 20)}|${shown.length}`;
+    const must = (n) => n.id === selected || (focus && focus.has(n.id)) || (filt && matches(n.id)); // 悬浮不再重排标签
+    const planKey = `${selected}|${query}|${qActive}|${matchSet.size}|${Math.round(k * 20)}|${shown.length}`;
     if (planKey !== labelKey || now - labelAt > 160) {
       labelKey = planKey; labelAt = now;
       const cands = shown.filter((n) => must(n) || (!tiny && (k > 1.7 || n.r >= 6 || shown.length <= 14)))
@@ -4013,6 +4146,14 @@ try {
     group: '视图', effect: 'ui', title: '点亮 / 熄灭一个 tag(tags 视图);不带参数 = 全部清除', usage: 'tag [id]', args: [nodeArg('tag')],
     run: ([t]) => { toggleTag(t || ''); },
   });
+  defCmd('region', {
+    group: '视图', effect: 'ui', title: '点亮 / 熄灭一个保存的查询(动态区域):成员亮着,别的调暗;不带参数 = 熄灭', usage: 'region [查询名]',
+    args: [{ name: '查询', values: () => (compiled ? compiled.queryResults().map((r) => r.name) : []) }],
+    run: ([name]) => {
+      if (name && !(compiled && compiled.queryResults().some((r) => r.name === name))) throw new Error(`没有保存的查询:${name}(queries 看全部)`);
+      setRegion(name || null);
+    },
+  });
   defCmd('select', {
     group: '视图', effect: 'ui', title: '选中节点并让它出现在画面里(不带参数 = 取消选中)', usage: 'select [id]', args: [nodeArg()],
     run: ([id]) => { if (id && !raw.has(id)) throw new Error(`节点不存在:${id}`); select(id || null, true); },
@@ -4029,7 +4170,7 @@ try {
       if (!$('projects').hidden) { toggleProjects(false); return; }
       if (!$('physics').hidden) { togglePhysics(false); return; }
       if (!selected && !$('q').value && fp && fp.pinned) { fp.pinned = false; syncFile(null); fpState(); return; }   // 什么都没选时再按一次 Esc:取消固定、收起
-      $('q').value = ''; query = ''; select(null);
+      $('q').value = ''; query = ''; qActive = null; computeMatches(); select(null);
     },
   });
   defCmd('fit', { group: '镜头', effect: 'ui', title: '适应窗口', run: () => fit() });
@@ -4359,6 +4500,30 @@ try {
       return commitOp({ op: 'setEdge', from: a[0], type: a[1], to: a[2], unset: ['status'] }, `✓ ${a[0]} -${a[1]}-> ${a[2]}`, c);
     },
   });
+  defCmd('query-set', {
+    group: '宇宙', effect: 'write', title: '保存一个查询(= 动态区域,成员随宇宙变化)', usage: "query-set <名字> --expr '<表达式>' [-l 显示名] [-s 说明] [-a color=#rrggbb]", flags: { expr: 'expr', l: 'label', s: 'summary', a: 'attr' }, multi: ['attr'], more: true,
+    run: (a, o, c) => {
+      need(a, 1, CMDS.get('query-set'));
+      const name = a[0], expr = String(o.expr ?? a.slice(1).join(' ')).trim();
+      if (!/^[\p{L}\p{N}_.-]+$/u.test(name)) throw new Error('查询名只能含字母、数字、_ . -');
+      if (!expr) throw new Error('需要 --expr');
+      const count = needCompiled().matches(expr).length;   // 写错了在这里就抛出
+      const id = QUERY_PREFIX + name, had = uni.nodes.has(id), set = { ...kvs(o.attr), expr };
+      if (o.summary !== undefined) set.summary = o.summary;
+      if (proposing(c)) throw new Error('「提议」级的页面不能保存查询');
+      return commitOp(had ? { op: 'setNode', id, label: o.label, set } : { op: 'addNode', id, label: o.label ?? name, attrs: { kind: 'query', ...set } }, `${had ? '~' : '+'} 查询 ${name}(现在匹配 ${count} 个)`, c);
+    },
+  });
+  defCmd('stamp', {
+    group: '宇宙', effect: 'write', title: '说明仍然有效:记下节点指向的文件现在的版本(写说明时会自动记)', usage: 'stamp <id> … · stamp --all(有说明、还没记过版本的全部记上)', bools: ['all'], args: [nodeArg()], more: true,
+    run: async (a, o, c) => {
+      noProposing(c, '确认说明仍然有效');
+      const ids = o.all ? data.nodes.filter((n) => n.attrs.summary && !n.attrs.seen && fileOf(n) && n.attrs.missing !== 'true').map((n) => n.id) : a;
+      if (!ids.length) { if (o.all) return '没有要记的'; throw new Error('用法:' + CMDS.get('stamp').usage); }
+      const r = await stampNodes(ids, (c && c.author) || 'viewer');
+      return { out: [...r.stamped.map((id) => `✓ ${id}`), ...r.skipped.map((id) => `跳过 ${id}(不存在、没指向文件,或文件不在)`)].join('\n'), data: r };
+    },
+  });
   defCmd('undo', {
     group: '宇宙', effect: 'write', title: '撤销最近一次写入',
     run: async (a, o, c) => {
@@ -4417,6 +4582,34 @@ try {
   });
   defCmd('lint', {
     group: '查询', effect: 'read', title: '体检结果', run: () => ({ out: data.issues.map((i) => `${i.severity.padEnd(5)} ${i.rule.padEnd(20)} ${i.message}`).join('\n') || '✓ 没有问题', data: data.issues }),
+  });
+  defCmd('stale', {
+    group: '查询', effect: 'read', title: '说明写于文件改动之前的节点(--diff 带上之后的改动)', usage: 'stale [--diff]', bools: ['diff'],
+    run: async (a, o) => {
+      const list = data.issues.filter((i) => i.rule === 'stale').map((i) => { const n = raw.get(i.nodes[0]); return { id: i.nodes[0], file: n ? fileOf(n) : null, seen: n && n.attrs.seen }; });
+      if (o.diff) for (const x of list) x.diff = await api('/api/seen-diff?id=' + encodeURIComponent(x.id)).catch((e) => ({ error: e.message }));
+      const out = list.map((x) => `${x.id}  ${x.file || ''}${x.diff ? '\n' + (x.diff.error ? '    ' + x.diff.error : !x.diff.old ? '    (旧版本不在 git 里,看不到改动)' : x.diff.diff.replace(/^/gm, '    ').trimEnd()) : ''}`).join('\n');
+      return { out: out || '✓ 没有过期的说明', data: list };
+    },
+  });
+  const needCompiled = () => { if (!compiled) throw new Error('视图还没算好'); return compiled; };
+  defCmd('query', {
+    group: '查询', effect: 'read', title: '跑一个保存的查询,或直接给一条表达式(和视图规则同一套;from / to / near / out / into / query 是路径条件)', usage: "query <查询名 | 表达式>", more: true,
+    args: [{ name: '查询', values: () => (compiled ? compiled.queryResults().map((r) => r.name) : []) }],
+    run: (a) => {
+      if (!a.length) throw new Error('用法:' + CMDS.get('query').usage);
+      const c = needCompiled(), arg = a.join(' '), saved = c.queryResults().find((r) => r.name === arg);
+      if (saved && saved.error) throw new Error(saved.error);
+      const ids = saved ? saved.members : c.matches(arg);
+      return { out: ids.length ? ids.slice(0, 300).map(descNode).join('\n') + `\n(共 ${ids.length} 个${ids.length > 300 ? ',只列前 300' : ''})` : '(没有匹配的)', data: ids };
+    },
+  });
+  defCmd('queries', {
+    group: '查询', effect: 'read', title: '列出保存的查询和各自的匹配数',
+    run: () => {
+      const res = needCompiled().queryResults();
+      return { out: res.map((r) => `${r.name.padEnd(16)} ${r.error ? '错误:' + r.error : String(r.members.length).padStart(5) + ' 个'}   ${r.expr}`).join('\n') || "(还没有保存的查询;过滤框里写 = 表达式,再点「存为查询」)", data: res.map((r) => ({ name: r.name, label: r.label, expr: r.expr, count: r.members.length, error: r.error })) };
+    },
   });
   defCmd('views', { group: '查询', effect: 'read', title: '列出视图', run: () => ({ out: viewNames.map((v, i) => `${i + 1}. ${v}${v === currentView ? '   ← 当前' : ''}`).join('\n'), data: { current: currentView, names: viewNames } }) });
 

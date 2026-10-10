@@ -27,6 +27,8 @@ const HELP = `stars —— 关系编辑器(内核 CLI)
   link <from> <type> <to>            建边       [--proposed] [-a k=v ...]
   unlink <from> <type> <to>          删边
   accept <from> <type> <to>          确认一条 proposed 边(只给 <id> 就是确认 proposed 节点)
+  stamp <id> ...                     说明仍然有效:记下节点指向的文件现在的版本(写 summary 时会自动记)
+                                     [--all 给所有有说明、还没记过版本的节点记上(已经过期的不动)]
   scan [dir]                         把目录铺成 dir/file 节点 + contains 边   [--under 根节点id]
   undo                               撤销最近一次操作
 
@@ -36,6 +38,12 @@ const HELP = `stars —— 关系编辑器(内核 CLI)
   nb <id>                            邻域       [--depth N] [--dir out|in|both] [-t 边类型]
   path <a> <b>                       最短路径
   lint                               体检(有 error 时退出码为 1)
+  stale                              说明写于文件改动之前的节点   [--diff 带上之后改了什么]
+  query <查询名 | '表达式'>          跑一个保存的查询,或直接给一条表达式(和视图规则同一套:属性、degree、信号、fn.名字……)
+                                     路径条件:from('auth','dependsOn') 从 auth 顺着边走得到 · to(x, 类型) 走得到 x · near(x, 2) 两步之内
+                                     out('dependsOn') / into('dependsOn', x) 边的条数 · query('名字') 在另一个查询里 · stale 说明过期了
+  query-set <名字>                   保存一个查询(= 动态区域,成员随宇宙变化)   --expr '<表达式>' [-l 显示名] [-s 说明] [-a color=#rrggbb]
+  queries                            列出保存的查询和各自的匹配数
   log                                操作日志   [-n 20]
   views                              列出视图(内置 + 宇宙里 kind=view 的节点)
   view <name>                        计算一个视图并输出场景摘要   [--depth N 展开层数] [--max-nodes N 节点预算] [--expand id,id 强制展开] [--json 完整场景]
