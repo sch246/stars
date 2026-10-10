@@ -22,7 +22,7 @@ applyFlatForces();
 // 关键是它按当前相机/空间重算:指针停在一边不动,力就持续朝那边给(锁定/相机跟着走时元素钉在中心,
 // 目标始终在它前方,于是像开飞船一样越跑越快);不锁定时相机不动,目标就是指针的世界位置,元素自然靠过去停住。
 const pullTo = (sim) => (alpha) => {
-  if (!drag || !drag.moved || drag.sim !== sim || !drag.n) return;
+  if (!drag || !drag.moved || drag.op || drag.sim !== sim || !drag.n) return;
   const n = drag.n, k = 0.35 * P.dragForce * heatScale(alpha);
   const off = screenOffset(n.id);   // 节点所在空间的屏幕原点 + 累计缩放(就地展开的祖先也算在内)
   let tx, ty;
@@ -32,6 +32,7 @@ const pullTo = (sim) => (alpha) => {
   let cap = Infinity, sCap = 1;
   if (dsp && dsp.id != null && dsp.E0 > 0) { cap = shrinkCap(dsp.E0); const r = Math.hypot(tx, ty); if (r > cap && r > 0) sCap = cap / r; }   // 成员侧有界(软约束的另一半:硬上限)
   n.vx += (tx * sCap - n.x) * k; n.vy += (ty * sCap - n.y) * k;
+  for (const m of drag.group || []) { m.vx += (tx * sCap - m.x) * k * 0.7; m.vy += (ty * sCap - m.y) * k * 0.7; }   // 多选:同一空间里选中的都拉向指针
   // 拖的是就地展开空间里的成员:按"收缩到了多少"把拖动力的一部分**同步**分给整组 ——
   // 从第一刻起,收缩和整组受力一起增长(没有死区),成员像把手,整组跟着指针走。
   // 这里用**没有截断**的世界误差:成员到不了指针的部分,由整组去走。

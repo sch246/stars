@@ -15,6 +15,7 @@ import { expandHome, readRecent, type Project } from './project.ts';
 import { selfRel } from './scan.ts';
 import { planStamp, seenDiff, stampOnSummary } from './stale.ts';
 import { applyDraft, updateDraft } from './store.ts';
+import { arrange, undoWithFs } from './fsops.ts';
 import { readRuns } from './runlog.ts';
 
 /** 服务的共享状态(serve.ts 建好后交给接口) */
@@ -37,6 +38,8 @@ export interface Body {
   name?: string; line?: string; file?: string; from?: string; id?: string; wait?: number; ids?: string[];
   action?: string; indices?: number[]; args?: string[]; draft?: boolean;
   patch?: { start: number; end: number; insert: string }; baseHash?: string;
+  /** 整理(/api/arrange) */
+  mode?: string; target?: string | null; rel?: string; fromMap?: Record<string, string | null>;
 }
 
 export interface ApiCall {
@@ -184,7 +187,17 @@ export const POST: Record<string, Handler> = {
     if (typeof body.dir !== 'string' || !body.dir) throw new HttpError(400, '需要 dir');
     return s.openProject(body.dir, !!body.create).info();
   },
-  '/api/undo': ({ proj, author }) => ({ ok: true, n: proj.store.undo({ author }).n }),
+  '/api/undo': ({ proj, author }) => ({ ok: true, n: undoWithFs(proj.store, proj.baseDir, author).n }),
+  // 整理:移动 / 复制 / 引用进另一个容器(见 arrange.ts);文件真的在磁盘上搬,一步撤回
+  '/api/arrange': ({ body, s, proj, author }) => {
+    const mode = body.mode;
+    if (mode !== 'move' && mode !== 'copy' && mode !== 'ref') throw new HttpError(400, 'mode 应为 move / copy / ref');
+    const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === 'string') : [];
+    const target = typeof body.target === 'string' ? body.target : null;
+    const from = body.fromMap && typeof body.fromMap === 'object' ? body.fromMap : undefined;
+    const r = arrange(proj.store, proj.baseDir, mode, ids, target, { rel: typeof body.rel === 'string' ? body.rel : undefined, from, mountId: s.mountId }, author);
+    return { ok: true, n: r.entry?.n ?? null, summary: r.plan.summary, result: r.plan.result, skipped: r.plan.skipped, fs: r.plan.fs };
+  },
   '/api/op': ({ body, proj, author }) => {
     if (!validOp(body.op)) throw new HttpError(400, '无效的操作');
     const op = stampOnSummary(proj.store.peek(), body.op, proj.baseDir);   // 写了 summary 的节点顺手记下文件版本

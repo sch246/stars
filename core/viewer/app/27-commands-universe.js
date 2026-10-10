@@ -42,12 +42,24 @@ defCmd('set', {
   },
 });
 defCmd('rm', {
-  group: '宇宙', effect: 'write', title: '删除节点(连带它的边)', usage: 'rm <id>', args: [nodeArg()], more: true,
+  group: '宇宙', effect: 'write', title: '删除节点(连带它的边;给几个 = 一次删掉,一步撤回)', usage: 'rm <id…>', args: [nodeArg()], more: true,
   run: (a, o, c) => {
     need(a, 1, CMDS.get('rm'));
-    if (proposing(c)) ownProposal(c, nodeProposalKey(a[0]), `节点 ${a[0]}`);
-    else if (c.src !== 'page' && !confirm(`删除节点 ${a[0]} 和它的所有边?(之后可以 undo)`)) return;   // 页面已经被你授权「写」,不弹框(照样能 undo)
-    return commitOp({ op: 'removeNode', id: a[0] }, `- ${a[0]}`, c);
+    const ids = [...new Set(a)];
+    for (const id of ids) if (!raw.has(id)) throw new Error(`节点不存在:${id}`);
+    if (proposing(c)) for (const id of ids) ownProposal(c, nodeProposalKey(id), `节点 ${id}`);
+    else if (c.src !== 'page' && !confirm(ids.length === 1 ? `删除节点 ${ids[0]} 和它的所有边?(之后可以 undo)`
+      : `删除这 ${ids.length} 个节点和它们的所有边?(之后可以 undo)\n\n${ids.slice(0, 12).join('\n')}${ids.length > 12 ? `\n… 还有 ${ids.length - 12} 个` : ''}`)) return;   // 页面已经被你授权「写」,不弹框(照样能 undo)
+    const ops = ids.map((id) => ({ op: 'removeNode', id }));
+    return commitOp(ops.length === 1 ? ops[0] : { op: 'batch', ops }, ids.length === 1 ? `- ${ids[0]}` : `- ${ids.length} 个节点`, c);
+  },
+});
+defCmd('delete', {
+  group: '宇宙', effect: 'write', title: '删除选中的:选中了一条边就删这条边,否则删选中的节点(连带它们的边)',
+  run: (a, o, c) => {
+    if (selEdge && !selEdge.lifted) return CMDS.get('unlink').run([selEdge.from, selEdge.type, selEdge.to], {}, c);
+    if (!selection.size) return false;
+    return CMDS.get('rm').run([...selection], {}, c);
   },
 });
 defCmd('link', {
@@ -65,6 +77,36 @@ defCmd('unlink', {
     need(a, 3, CMDS.get('unlink'));
     if (proposing(c)) ownProposal(c, `${a[0]}|${a[1]}|${a[2]}`, `边 ${a[0]} -${a[1]}-> ${a[2]}`);
     return commitOp({ op: 'removeEdge', from: a[0], type: a[1], to: a[2] }, `- ${a[0]} -${a[1]}-> ${a[2]}`, c);
+  },
+});
+for (const [cmd, mode, title] of [
+  ['mv', 'move', '移动进另一个容器(文件 / 文件夹在磁盘上真的搬,id 跟着改;--top 移到顶层);只给容器 = 移动选中的'],
+  ['cp', 'copy', '复制进另一个容器(连同里面的东西;文件在磁盘上复制一份);只给容器 = 复制选中的'],
+  ['ln', 'ref', '引用:也放进这个容器(只加一条容器关系,什么都不搬);只给容器 = 选中的'],
+]) defCmd(cmd, {
+  group: '宇宙', effect: 'write', title, usage: `${cmd} <id…> <容器> [--from 原容器]${cmd === 'mv' ? ' · mv <id…> --top' : ''}`, flags: { from: 'from' }, bools: ['top'], args: [nodeArg()], more: true,
+  run: async (a, o, c) => {
+    noProposing(c, '整理节点');
+    let ids = o.top ? a : a.slice(0, -1);
+    const target = o.top ? null : a[a.length - 1];
+    if (!ids.length && selection.size) ids = [...selection];
+    if (!ids.length) throw new Error('用法:' + CMDS.get(cmd).usage);
+    for (const id of [...ids, ...(target ? [target] : [])]) if (!raw.has(id)) throw new Error(`节点不存在:${id}`);
+    const r = await arrangeNow(mode, ids, target, { from: o.from === '-' ? null : o.from, author: (c && c.author) || 'viewer' });
+    return { out: r.n ? `${r.summary}   #${r.n}` : '没有要改的', data: r };
+  },
+});
+defCmd('relink', {
+  group: '宇宙', effect: 'write', title: '改一条边:换类型(--type)和 / 或反向(--reverse);属性跟着走,一步撤回', usage: 'relink <from> <type> <to> [--type 新类型] [--reverse]',
+  flags: { type: 'type', t: 'type' }, bools: ['reverse'], args: edgeArgs, more: true,
+  run: (a, o, c) => {
+    need(a, 3, CMDS.get('relink'));
+    noProposing(c, '改已有的边');
+    const cur = needUni().edges.get(edgeKey(a[0], a[1], a[2]));
+    if (!cur) throw new Error(`没有这条边:${a[0]} -${a[1]}-> ${a[2]}`);
+    const t = o.type ?? a[1], f = o.reverse ? a[2] : a[0], to = o.reverse ? a[0] : a[2];
+    if (t === a[1] && f === a[0]) return '没有要改的(给 --type 或 --reverse)';
+    return commitOp({ op: 'batch', ops: [{ op: 'removeEdge', from: a[0], type: a[1], to: a[2] }, { op: 'addEdge', from: f, type: t, to, attrs: { ...cur.attrs } }] }, `~ ${f} -${t}-> ${to}`, c);
   },
 });
 defCmd('accept', {

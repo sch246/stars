@@ -10,6 +10,7 @@ import { parse, readRev, serialize } from './format.ts';
 import { type Universe, StarsError, createUniverse } from './model.ts';
 import { type Ctx, type Op, apply } from './ops.ts';
 import { type DraftEntry, draftPreview } from './draft.ts';
+import { type FsAct } from './arrange.ts';
 
 export interface LogEntry {
   n: number;
@@ -20,7 +21,11 @@ export interface LogEntry {
   undoOf?: number;
   /** 写进了草稿(DraftStore):草稿里的第几条;没有落进宇宙,也不在日志里 */
   draft?: number;
+  /** 这一步还动了磁盘上的文件(整理:移动 / 复制文件,见 arrange.ts);撤销时先把文件倒回去 */
+  fs?: FsAct[];
 }
+/** 撤销动过磁盘的那一步时调用:把文件倒回去,返回实际做了的动作(记进撤销那条) */
+export type FsUndo = (acts: FsAct[]) => FsAct[];
 
 /** 权限钩子:现在恒为允许。将来代码节点/agent 的能力检查放在这里。 */
 export type Policy = (ctx: Ctx, op: Op, u: Universe) => void;
@@ -238,7 +243,7 @@ export class Store {
   }
 
   /** 应用一个操作并落盘 + 记日志。 */
-  commit(op: Op, ctx: Ctx, undoOf?: number, opts: { defer?: boolean } = {}): { universe: Universe; entry: LogEntry } {
+  commit(op: Op, ctx: Ctx, undoOf?: number, opts: { defer?: boolean; fs?: FsAct[] } = {}): { universe: Universe; entry: LogEntry } {
     return withLock(this.file, () => {
       const u = this.loadForWrite();
       this.policy(ctx, op, u);
@@ -246,6 +251,7 @@ export class Store {
       const n = this.logCount() + 1;
       const entry: LogEntry = { n, t: new Date().toISOString(), author: ctx.author, op, inverse };
       if (undoOf !== undefined) entry.undoOf = undoOf;
+      if (opts.fs?.length) entry.fs = opts.fs;
       // 日志是权威的提交记录:先追加日志(很便宜),再写宇宙文件。
       // defer=true(监听器这类高频写入者)时,宇宙文件延迟、合并地写,文件头的 rev 保证读取方仍然一致。
       appendFileSync(this.logFile, JSON.stringify(entry) + '\n');
@@ -256,14 +262,18 @@ export class Store {
     });
   }
 
-  /** 撤销最近一条尚未被撤销的操作。 */
-  undo(ctx: Ctx): LogEntry {
+  /** 撤销最近一条尚未被撤销的操作。那一步动过磁盘上的文件(entry.fs)时要给 fsUndo,先把文件倒回去 */
+  undo(ctx: Ctx, fsUndo?: FsUndo): LogEntry {
     return withLock(this.file, () => {
       const log = this.readLog();
       const undone = new Set(log.filter((e) => e.undoOf !== undefined).map((e) => e.undoOf!));
       const target = [...log].reverse().find((e) => e.undoOf === undefined && !undone.has(e.n));
       if (!target) throw new StarsError('没有可撤销的操作');
-      return this.commit(target.inverse, ctx, target.n).entry;
+      if (!target.fs?.length) return this.commit(target.inverse, ctx, target.n).entry;
+      if (!fsUndo) throw new StarsError(`#${target.n} 还移动 / 复制了磁盘上的文件,这里撤销不了(在项目里撤销:查看器,或在项目目录里 stars undo)`);
+      const back = fsUndo(target.fs);
+      try { return this.commit(target.inverse, ctx, target.n, { fs: back }).entry; }
+      catch (e) { try { fsUndo(back); } catch { /* 尽力而为 */ } throw e; }
     });
   }
 }
@@ -325,7 +335,7 @@ export class DraftStore extends Store {
     });
   }
 
-  override undo(ctx: Ctx): LogEntry {
+  override undo(ctx: Ctx, _fsUndo?: FsUndo): LogEntry {
     return updateDraft(this.file, (entries) => {
       const last = entries.pop();
       if (!last) throw new StarsError('草稿是空的');

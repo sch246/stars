@@ -142,8 +142,39 @@ defCmd('region', {
   },
 });
 defCmd('select', {
-  group: '视图', effect: 'ui', title: '选中节点并让它出现在画面里(不带参数 = 取消选中)', usage: 'select [id]', args: [nodeArg()],
-  run: ([id]) => { if (id && !raw.has(id)) throw new Error(`节点不存在:${id}`); select(id || null, true); },
+  group: '视图', effect: 'ui', title: '选中节点并让它出现在画面里(给几个 = 多选;不带参数 = 取消选中)。--add 追加 · --remove 移出 · --toggle 反选;'
+    + '--all 画面里的全部 · --type 画面里某一类的全部 · --inside 容器里面的全部(递归,默认是选中的容器)',
+  usage: 'select [id…] [--add|--remove|--toggle] [--all] [--type 类型] [--inside]', flags: { type: 'type', t: 'type' }, bools: ['add', 'remove', 'toggle', 'all', 'inside'], args: [nodeArg()],
+  palette: () => [{ line: 'select --all', title: '全选画面里的节点' }, ...(selection.size ? [{ line: 'select --inside', title: '选中选中的容器里面的全部' }] : [])],
+  run: (ids, o) => {
+    for (const id of ids) if (!raw.has(id)) throw new Error(`节点不存在:${id}`);
+    const mode = o.toggle ? 'toggle' : o.remove ? 'remove' : o.add ? 'add' : 'replace';
+    if (mode === 'replace' && !o.all && !o.type && !o.inside && ids.length <= 1) { select(ids[0] || null, true); return; }
+    let pool = ids;
+    if (o.inside) { if (!compiled) return false; pool = descendantsOf(ids.length ? ids : [...selection]); }
+    else if (o.all || o.type) pool = screenNodes().map((p) => p.id).filter((id) => !o.type || typeOf(id) === o.type);
+    const next = combine(selection, pool, mode);
+    setSelection(next, (mode === 'add' || mode === 'toggle') && pool.length === 1 && next.has(pool[0]) ? pool[0] : undefined);
+    return { data: { selected: [...selection] } };   // 不出字:有输出会把控制台拉出来(数量在状态栏里);页面 / 遥控拿 data
+  },
+});
+defCmd('screen', {
+  group: '视图', effect: 'read', title: '画面里节点的位置(屏幕坐标,像素);给 id 只看这些。页面、脚本、测试用',
+  usage: 'screen [id…]', args: [nodeArg()],
+  run: (ids) => {
+    const want = ids.length ? new Set(ids) : null, pos = {};
+    for (const p of screenNodes()) if (!want || want.has(p.id)) pos[p.id] = [Math.round(p.sx), Math.round(p.sy)];
+    return { out: Object.entries(pos).map(([id, [x, y]]) => `${String(x).padStart(5)} ${String(y).padStart(5)}  ${id}`).join('\n') || '(都不在画面里)', data: pos };
+  },
+});
+defCmd('edge', {
+  group: '视图', effect: 'ui', title: '选中一条边(侧栏里能改类型、反转、删除;也可以直接点星图上的边)', usage: 'edge <from> <type> <to>',
+  args: [nodeArg('from'), { name: '类型', values: () => [...new Set(data.edges.map((e) => e.type))] }, nodeArg('to')],
+  run: ([from, type, to]) => {
+    if (!to) throw new Error('用法:edge <from> <type> <to>');
+    if (!uni.edges.has(edgeKey(from, type, to))) throw new Error(`没有这条边:${from} -${type}-> ${to}`);
+    select(null); selEdge = { from, type, to, lifted: false, count: 1 }; renderSide();
+  },
 });
 defCmd('cancel', {
   group: '视图', effect: 'ui', title: '取消:关掉最上层的浮层,或清空过滤与选中',
@@ -158,7 +189,7 @@ defCmd('cancel', {
     if (!$('projects').hidden) { toggleProjects(false); return; }
     if (!$('physics').hidden) { togglePhysics(false); return; }
     if (!selected && !$('q').value && fp && fp.pinned) { fp.pinned = false; syncFile(null); fpState(); return; }   // 什么都没选时再按一次 Esc:取消固定、收起
-    $('q').value = ''; query = ''; qActive = null; computeMatches(); select(null);
+    $('q').value = ''; query = ''; qActive = null; computeMatches(); select(null); renderSide();
   },
 });
 defCmd('fit', { group: '镜头', effect: 'ui', title: '适应窗口', run: () => fit() });

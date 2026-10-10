@@ -5,7 +5,7 @@ function endPoint(n, other) {
   return { x: n.x + dx / d * E, y: n.y + dy / d * E, r: 0 };
 }
 
-function drawSpaceEdges(sp, tx, ty, s, aOf, map = null) {
+function drawSpaceEdges(sp, tx, ty, s, aOf, map = null, hits = false) {
   const W = innerWidth, H = innerHeight, buckets = new Map(), few = sp.links.length < 400;
   for (const l of sp.links) {
     const a0 = map ? map(l.source) : l.source, b0 = map ? map(l.target) : l.target;
@@ -16,7 +16,7 @@ function drawSpaceEdges(sp, tx, ty, s, aOf, map = null) {
     if (Math.max(ax, bx) < -40 || Math.min(ax, bx) > W + 40 || Math.max(ay, by) < -40 || Math.min(ay, by) > H + 40) continue;
     if (Math.hypot(bx - ax, by - ay) < 2) continue;
     const al = Math.min(aOf(a0), aOf(b0));
-    const hot = selected && (a0.id === selected || b0.id === selected);
+    const hot = edgeHot(a0.id, b0.id) || edgeIsSel(l);
     const faint = l.mode !== 'line';
     const w = (l.width || 1) * (l.lifted ? 0.8 + Math.min(Math.log2(l.count + 1), 3) * 0.5 : 1) * (hot ? 1.8 : 1);
     const op = al * (hot ? 0.95 : faint ? 0.16 : 0.42);
@@ -25,6 +25,7 @@ function drawSpaceEdges(sp, tx, ty, s, aOf, map = null) {
     let bk = buckets.get(key);
     if (!bk) { bk = { col: l.proposed ? [255, 210, 74] : hex2rgb(l.color), op, w, dash, segs: [], arrows: [] }; buckets.set(key, bk); }
     bk.segs.push(a, b);
+    if (hits && l.mode !== 'hidden') frameEdges.push({ ax, ay, bx, by, l });   // 点选边用
     if ((few || hot) && l.arrow) bk.arrows.push([a, b0 === l.target && !eb ? b0 : b]);
     if ((l.lifted || l.count > 1) && (few || hot)) frameLabels.push({ text: '×' + l.count, sx: (ax + bx) / 2, sy: (ay + by) / 2 - 7, prio: 20, color: l.lifted ? '#b9c4ff' : '#9aa', small: true, alpha: al });
   }
@@ -107,10 +108,10 @@ function drawSpace(sp, tx, ty, s, alpha, depth, now, skipId, mode = '', opt = {}
   }
   // 选中:全局变暗。豁免 = 选中的、它的邻居、以及它展开出来的整棵子树(在任意一层都成立)
   const hl = selected && P.highlight > 0 ? hlSet() : null;
-  const selSub = !!(hl && sp.id != null && (sp.id === selected || compiled.ancestors(sp.id).includes(selected)));
+  const selSub = !!(hl && sp.id != null && compiled.ancestors(sp.id).some((a) => selection.has(a)));
   const aOf = (n) => alpha * mE * (n === focus ? 1 - aIn : aOutF) * (filt && !qOK(n) ? 0.12 : (hl && !selSub && !hl.has(n.id)) ? 0.3 : 1);
   ctx.globalCompositeOperation = look === 'galaxy' ? 'lighter' : 'source-over';
-  drawSpaceEdges(sp, tx, ty, s, morph ? (n) => aOf(n) * mE : aOf, mapN); // 展开中连线晚一点出现(∝ e²)
+  drawSpaceEdges(sp, tx, ty, s, morph ? (n) => aOf(n) * mE : aOf, mapN, hitsOn); // 展开中连线晚一点出现(∝ e²)
   const real = (n) => n.real || n;
   // 标签等展开过半才出现(挤在星系中心的半透明字只会添乱)
   const lblA = morph ? smooth((mE - 0.45) / 0.4) : 1, lab = (n) => aOf(n) / mE * lblA;
@@ -151,7 +152,7 @@ function drawSpace(sp, tx, ty, s, alpha, depth, now, skipId, mode = '', opt = {}
     if (boundsOn()) { // 文件夹的虚线边界 + 半透明底,可关;关掉后交互与文字仍在
       ctx.beginPath(); ctx.arc(n.x, n.y, E, 0, TAU);
       ctx.fillStyle = rgba(n.rgb, 0.05 * aOf(n)); ctx.fill();
-      ctx.strokeStyle = rgba(n.rgb, (n.id === selected ? 0.65 : 0.32) * aOf(n)); ctx.lineWidth = 1.2 / s; ctx.setLineDash([6 / s, 5 / s]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.strokeStyle = rgba(n.rgb, (selShown(n.id) ? 0.65 : 0.32) * aOf(n)); ctx.lineWidth = 1.2 / s; ctx.setLineDash([6 / s, 5 / s]); ctx.stroke(); ctx.setLineDash([]);
     }
     frameLabels.push({ text: n.label, sx: cx, sy: cy - R - 16, prio: 6e5 + R, color: '#cfd6ff', alpha: aOf(n), fade: alpha * mE * aOutF });
     hit({ n: real(n), sp, depth, sx: cx, sy: cy, sr: R, R, tx, ty, s, domain: true });
@@ -174,7 +175,7 @@ function drawInnerLinks(child, container, sp, s, alpha, cs = 1) {
     const q = child.byId.get(x.node), target = sp.byId.get(x.other);
     if (!q || !target || target === container) continue;
     const a = { x: container.x + q.x * cs, y: container.y + q.y * cs }, b = endPoint(target, a);
-    const col = hex2rgb(x.color), hot = selected && (q.id === selected || target.id === selected);
+    const col = hex2rgb(x.color), hot = edgeHot(q.id, target.id);
     ctx.strokeStyle = rgba(col, alpha * (hot ? 0.9 : 0.38)); ctx.lineWidth = (hot ? 1.6 : 1) / s;
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
     if (x.out) drawArrow(a, { ...b, r: target.r || 0 }, col, alpha * 0.7, s); else drawArrow(b, { ...a, r: q.r * cs }, col, alpha * 0.7, s);

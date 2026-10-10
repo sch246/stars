@@ -63,9 +63,10 @@ function neighborsIn(sp, id) {
  *  都按同一个明暗来画 —— 不再只暗"同一层"的内容(见 drawSpace 里的 aOf)。 */
 let hlKey = '', hlCache = null;
 function hlSet() {
-  const key = selected + '|' + spaceVer + '|' + spaces.size;
+  const key = selected + '|' + selVer + '|' + spaceVer + '|' + spaces.size;
   if (key === hlKey && hlCache) return hlCache;
   hlKey = key;
+  if (selection.size > 1) return (hlCache = new Set(selection));   // 多选:亮着的就是选中的这些
   hlCache = new Set([selected]);
   const sp = selected ? holderOf(selected) : null;
   if (sp) for (const l of sp.links) { if (l.source.id === selected) hlCache.add(l.target.id); if (l.target.id === selected) hlCache.add(l.source.id); }

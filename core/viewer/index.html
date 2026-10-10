@@ -101,7 +101,7 @@
 <script type="application/json" id="stars-config">__STARS_CONFIG__</script>
 <script src="/d3.js"></script>
 <script type="module">
-import { compileView, listViews, validateSpec, QUERY_PREFIX } from '/core/view.js';
+import { compileView, hashColor, listViews, validateSpec, QUERY_PREFIX } from '/core/view.js';
 import { edgeKey } from '/core/model.js';
 import { apply } from '/core/ops.js';
 import { nodeProposalKey, trackProposals } from '/core/proposals.js';
@@ -116,6 +116,7 @@ import { cmdLine, cmdQuote, cmdTokenize } from '/core/cmdline.js';
 import { draftNodeOf, draftPreview, draftSummary } from '/core/draft.js';
 import { STYLE_DEFAULT_SHAPES, STYLE_SHAPES, styleKindOf, styleOp, styleTypes } from '/core/styles.js';
 import { RUN_PREFIX, SCRIPT_PREFIX, checkScriptAttrs, describeTriggers, listScripts, scriptDef } from '/core/scriptnode.js';
+import { arrangeIsFs, arrangeMount } from '/core/arrange.js';
 (() => {
 /*@APP@*/
 })();

@@ -205,6 +205,10 @@ export interface CompiledView {
   ancestors(id: string): string[];
   node(id: string): SceneNode | undefined;
   parentOf(id: string): string | undefined;
+  /** 容器树里的直接孩子(按容器关系的第一条;不管过滤和展开) */
+  children(id: string): string[];
+  /** 容器关系(视图的 expand.relation,默认 contains) */
+  readonly relation: string;
   /** 在已编译的外观上,按展开状态算出场景:只做线性扫描,不重算任何节点的大小/颜色/样式。 */
   fold(opts?: FoldOptions): Scene;
   /** 对全部(非模式)节点算一条布尔表达式,返回匹配的 id。和视图规则同一套列与函数;写错了会抛出 */
@@ -1119,6 +1123,8 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     ancestors: (id) => { const i = idx.get(id); return i === undefined ? [] : chainOf(i).map((v) => ids[v]!); },
     node: (id) => { const i = idx.get(id); return i === undefined ? undefined : mkNode(i); },
     parentOf: (id) => { const i = idx.get(id); return i === undefined || parent[i]! < 0 ? undefined : ids[parent[i]!]!; },
+    children: (id) => { const i = idx.get(id), out: string[] = []; if (i !== undefined) for (let k = treeKids.start[i]!; k < treeKids.start[i + 1]!; k++) out.push(ids[treeKids.list[k]!]!); return out; },
+    relation,
     explain: (id) => { const i = idx.get(id); return i === undefined ? undefined : { size: sizeRule[i]!, color: colorRuleOf[i]!, style: styleRuleOf[i]! }; },
   };
 }

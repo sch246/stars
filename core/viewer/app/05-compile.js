@@ -82,6 +82,7 @@ function recompute(structural = true) {
     perf.compileMs = lastCompile;
     spaceVer++;                                   // 空间按需重建,保留已有位置
     if (curSpaceId !== null && !compiled.node(curSpaceId)) curSpaceId = null;
+    pruneSelection();   // 空间模式:别的空间里选中的照样留着(可以跨空间多选),只去掉已经不在的
     for (const id of [...expandedSet]) if (!compiled.node(id)) expandedSet.delete(id);
     scene = { look: compiled.look, nodes: [], edges: [], expand: { relation: 'contains' } };
     look = compiled.look;
@@ -130,6 +131,7 @@ function recompute(structural = true) {
     if (nb) { n.vx = 0; n.vy = 0; }
   }
   if (selected && !sim.has(selected) && !(selected.startsWith('~') && raw.has(selected))) selected = null;   // 模式节点(脚本、类型……)不在图上,选中了就一直选着
+  pruneSelection((id) => sim.has(id) || (id.startsWith('~') && raw.has(id)));
 
   rebuildGraph();
   renderViews(); renderChips(); renderSide(); renderLegend(); renderReview(); renderTagbar();
@@ -137,6 +139,7 @@ function recompute(structural = true) {
   renderStatus();
 }
 
+const selTail = () => (selection.size > 1 ? ` · <span data-cmd="select" style="cursor:pointer" title="点一下取消选择">已选 <b>${selection.size}</b></span>` : '');
 function renderStatus() {
   const nn = data.nodes.filter((n) => !n.id.startsWith('~')).length;
   const ne = data.issues.filter((i) => i.severity === 'error').length, nw = data.issues.filter((i) => i.severity === 'warn').length;
@@ -146,11 +149,11 @@ function renderStatus() {
   if (isSpaces()) {
     const sp = getSpace(curSpaceId);
     $('status').innerHTML = `<b>${esc(curSpaceId === null ? '宇宙' : (raw.get(curSpaceId)?.label || curSpaceId))}</b> · ${sp.nodes.length} 项 · 共 ${nn} 节点`
-      + (expandedSet.size ? ` · ${expandedSet.size} 个展开` : '') + tail;
+      + (expandedSet.size ? ` · ${expandedSet.size} 个展开` : '') + selTail() + tail;
     return;
   }
   const folded = scene.nodes.filter((n) => n.container && !n.expanded).length;
-  $('status').innerHTML = `<b>${scene.nodes.length}</b>/${nn} 节点 · <b>${scene.edges.length}</b> 边` + (folded ? ` · ${folded} 个收起` : '') + tail;
+  $('status').innerHTML = `<b>${scene.nodes.length}</b>/${nn} 节点 · <b>${scene.edges.length}</b> 边` + (folded ? ` · ${folded} 个收起` : '') + selTail() + tail;
 }
 
 const typeOf = (id) => (raw.get(id)?.attrs.type) || '(无类型)';

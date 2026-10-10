@@ -9,8 +9,9 @@ import { readRuns } from './runlog.ts';
 import { SCRIPT_PREFIX, checkScriptAttrs, describeTriggers, listScripts, scriptDef } from './scriptnode.ts';
 import { checkExpr, compileFn } from './expr.ts';
 import { RULE_PREFIX, lint, listRules } from './lint.ts';
-import { StarsError, type Attrs, type Universe } from './model.ts';
+import { StarsError, getEdge, type Attrs, type Universe } from './model.ts';
 import { type Op } from './ops.ts';
+import { arrange, undoWithFs } from './fsops.ts';
 import { filterNodes, neighborhood, shortestPath, type Dir } from './query.ts';
 import { listFiles, planScan, selfRel, statMeta } from './scan.ts';
 import { planStamp, seenDiff, seenPath, seenState, stampOnSummary } from './stale.ts';
@@ -56,6 +57,9 @@ export const CLI_OPTIONS = {
   from: { type: 'string' },
   n: { type: 'string', short: 'n' },
   'no-agent': { type: 'boolean' },
+  reverse: { type: 'boolean' },
+  top: { type: 'boolean' },
+  rel: { type: 'string' },
   help: { type: 'boolean', short: 'h' },
 } as const satisfies ParseArgsConfig['options'];
 
@@ -67,7 +71,7 @@ export type CliOpts = {
 export interface KernelCtx { store: Store; author: string; /** 项目根目录(体检查文件、扫描、信号) */ root: string }
 export interface CmdOut { out: string; data?: unknown; exitCode?: number }
 
-export const KERNEL_COMMANDS = new Set(['add', 'set', 'rm', 'link', 'unlink', 'accept', 'stamp', 'scan', 'undo', 'ls', 'show', 'nb', 'path', 'lint', 'stale', 'log', 'views', 'view', 'view-set', 'fn-set', 'query', 'query-set', 'queries', 'draft', 'types', 'type-set', 'rule-set', 'rules', 'script-set', 'scripts']);
+export const KERNEL_COMMANDS = new Set(['add', 'set', 'rm', 'mv', 'cp', 'ln', 'link', 'unlink', 'relink', 'accept', 'stamp', 'scan', 'undo', 'ls', 'show', 'nb', 'path', 'lint', 'stale', 'log', 'views', 'view', 'view-set', 'fn-set', 'query', 'query-set', 'queries', 'draft', 'types', 'type-set', 'rule-set', 'rules', 'script-set', 'scripts']);
 
 function kv(list: string[] | undefined): Attrs {
   const attrs: Attrs = {};
@@ -145,9 +149,11 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
     case 'set':
       need(1, 'set <id> [-l 标签] [-a k=v] [--unset k]');
       return wrote(described({ op: 'setNode', id: args[0]!, label: o.label, set: nodeAttrs(), unset: o.unset }), `~ ${args[0]}`);
-    case 'rm':
-      need(1, 'rm <id>');
-      return wrote({ op: 'removeNode', id: args[0]! }, `- ${args[0]}`);
+    case 'rm': {
+      need(1, 'rm <id> ...');
+      const ids = [...new Set(args)], ops = ids.map((id): Op => ({ op: 'removeNode', id }));
+      return wrote(ops.length === 1 ? ops[0]! : { op: 'batch', ops }, ids.length === 1 ? `- ${ids[0]}` : `- ${ids.length} 个节点`);
+    }
     case 'link': {
       need(3, 'link <from> <type> <to>');
       const attrs = kv(o.attr);
@@ -157,6 +163,26 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
     case 'unlink':
       need(3, 'unlink <from> <type> <to>');
       return wrote({ op: 'removeEdge', from: args[0]!, type: args[1]!, to: args[2]! }, `- ${args[0]} -${args[1]}-> ${args[2]}`);
+    case 'mv': case 'cp': case 'ln': {   // 整理(arrange.ts):最后一个参数是目标容器;--top = 移到顶层(不在任何容器里)
+      const usage = `${cmd} <id> ... <容器> [--from 原容器]${cmd === 'mv' ? ' | mv <id> ... --top' : ''}`;
+      need(o.top ? 1 : 2, usage);
+      const ids = o.top ? args : args.slice(0, -1), target = o.top ? null : args[args.length - 1]!;
+      const mode = cmd === 'mv' ? 'move' : cmd === 'cp' ? 'copy' : 'ref';
+      const from = o.from !== undefined ? Object.fromEntries(ids.map((id) => [id, o.from === '-' ? null : o.from!])) : undefined;
+      const r = arrange(store, ctx.root, mode, ids, target, { from, rel: o.rel }, ctx.author);
+      if (!r.entry) return { out: `没有要改的(${r.plan.skipped.length ? '已经在那里了' : '空'})`, data: { result: r.plan.result } };
+      const e = r.entry, fsNote = r.plan.fs.length ? `\n${r.plan.fs.map((a) => `  ${a.act === 'move' ? '搬' : '复制'} ${a.from} → ${a.to}`).join('\n')}` : '';
+      return { out: `${r.plan.summary}${fsNote}`, data: { n: e.n, result: r.plan.result, fs: r.plan.fs } };
+    }
+    case 'relink': {   // 换类型 / 反向:属性跟着走,一步撤回
+      need(3, 'relink <from> <type> <to> [--type 新类型] [--reverse]');
+      const [f0, t0, to0] = [args[0]!, args[1]!, args[2]!];
+      const cur = getEdge(store.peek(), f0, t0, to0);
+      if (!cur) throw new StarsError(`边不存在: ${f0} -${t0}-> ${to0}`);
+      const t = o.type ?? t0, f = o.reverse ? to0 : f0, to = o.reverse ? f0 : to0;
+      if (t === t0 && f === f0) return { out: '没有要改的(给 --type 或 --reverse)' };
+      return wrote({ op: 'batch', ops: [{ op: 'removeEdge', from: f0, type: t0, to: to0 }, { op: 'addEdge', from: f, type: t, to, attrs: { ...cur.attrs } }] }, `~ ${f} -${t}-> ${to}`);
+    }
     case 'accept':
       if (args.length === 1) return wrote({ op: 'setNode', id: args[0]!, unset: ['status'] }, `✓ ${args[0]}`);   // 确认一个 proposed 节点
       need(3, 'accept <from> <type> <to>');
@@ -180,7 +206,7 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
       return { out: `已扫描 ${dir}:新增 ${added} 项操作`, data: { n, added } };
     }
     case 'undo': {
-      const e = store.undo(c);
+      const e = undoWithFs(store, ctx.root, ctx.author);
       if (e.draft) return { out: `已从草稿里去掉第 ${e.draft} 条(${draftSummary(e.op)})`, data: { draft: e.draft } };
       return { out: `已撤销 #${e.undoOf}`, data: { n: e.n, undoOf: e.undoOf } };
     }

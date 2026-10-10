@@ -148,7 +148,7 @@ function renderCrumbs() {
 }
 
 function drawSpacesFrame(now) {
-  frameHits = []; frameLabels = [];
+  frameHits = []; frameLabels = []; frameEdges = [];
   drawnSpaces.clear();
   if (!compiled) return;
   const k = transform.k;
@@ -160,7 +160,7 @@ function drawSpacesFrame(now) {
       else if (fade.kind === 'exit') { const n = fade.node; drawSpace(getSpace(fade.fromId), x + k * n.x, y + k * n.y, k * fade.sc, 1 - ease, 0, now, null); }
       else drawSpace(getSpace(fade.fromId), fade.oldT.x, fade.oldT.y, fade.oldT.k, 1 - ease, 0, now, null);
     } catch { fade = null; }
-    frameHits = []; frameLabels = []; // 旧空间不参与交互
+    frameHits = []; frameLabels = []; frameEdges = []; // 旧空间不参与交互
   }
   const cur = getSpace(curSpaceId);
   let morphC = null;
@@ -185,7 +185,7 @@ function drawSpacesFrame(now) {
     if (sev === 'error' || sev === 'warn') { ctx.strokeStyle = sev === 'error' ? 'rgba(255,90,90,.9)' : 'rgba(255,179,71,.9)'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(h.sx, h.sy, rr, 0, TAU); ctx.stroke(); }
     if (raw.get(h.n.id)?.attrs.status === 'proposed') { ctx.strokeStyle = 'rgba(255,210,74,.9)'; ctx.lineWidth = 1.3; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.arc(h.sx, h.sy, rr + 1.5, 0, TAU); ctx.stroke(); ctx.setLineDash([]); }   // 待确认的节点:黄色虚线环(同提议的边)
     { const ring = diffRing(h.n.id); if (ring) { ctx.strokeStyle = ring; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(h.sx, h.sy, rr + 5, 0, TAU); ctx.stroke(); } }
-    if (h.n.id === selected && !h.domain) { ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(h.sx, h.sy, rr + 3, 0, TAU); ctx.stroke(); }
+    if (!h.domain && selShown(h.n.id)) { ctx.strokeStyle = h.n.id === selected ? 'rgba(255,255,255,.9)' : 'rgba(255,255,255,.6)'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(h.sx, h.sy, rr + 3, 0, TAU); ctx.stroke(); }
   }
   drawFrameLabels();
 }

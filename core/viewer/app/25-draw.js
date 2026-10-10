@@ -263,6 +263,7 @@ function draw(now) {
   drawBackdrop(now);
   if (isSpaces()) {
     drawSpacesFrame(now);
+    drawOverlays(now);
     drawHoverTip();
     perf.frameMs = perf.frameMs * 0.9 + (performance.now() - frameStart) * 0.1;
     requestAnimationFrame(draw);
@@ -278,8 +279,8 @@ function draw(now) {
   const VW = innerWidth, VH = innerHeight, TX = camX, TY = camY;
   const onScreen = (n, extra) => { const m = n.r * extra * k + 24, sx = n.x * k + TX, sy = n.y * k + TY; return sx > -m && sx < VW + m && sy > -m && sy < VH + m; };
 
-  const focus = selected ? new Set([selected]) : null;
-  if (focus) for (const l of links) { if (l.source.id === selected) focus.add(l.target.id); if (l.target.id === selected) focus.add(l.source.id); }
+  const multi = selection.size > 1, focus = multi ? selection : selected ? new Set([selected]) : null;
+  if (focus && !multi) for (const l of links) { if (l.source.id === selected) focus.add(l.target.id); if (l.target.id === selected) focus.add(l.source.id); }
   const tagOK = (n) => !activeTags.size || (n.tags && n.tags.some((t) => activeTags.has(t)));
   const alphaOf = (n) => (filt && !matches(n.id) ? 0.1 : !tagOK(n) ? 0.1 : P.highlight > 0 && focus && !focus.has(n.id) ? 0.2 : 1);
 
@@ -313,7 +314,7 @@ function draw(now) {
     const ax = a.x * k + TX, ay = a.y * k + TY, bx = b.x * k + TX, by = b.y * k + TY;
     if (Math.max(ax, bx) < -60 || Math.min(ax, bx) > VW + 60 || Math.min(ay, by) > VH + 60 || Math.max(ay, by) < -60) continue;
     const alpha = Math.min(alphaOf(a), alphaOf(b));
-    const hot = focus && (a.id === selected || b.id === selected);
+    const hot = edgeHot(a.id, b.id) || edgeIsSel(l);
     if (hot) {
       const col = l.proposed ? [255, 210, 74] : hex2rgb(l.color), d = Math.hypot(b.x - a.x, b.y - a.y);
       if (l.mode === 'orbit') {
@@ -397,8 +398,8 @@ function draw(now) {
       ctx.strokeStyle = ring; ctx.lineWidth = 1.6 / k;
       ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 1.5 + 9, 0, TAU); ctx.stroke();
     }
-    if (n.id === selected) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 1.4 / k;
+    if (selShown(n.id)) {
+      ctx.strokeStyle = n.id === selected ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.6)'; ctx.lineWidth = 1.4 / k;
       ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 1.5 + 6, 0, TAU); ctx.stroke();
     }
   }
@@ -444,6 +445,7 @@ function draw(now) {
   }
   ctx.globalAlpha = 1;
   ctx.restore();
+  drawOverlays(now);
   drawHoverTip();
   perf.frameMs = perf.frameMs * 0.9 + (performance.now() - frameStart) * 0.1;
   requestAnimationFrame(draw);

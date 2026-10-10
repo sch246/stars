@@ -4,7 +4,7 @@ function renderViews() {
 }
 function setView(v) {
   if (!v || v === currentView) return;
-  currentView = v; setHash(); fresh = true; selected = null; hiddenTypes.clear(); manual.clear(); auto.clear();
+  currentView = v; setHash(); fresh = true; selected = null; selection.clear(); selVer++; selEdge = null; hiddenTypes.clear(); manual.clear(); auto.clear();
   curSpaceId = null; expandedSet.clear(); fade = null; spaces.clear(); activeTags.clear(); zoomFocusId = null;
   restorePlace();   // 每个视图记着自己的位置
   for (const n of sim.values()) n.born = 0;
@@ -55,6 +55,8 @@ function renderSide() {
   const n = selected && raw.get(selected);
   syncFile(n || null);
   const sn = selected && (isSpaces() ? compiled.node(selected) : sim.get(selected));
+  if (selection.size > 1) { el.innerHTML = multiPanel(); return; }
+  if (selEdge) { el.innerHTML = edgePanel(selEdge); return; }
   if (isScriptNode(n)) { keepEdits(el, () => { el.innerHTML = scriptPanel(n); }); return; }
   if (!n && draftOn && draftMark) { el.innerHTML = draftPanel(); return; }
   if (!n && qActive && compiled) {
@@ -193,21 +195,24 @@ function liftedSection(id) {
   return rows.length ? `<div class="sec"><div class="t">收起后的对外关系(含内部汇总)</div>${rows.join('')}</div>` : '';
 }
 
-function select(id, center) {
+/** keep = true:只换主节点,不动选中的集合(多选时用,见 setSelection) */
+function select(id, center, keep = false) {
   if (id !== selected) bridgeEmit('select', id || null);
+  if (!keep) { selection.clear(); if (id) selection.add(id); selVer++; selEdge = null; }
   selected = id;
+  const follow = selection.size > 1 ? null : id;   // 多选时不跟随:每点一个镜头就跳一下太晕
   if (isSpaces()) {
     // 跟随时不自己抢镜头:只保证它在画面里,居中交给(带延迟的)跟随,免得两段动画打架
-    if (id && center) { if (P.follow > 0) ensureVisible(id); else reveal(id); }
-    scheduleFollow(id);
-    renderSide(); return;
+    if (id && center) { if (P.follow > 0 && follow) ensureVisible(id); else reveal(id); }
+    scheduleFollow(follow);
+    renderSide(); renderStatus(); return;
   }
   const n = id && sim.get(id);
   if (n && !visible(n)) { hiddenTypes.delete(typeOf(id)); rebuildGraph(); renderChips(); }
-  if (n && center && n.x !== undefined && !(P.follow > 0)) {
+  if (n && center && n.x !== undefined && !(P.follow > 0 && follow)) {
     const t = d3.zoomIdentity.translate(innerWidth / 2 - 100, innerHeight / 2).scale(Math.max(transform.k, 1)).translate(-n.x, -n.y);
     d3.select(canvas).transition().duration(500).call(zoom.transform, t);
   }
-  scheduleFollow(id);
-  renderSide();
+  scheduleFollow(follow);
+  renderSide(); renderStatus();
 }

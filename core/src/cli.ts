@@ -26,9 +26,13 @@ const HELP = `stars —— 关系编辑器(内核 CLI)
   init                               用创世文件新建 universe.stars
   add <id> [label]                   新建节点   [-t 类型] [-s 摘要] [--ref 文件路径] [-a k=v ...] [--proposed]
   set <id>                           修改节点   [-l 标签] [-a k=v ...] [--unset k ...]
-  rm <id>                            删除节点(连带其所有边)
+  rm <id> ...                        删除节点(连带其所有边;几个一起删 = 一步撤回)
   link <from> <type> <to>            建边       [--proposed] [-a k=v ...]
   unlink <from> <type> <to>          删边
+  relink <from> <type> <to> [--type 新类型] [--reverse]   改边的类型 / 方向(属性跟着走)
+  mv <id> ... <容器> [--from 原容器]  移动进另一个容器(文件 / 文件夹在磁盘上真的搬,id 跟着改;--top 移到顶层)
+  cp <id> ... <容器>                  复制进另一个容器(连同里面的东西;文件在磁盘上复制一份)
+  ln <id> ... <容器>                  引用:也放进这个容器(只加一条 contains,什么都不搬)
   accept <from> <type> <to>          确认一条 proposed 边(只给 <id> 就是确认 proposed 节点)
   stamp <id> ...                     说明仍然有效:记下节点指向的文件现在的版本(写 summary 时会自动记)
                                      [--all 给所有有说明、还没记过版本的节点记上(已经过期的不动)]

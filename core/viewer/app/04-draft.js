@@ -25,6 +25,7 @@ function refreshFromUni() {
   const lv = listViews(uni); specs = lv.specs; viewErrors = Object.values(lv.errors); viewNames = Object.keys(specs);
   if (!specs[currentView]) currentView = viewNames[0];
   if (selected && !raw.has(selected)) selected = null;
+  pruneSelection();
   recompute(true);
   renderDraftBar(); renderSide();
 }
