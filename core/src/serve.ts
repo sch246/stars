@@ -25,14 +25,15 @@ import { apply, type Op } from './ops.ts';
 import { listFiles, planScan, selfRel, statMeta } from './scan.ts';
 import { buildSnapshot } from './snapshot.ts';
 import { planStamp, seenDiff, stampOnSummary } from './stale.ts';
-import { fileSig, Store } from './store.ts';
+import { applyDraft, draftPath, fileSig, readDraft, Store, writeDraft } from './store.ts';
+import { draftPreview } from './draft.ts';
 import { FsWatcher } from './watch.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const viewerDir = resolve(here, '..', 'viewer');
 
 /** 浏览器能直接 import 的共享模块(都不依赖 Node)。 */
-const SHARED = new Set(['model', 'view', 'expr', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync', 'bridge', 'cmdline', 'jsonc', 'toml']);
+const SHARED = new Set(['model', 'view', 'expr', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync', 'bridge', 'cmdline', 'jsonc', 'toml', 'draft']);
 
 function sharedModule(name: string): string {
   const ts = readFileSync(resolve(here, `${name}.ts`), 'utf8');
@@ -74,6 +75,8 @@ class Project {
   private issueTimer: NodeJS.Timeout | undefined;
   private liveTimer: NodeJS.Timeout | undefined;
   private gitTimer: NodeJS.Timeout | undefined;
+  private draftTimer: NodeJS.Timeout | undefined;
+  private draftSent = '';
   private pending: LiveSignals | null = null;
   private readonly dirWatcher: FSWatcher;
   readonly store: Store;
@@ -87,9 +90,10 @@ class Project {
     this.logOffset = store.exists() ? store.readLogSince(0).offset : 0;
     this.lastSig = fileSig(store.file);
     this.delivered = store.logCount();
-    const target = basename(store.file);
+    const target = basename(store.file), draftName = basename(draftPath(store.file));
     // 监听目录而不是文件:原子保存(写临时文件再 rename)会让文件级监听失效
     this.dirWatcher = watch(dirname(store.file), (_event, name) => {
+      if (name === draftName) { clearTimeout(this.draftTimer); this.draftTimer = setTimeout(() => this.sendDraft(), 60); return; }
       if (name !== target && name !== basename(store.logFile)) return;
       clearTimeout(this.timer);
       this.timer = setTimeout(() => this.onFiles(), 40); // 提交是"先追加日志、再写文件",合并到同一次处理
@@ -143,6 +147,16 @@ class Project {
         this.send(JSON.parse(this.snapshotLine()));
       }
     } catch { this.send(JSON.parse(this.snapshotLine())); }
+  }
+
+  /** 草稿变了(CLI / 脚本写进去、应用、丢弃):整份推给查看器(草稿一般不大) */
+  sendDraft(): void {
+    let entries;
+    try { entries = readDraft(this.store.file); } catch { return; } // 正写到一半
+    const key = JSON.stringify(entries);
+    if (key === this.draftSent) return;
+    this.draftSent = key;
+    this.send({ type: 'draft', entries });
   }
 
   /** 这些文件(相对路径)的内容变了(监听器发现 / 查看器保存):有节点对着它记了版本的话,过期与否可能变了,重新体检 */
@@ -199,7 +213,7 @@ class Project {
   }
 
   close(): void {
-    for (const t of [this.timer, this.issueTimer, this.liveTimer, this.gitTimer]) clearTimeout(t);
+    for (const t of [this.timer, this.issueTimer, this.liveTimer, this.gitTimer, this.draftTimer]) clearTimeout(t);
     this.dirWatcher.close();
     this.fsw?.stop();
     for (const c of this.clients) c.end();
@@ -395,6 +409,7 @@ export function startServer(
         const body = JSON.parse(await readBody(req, url.pathname === '/api/file' || url.pathname === '/api/ui-result' ? 8 << 20 : 1 << 20) || '{}') as {
           op?: Op; author?: string; dir?: string; create?: boolean; path?: string; content?: string; mtime?: number | null;
           name?: string; line?: string; file?: string; from?: string; id?: string; wait?: number; ids?: string[];
+          action?: string; indices?: number[];
           patch?: { start: number; end: number; insert: string }; baseHash?: string;
         };
         if (url.pathname === '/api/file') {
@@ -454,6 +469,25 @@ export function startServer(
           if (!body.op || typeof body.op !== 'object' || !OPS.has((body.op as { op: string }).op)) return json(res, 400, { error: '无效的操作' });
           const op = stampOnSummary(proj.store.peek(), body.op, proj.baseDir);   // 写了 summary 的节点顺手记下文件版本
           return json(res, 200, { ok: true, n: proj.store.commit(op, { author }).entry.n });
+        }
+        if (url.pathname === '/api/draft') {   // 草稿:apply 整批落进宇宙(一次提交)· drop 丢弃(indices 从 1 数;不给 = 全部)· add 追加一条
+          if (body.action === 'apply') { const r = applyDraft(proj.store, { author }); proj.sendDraft(); return json(res, 200, { ok: true, ...r }); }
+          if (body.action === 'drop') {
+            const entries = readDraft(proj.store.file), idx = new Set(Array.isArray(body.indices) ? body.indices : entries.map((_, i) => i + 1));
+            writeDraft(proj.store.file, entries.filter((_, i) => !idx.has(i + 1)));
+            proj.sendDraft();
+            return json(res, 200, { ok: true, dropped: entries.length - entries.filter((_, i) => !idx.has(i + 1)).length });
+          }
+          if (body.action === 'add') {
+            if (!body.op || typeof body.op !== 'object' || !OPS.has((body.op as { op: string }).op)) return json(res, 400, { error: '无效的操作' });
+            const entries = readDraft(proj.store.file), p = draftPreview(proj.store.load(), entries, { keepRemoved: false });
+            const op = stampOnSummary(p.u, body.op, proj.baseDir);
+            apply(p.u, op);   // 现在做不了就报错,不进草稿
+            writeDraft(proj.store.file, [...entries, { t: new Date().toISOString(), author, op }]);
+            proj.sendDraft();
+            return json(res, 200, { ok: true, draft: entries.length + 1 });
+          }
+          return json(res, 400, { error: 'action 应为 apply / drop / add' });
         }
         if (url.pathname === '/api/stamp') {   // 说明仍然有效:记下这些节点指向的文件现在的版本
           if (!Array.isArray(body.ids) || !body.ids.every((x) => typeof x === 'string')) return json(res, 400, { error: '需要 ids' });

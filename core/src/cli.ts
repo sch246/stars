@@ -13,7 +13,7 @@ import { exportHtml } from './exporter.ts';
 import { FsWatcher } from './watch.ts';
 import { startServer } from './serve.ts';
 import { runNodeScript, sendUi } from './script.ts';
-import { Store } from './store.ts';
+import { DraftStore, readDraft, Store } from './store.ts';
 
 const HELP = `stars —— 关系编辑器(内核 CLI)
 
@@ -31,6 +31,9 @@ const HELP = `stars —— 关系编辑器(内核 CLI)
                                      [--all 给所有有说明、还没记过版本的节点记上(已经过期的不动)]
   scan [dir]                         把目录铺成 dir/file 节点 + contains 边   [--under 根节点id]
   undo                               撤销最近一次操作
+  draft [show | apply | drop [序号…]]  草稿:批量改动先不落进宇宙,看过再整批应用(一次提交,一步撤回)或丢弃
+                                     写命令带 --draft 就进草稿:stars --draft link a dependsOn b、stars run --draft fix.js、stars scan --draft
+                                     读命令带 --draft 看"应用之后"的样子;查看器里会画出来(新增 / 修改 / 删除)
 
 读取
   ls                                 列节点     [-t 类型] [-w k=v ...] [--orphans] [-q 文本] [--edges]
@@ -67,6 +70,7 @@ const HELP = `stars —— 关系编辑器(内核 CLI)
 
 全局选项
   -f, --file <路径>     宇宙文件(默认 $STARS_FILE 或 ./universe.stars)
+  --draft               写进草稿(<宇宙文件>.draft),不落进宇宙;读命令看"应用了草稿之后"的样子(见 draft)
       --author <名字>   写入者(默认 $STARS_AUTHOR 或 human);AI 请用自己的名字
       --json            以 JSON 输出(读取类命令)
 `;
@@ -74,7 +78,7 @@ const HELP = `stars —— 关系编辑器(内核 CLI)
 // stars [全局选项] run <脚本> [脚本的参数…]:脚本名之后的一律交给脚本,不当成 stars 的选项
 const argv = process.argv.slice(2);
 const takesValue = new Set(Object.entries(CLI_OPTIONS).flatMap(([k, d]) => (d.type === 'string' ? ['--' + k, ...('short' in d ? ['-' + d.short] : [])] : [])));
-let runAt = -1;
+let runAt = -1, scriptAt = -1;
 for (let i = 0; i < argv.length; i++) {
   const t = argv[i]!;
   if (t === '--') break;
@@ -82,11 +86,16 @@ for (let i = 0; i < argv.length; i++) {
   if (t === 'run') runAt = i;
   break;
 }
-const { values: o, positionals: pos } = parseArgs({ allowPositionals: true, options: CLI_OPTIONS, args: runAt >= 0 ? argv.slice(0, runAt + 2) : argv });
-const scriptArgs = runAt >= 0 ? argv.slice(runAt + 2) : [];
+// run 和脚本名之间也可以写 stars 的选项(stars run --draft fix.js)
+if (runAt >= 0) for (let i = runAt + 1; i < argv.length; i++) { const t = argv[i]!; if (t.startsWith('-') && t !== '-') { if (takesValue.has(t)) i++; continue; } scriptAt = i; break; }
+const cut = runAt < 0 ? argv.length : scriptAt < 0 ? argv.length : scriptAt + 1;
+const { values: o, positionals: pos } = parseArgs({ allowPositionals: true, options: CLI_OPTIONS, args: argv.slice(0, cut) });
+const scriptArgs = runAt >= 0 ? argv.slice(cut) : [];
 
 const file = resolve(o.file ?? process.env.STARS_FILE ?? 'universe.stars');
-const store = new Store(file);
+// --draft:写进草稿(<宇宙文件>.draft)而不是宇宙;读命令看到的是"应用了草稿之后"的样子
+const store = o.draft ? new DraftStore(file) : new Store(file);
+const draftNote = () => { const k = readDraft(file).length; if (k) console.error(`(草稿里现在 ${k} 条改动 · stars draft 查看 · stars draft apply 整批应用 · 查看器里可以预览)`); };
 const ctx = { author: o.author ?? process.env.STARS_AUTHOR ?? 'human' };
 const [cmd, ...args] = pos;
 
@@ -105,6 +114,7 @@ function run(): void {
     if (o.json && r.data !== undefined) console.log(JSON.stringify(r.data, null, 2));
     else if (r.out) console.log(r.out);
     if (r.exitCode) process.exitCode = r.exitCode;
+    if (o.draft && cmd !== 'draft') draftNote();
     return;
   }
   switch (cmd) {
@@ -118,6 +128,7 @@ function run(): void {
       need(1, 'run <脚本.js|.ts> [参数…]');
       const author = o.author ?? process.env.STARS_AUTHOR ?? 'script:' + relative(root(), resolve(args[0]!)).replace(/\\/g, '/');
       runNodeScript(args[0]!, { store, author, root: root(), file, port: o.port ? Number(o.port) : undefined, args: scriptArgs })
+        .then(() => { if (o.draft) draftNote(); })
         .catch((err: Error) => { console.error(err instanceof StarsError ? `错误: ${err.message}` : err); process.exitCode = err instanceof StarsError ? 2 : 1; });
       return;
     }

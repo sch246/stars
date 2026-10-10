@@ -2,11 +2,12 @@
 // 每次 commit 都先重新读盘,所以外部(人、git、别的进程)的修改不会被覆盖掉。
 
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { parse, readRev, serialize } from './format.ts';
 import { type Universe, StarsError, createUniverse } from './model.ts';
 import { type Ctx, type Op, apply } from './ops.ts';
+import { type DraftEntry, draftPreview } from './draft.ts';
 
 export interface LogEntry {
   n: number;
@@ -15,6 +16,8 @@ export interface LogEntry {
   op: Op;
   inverse: Op;
   undoOf?: number;
+  /** 写进了草稿(DraftStore):草稿里的第几条;没有落进宇宙,也不在日志里 */
+  draft?: number;
 }
 
 /** 权限钩子:现在恒为允许。将来代码节点/agent 的能力检查放在这里。 */
@@ -180,6 +183,74 @@ export class Store {
     if (!target) throw new StarsError('没有可撤销的操作');
     return this.commit(target.inverse, ctx, target.n).entry;
   }
+}
+
+// ---------- 草稿(见 draft.ts):<宇宙文件>.draft,一行一条 { t, author, op } ----------
+export const draftPath = (file: string): string => `${file}.draft`;
+
+export function readDraft(file: string): DraftEntry[] {
+  let text: string;
+  try { text = readFileSync(draftPath(file), 'utf8'); } catch { return []; }
+  return text.split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l) as DraftEntry);
+}
+
+/** 整个替换(空了就删掉文件) */
+export function writeDraft(file: string, entries: DraftEntry[]): void {
+  const p = draftPath(file);
+  if (!entries.length) { try { unlinkSync(p); } catch { /* 本来就没有 */ } return; }
+  writeFileSync(`${p}.tmp`, entries.map((e) => JSON.stringify(e)).join('\n') + '\n');
+  renameSync(`${p}.tmp`, p);
+}
+
+/**
+ * 写进草稿的 Store:commit 不落进宇宙,而是先在"应用了草稿的宇宙"上试一遍(做不了照样报错),再追加到草稿;
+ * 读(load / peek)看到的是应用了草稿之后的样子;undo 去掉草稿的最后一条。日志、宇宙文件都不动。
+ */
+export class DraftStore extends Store {
+  override load(): Universe {
+    const base = super.load();
+    const entries = readDraft(this.file);
+    return entries.length ? draftPreview(base, entries, { keepRemoved: false }).u : base;
+  }
+
+  override peek(): Universe {
+    return this.load();
+  }
+
+  override commit(op: Op, ctx: Ctx): { universe: Universe; entry: LogEntry } {
+    const entries = readDraft(this.file);
+    const base = super.load();
+    const p = draftPreview(base, entries, { keepRemoved: false });
+    this.policy(ctx, op, p.u);
+    const inverse = apply(p.u, op);
+    const entry: DraftEntry = { t: new Date().toISOString(), author: ctx.author, op };
+    appendFileSync(draftPath(this.file), JSON.stringify(entry) + '\n');
+    return { universe: p.u, entry: { n: this.logCount(), t: entry.t, author: entry.author, op, inverse, draft: entries.length + 1 } };
+  }
+
+  override undo(ctx: Ctx): LogEntry {
+    const entries = readDraft(this.file);
+    const last = entries.pop();
+    if (!last) throw new StarsError('草稿是空的');
+    writeDraft(this.file, entries);
+    return { n: this.logCount(), t: new Date().toISOString(), author: ctx.author, op: last.op, inverse: last.op, undoOf: -(entries.length + 1), draft: entries.length + 1 };
+  }
+}
+
+/** 草稿整批落进宇宙:一次提交(一次 undo 就全撤回),然后清空草稿。有现在做不了的条目就一条也不落,报出来 */
+export function applyDraft(store: Store, ctx: Ctx): { n: number; count: number } {
+  if (store instanceof DraftStore) store = new Store(store.file);   // 落进真正的宇宙
+  const entries = readDraft(store.file);
+  if (!entries.length) throw new StarsError('草稿是空的');
+  const p = draftPreview(store.load(), entries);
+  if (p.failed.length) {
+    throw new StarsError(`草稿里有 ${p.failed.length} 条现在做不了(宇宙在写草稿之后变了),一条也没有应用:\n`
+      + p.failed.map((f) => `  #${f.i + 1} ${f.error}`).join('\n') + '\n去掉它们:stars draft drop ' + p.failed.map((f) => f.i + 1).join(' '));
+  }
+  const op: Op = entries.length === 1 ? entries[0]!.op : { op: 'batch', ops: entries.map((e) => e.op) };
+  const n = store.commit(op, ctx).entry.n;
+  writeDraft(store.file, []);
+  return { n, count: entries.length };
 }
 
 export function emptyUniverse(): Universe {

@@ -12,7 +12,8 @@ import { type Op } from './ops.ts';
 import { filterNodes, neighborhood, shortestPath, type Dir } from './query.ts';
 import { listFiles, planScan, selfRel, statMeta } from './scan.ts';
 import { planStamp, seenDiff, seenPath, seenState, stampOnSummary } from './stale.ts';
-import { type Store } from './store.ts';
+import { applyDraft, readDraft, Store, writeDraft } from './store.ts';
+import { draftPreview, draftSummary } from './draft.ts';
 import { BUILTIN_VIEWS, QUERY_PREFIX, compileView, evaluateView, listQueries, listViews, validateSpec } from './view.ts';
 
 /** CLI 的全部选项(全局选项 + 各命令的选项);脚本里的 stars.exec 也按它解析 */
@@ -30,6 +31,7 @@ export const CLI_OPTIONS = {
   proposed: { type: 'boolean' },
   all: { type: 'boolean' },
   diff: { type: 'boolean' },
+  draft: { type: 'boolean' },
   orphans: { type: 'boolean' },
   edges: { type: 'boolean' },
   q: { type: 'string', short: 'q' },
@@ -61,7 +63,7 @@ export type CliOpts = {
 export interface KernelCtx { store: Store; author: string; /** 项目根目录(体检查文件、扫描、信号) */ root: string }
 export interface CmdOut { out: string; data?: unknown; exitCode?: number }
 
-export const KERNEL_COMMANDS = new Set(['add', 'set', 'rm', 'link', 'unlink', 'accept', 'stamp', 'scan', 'undo', 'ls', 'show', 'nb', 'path', 'lint', 'stale', 'log', 'views', 'view', 'view-set', 'fn-set', 'query', 'query-set', 'queries']);
+export const KERNEL_COMMANDS = new Set(['add', 'set', 'rm', 'link', 'unlink', 'accept', 'stamp', 'scan', 'undo', 'ls', 'show', 'nb', 'path', 'lint', 'stale', 'log', 'views', 'view', 'view-set', 'fn-set', 'query', 'query-set', 'queries', 'draft']);
 
 function kv(list: string[] | undefined): Attrs {
   const attrs: Attrs = {};
@@ -123,7 +125,10 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
     if (o.ref !== undefined) attrs.file = o.ref;
     return attrs;
   };
-  const wrote = (op: Op, out: string): CmdOut => ({ out, data: { n: store.commit(op, c).entry.n } });
+  const wrote = (op: Op, out: string): CmdOut => {
+    const e = store.commit(op, c).entry;
+    return e.draft ? { out: `${out}   (草稿 #${e.draft})`, data: { draft: e.draft } } : { out, data: { n: e.n } };
+  };
   /** 写了 summary 的节点顺手记下文件版本(见 stale.ts) */
   const described = (op: Op): Op => stampOnSummary(store.peek(), op, ctx.root);
   switch (cmd) {
@@ -172,6 +177,7 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
     }
     case 'undo': {
       const e = store.undo(c);
+      if (e.draft) return { out: `已从草稿里去掉第 ${e.draft} 条(${draftSummary(e.op)})`, data: { draft: e.draft } };
       return { out: `已撤销 #${e.undoOf}`, data: { n: e.n, undoOf: e.undoOf } };
     }
     case 'ls': {
@@ -282,6 +288,35 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
       const id = `~fn/${args[0]}`, u = store.load(), had = u.nodes.has(id);
       const n = store.commit(had ? { op: 'setNode', id, label: o.label, set: { code } } : { op: 'addNode', id, label: o.label ?? args[0]!, attrs: { kind: 'function', code } }, c).entry.n;
       return { out: `${had ? '~' : '+'} 函数 fn.${args[0]}`, data: { n } };
+    }
+    case 'draft': {   // 草稿(批量改动的预览):看 / 整批应用 / 丢弃
+      const sub = args[0] ?? 'show';
+      if (sub === 'apply') {
+        const r = applyDraft(store, c);
+        return { out: `已应用草稿:${r.count} 条改动作为一次提交 #${r.n}(stars undo 一步撤回)`, data: r };
+      }
+      if (sub === 'drop') {
+        const entries = readDraft(store.file);
+        if (!entries.length) return { out: '草稿是空的', data: { dropped: 0 } };
+        if (args.length === 1) { writeDraft(store.file, []); return { out: `已丢弃整个草稿(${entries.length} 条)`, data: { dropped: entries.length } }; }
+        const idx = new Set(args.slice(1).map((x) => Number(x)));
+        for (const i of idx) if (!Number.isInteger(i) || i < 1 || i > entries.length) throw new StarsError(`没有第 ${[...args.slice(1)].find((x) => Number(x) === i) ?? i} 条(草稿共 ${entries.length} 条)`);
+        writeDraft(store.file, entries.filter((_, i) => !idx.has(i + 1)));
+        return { out: `已丢弃 ${idx.size} 条,草稿还剩 ${entries.length - idx.size} 条`, data: { dropped: idx.size } };
+      }
+      if (sub !== 'show') throw new StarsError('用法: stars draft [show | apply | drop [序号…]]');
+      const entries = readDraft(store.file);
+      if (!entries.length) return { out: '草稿是空的(写命令带上 --draft 就进草稿,比如 stars --draft link a dependsOn b、stars run --draft fix.js)', data: { entries: [] } };
+      const p = draftPreview(new Store(store.file).load(), entries);
+      const bad = new Map(p.failed.map((f) => [f.i, f.error]));
+      const authors = [...new Set(entries.map((e) => e.author))];
+      const lines = [`草稿:${entries.length} 条改动(${authors.join('、')}),应用之后 +${p.added.size} 节点 ~${p.changed.size} −${p.removed.size} · +${p.addedEdges} 边 −${p.removedEdges}`,
+        ...entries.map((e, i) => `  ${String(i + 1).padStart(3)}  ${draftSummary(e.op)}${bad.has(i) ? `   ✗ 现在做不了:${bad.get(i)}` : ''}`),
+        `stars draft apply 整批应用(之后 stars undo 一步撤回) · stars draft drop [序号…] 丢弃`];
+      return {
+        out: lines.join('\n'),
+        data: { entries, added: [...p.added], changed: [...p.changed], removed: [...p.removed], addedEdges: p.addedEdges, removedEdges: p.removedEdges, failed: p.failed },
+      };
     }
     case 'query': {   // 跑一个保存的查询,或者直接给一条表达式
       need(1, "query <查询名 | '表达式'>");
