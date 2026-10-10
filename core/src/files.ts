@@ -4,11 +4,13 @@
 //   · 原来是 CRLF 的文件保存时仍是 CRLF(浏览器的文本框会把换行统一成 \n);还原之后和磁盘上一样就不写(不碰修改时间)
 //   · 保存可以只传改动的一段(patchProjectFile):按内容的哈希确认基线,比修改时间可靠
 //   · 点一下就打开,所以要轻:head=N 只读开头 N 字节(切在最后一个换行处),点进编辑框或滚到底再要全文
+//   · 重新载入也是增量的:服务端记着最近给出去 / 存下来的几版(按内容哈希),查看器带着手上那版的哈希来要(since),
+//     就只回"改动的那一段";记不得那一版(重启过、被挤掉了)就回整份
 import { closeSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs';
 import { extname, relative, resolve, sep } from 'node:path';
 import { StarsError } from './model.ts';
 import { isStorage } from './scan.ts';
-import { textHash, textNormEol, textPatch, type TextPatch } from './textsync.ts';
+import { textDiff, textHash, textNormEol, textPatch, type TextPatch } from './textsync.ts';
 
 export const MAX_TEXT = 2 << 20;
 export const IMAGE_TYPES: Record<string, string> = {
@@ -39,6 +41,31 @@ export interface FileInfo {
   /** 只给了开头一段(head) */
   partial?: boolean;
   content?: string;
+  /** 全文(换行折成 LF)的哈希 */
+  hash?: string;
+  /** 带 since 来要、服务端还记得那一版时:不给 content,只给从那一版到现在的改动 */
+  patch?: TextPatch;
+}
+
+// ---- 基线:每个文件记最近几版全文(LF),按哈希取;总量有上限,最久没用的先丢 ----
+const BASE_PER_FILE = 4, BASE_MAX_BYTES = 32 << 20;
+const baselines = new Map<string, Map<string, string>>();   // 绝对路径 → 哈希 → 文本;两层都按"最近用过"排在后面
+let baselineBytes = 0;
+function rememberText(abs: string, text: string, hash: string): void {
+  let m = baselines.get(abs);
+  if (m) baselines.delete(abs); else m = new Map();
+  baselines.set(abs, m);
+  if (m.has(hash)) { m.delete(hash); m.set(hash, text); return; }
+  m.set(hash, text); baselineBytes += text.length;
+  for (const [h, t] of m) { if (m.size <= BASE_PER_FILE) break; m.delete(h); baselineBytes -= t.length; }
+  for (const [p, vs] of baselines) {
+    if (baselineBytes <= BASE_MAX_BYTES || p === abs) break;
+    for (const t of vs.values()) baselineBytes -= t.length;
+    baselines.delete(p);
+  }
+}
+function recallText(abs: string, hash: string): string | null {
+  return baselines.get(abs)?.get(hash) ?? null;
 }
 
 /** 写入时磁盘上的版本已经不是读到的那个了 */
@@ -60,7 +87,8 @@ export function resolveInside(baseDir: string, rel: string): string {
 const readonlyPath = (rel: string, self?: string) => isStorage(rel, self) || /(^|\/)\.git(\/|$)/.test(rel);
 const relOf = (baseDir: string, abs: string) => relative(resolve(baseDir), abs).split(sep).join('/');
 
-export function readProjectFile(baseDir: string, rel: string, opts: { self?: string; statOnly?: boolean; head?: number } = {}): FileInfo {
+/** since:查看器手上那一版的哈希。服务端还记得那一版就只回改动(patch),否则回整份 */
+export function readProjectFile(baseDir: string, rel: string, opts: { self?: string; statOnly?: boolean; head?: number; since?: string } = {}): FileInfo {
   const abs = resolveInside(baseDir, rel);
   const st = statSync(abs);
   if (!st.isFile()) throw new StarsError(`不是文件: ${rel}`);
@@ -82,8 +110,15 @@ export function readProjectFile(baseDir: string, rel: string, opts: { self?: str
     info.partial = true;
     const cut = content.lastIndexOf('\n');
     content = cut > 0 ? content.slice(0, cut + 1) : content.replace(/\uFFFD+$/, '');
+    info.content = content;
+    return info;
   }
-  info.content = content;
+  const text = textNormEol(content), hash = textHash(text);
+  const old = opts.since ? (opts.since === hash ? text : recallText(abs, opts.since)) : null;
+  rememberText(abs, text, hash);
+  info.hash = hash;
+  if (old !== null) info.patch = textDiff(old, text);
+  else info.content = content;
   return info;
 }
 
@@ -101,6 +136,8 @@ export function writeProjectFile(baseDir: string, rel: string, content: string, 
   if (baseMtime !== null && Math.abs(st.mtimeMs - baseMtime) > 1) throw new FileConflict(st.mtimeMs);
   writeFileSync(abs, content);
   const after = statSync(abs);
+  const text = textNormEol(content);
+  rememberText(abs, text, textHash(text));
   return { size: after.size, mtime: after.mtimeMs };
 }
 
@@ -118,6 +155,7 @@ export function patchProjectFile(baseDir: string, rel: string, patch: TextPatch,
   const out = disk.includes('\r\n') ? next.replace(/\n/g, '\r\n') : next;
   if (out === disk) return { size: st.size, mtime: st.mtimeMs, hash: textHash(next), unchanged: true };
   writeFileSync(abs, out);
-  const after = statSync(abs);
-  return { size: after.size, mtime: after.mtimeMs, hash: textHash(next) };
+  const after = statSync(abs), hash = textHash(next);
+  rememberText(abs, next, hash);
+  return { size: after.size, mtime: after.mtimeMs, hash };
 }

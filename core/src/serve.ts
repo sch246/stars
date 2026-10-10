@@ -31,7 +31,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const viewerDir = resolve(here, '..', 'viewer');
 
 /** 浏览器能直接 import 的共享模块(都不依赖 Node)。 */
-const SHARED = new Set(['model', 'view', 'expr', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync', 'bridge', 'cmdline']);
+const SHARED = new Set(['model', 'view', 'expr', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync', 'bridge', 'cmdline', 'jsonc', 'toml']);
 
 function sharedModule(name: string): string {
   const ts = readFileSync(resolve(here, `${name}.ts`), 'utf8');
@@ -342,7 +342,7 @@ export function startServer(
       const self = selfRel(proj.baseDir, proj.store.file);
       if (req.method === 'GET' && url.pathname === '/api/file') {
         const head = Number(url.searchParams.get('head')) || undefined;
-        return json(res, 200, readProjectFile(proj.baseDir, url.searchParams.get('path') ?? '', { self, statOnly: url.searchParams.has('stat'), head }));
+        return json(res, 200, readProjectFile(proj.baseDir, url.searchParams.get('path') ?? '', { self, statOnly: url.searchParams.has('stat'), head, since: url.searchParams.get('since') ?? undefined }));
       }
       if (req.method === 'GET' && url.pathname === '/api/raw') { // 图片预览
         const abs = resolveInside(proj.baseDir, url.searchParams.get('path') ?? '');

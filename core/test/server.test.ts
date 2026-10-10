@@ -314,6 +314,22 @@ test('文件:在查看器里读写项目文件 —— 出不了项目目录、�
     assert.equal(stale.status, 409, '基线已经不是磁盘上那一版');
     assert.equal(readFileSync(join(dir, 'win.txt'), 'utf8'), 'l1\r\nL2 改\r\nl3\r\n');
     assert.equal((await save({ path: 'win.txt', patch: { start: 3, end: 999, insert: '' }, baseHash: textHash(winNext) })).status, 400);
+    // 增量重新载入:带着手上那一版的哈希(since)来要,服务端记得那一版就只回改动的一段;CRLF 按折成 LF 之后算
+    const r0 = await get('/api/file?path=win.txt&since=' + textHash(winNext));
+    assert.deepEqual([r0.body.content, r0.body.patch, r0.body.hash], [undefined, { start: winNext.length, end: winNext.length, insert: '' }, textHash(winNext)], '没变:空补丁');
+    writeFileSync(join(dir, 'win.txt'), 'l1\r\nL2 改了\r\nl3\r\n');
+    const r1 = await get('/api/file?path=win.txt&since=' + textHash(winNext));
+    assert.deepEqual(r1.body.patch, { start: 7, end: 7, insert: '了' }, '别处改了:只回改动');
+    assert.equal(r1.body.hash, textHash('l1\nL2 改了\nl3\n'));
+    assert.equal((await get('/api/file?path=win.txt&since=' + textHash('从没见过的版本'))).body.content, 'l1\r\nL2 改了\r\nl3\r\n', '不记得那一版:回整份');
+    const big = Array.from({ length: 5000 }, (_, i) => `line ${i}`).join('\n') + '\n';
+    writeFileSync(join(dir, 'big.txt'), big);
+    assert.equal((await get('/api/file?path=big.txt')).body.content, big);
+    writeFileSync(join(dir, 'big.txt'), big.replace('line 2500\n', 'line 2500 改\n'));
+    const rb = await fetch(`${base}/api/file?path=big.txt&since=${encodeURIComponent(textHash(big))}`, { headers: h });
+    const rbText = await rb.text();
+    assert.ok(rbText.length < 400 && big.length > 40000, `${big.length} 字节的文件改一处,回的只有 ${rbText.length} 字节`);
+    assert.equal((await get('/api/file?path=big.txt&head=100&since=' + textHash(big))).body.partial, true, '只要开头时不管 since');
     writeFileSync(join(dir, 'win.txt'), 'l1\r\nL2\r\n');
     // 内容和磁盘上一样(查看器里的文本框把 CRLF 折成了 LF 也算一样):不写、不改修改时间,也不算冲突
     const before = statSync(join(dir, 'win.txt')).mtimeMs;
@@ -373,7 +389,7 @@ test('共享模块:浏览器拿到的 /core/*.js 去掉了类型、能直接 imp
   await new Promise((r) => setTimeout(r, 150));
   const out = mkdtempSync(join(tmpdir(), 'stars-js-'));
   try {
-    for (const name of ['model', 'expr', 'view', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync', 'bridge', 'cmdline']) {
+    for (const name of ['model', 'expr', 'view', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync', 'bridge', 'cmdline', 'jsonc', 'toml']) {
       const r = await fetch(`http://127.0.0.1:${port}/core/${name}.js`);
       assert.equal(r.status, 200, name);
       const js = await r.text();
