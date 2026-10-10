@@ -8,6 +8,8 @@ import { apply, type Op } from '../src/ops.ts';
 import { filterNodes, neighborhood, shortestPath } from '../src/query.ts';
 import { planScan } from '../src/scan.ts';
 
+/** 视图相关的都在一起:计算(view.ts)和规格(viewspec.ts) */
+const viewModules = async () => ({ ...await import('../src/view.ts'), ...await import('../src/viewspec.ts') });
 const genesis = () => parse(readFileSync(new URL('../genesis.stars', import.meta.url), 'utf8'));
 
 test('格式:序列化后再解析得到同一个宇宙(含引号、等号、中文)', () => {
@@ -112,7 +114,7 @@ test('扫描:生成 dir/file 树,且可重复执行', () => {
 });
 
 test('视图:大小来自属性,目录大小沿 contains 汇总,规则按顺序匹配', async () => {
-  const { evaluateView, BUILTIN_VIEWS } = await import('../src/view.ts');
+  const { evaluateView, BUILTIN_VIEWS } = await viewModules();
   const u = genesis();
   apply(u, planScan(u, ['a/x.ts', 'a/y.md', 'b/z.ts'], 'repo', 'demo', (p) => ({ size: { 'a/x.ts': 100, 'a/y.md': 900, 'b/z.ts': 10 }[p]! })));
   const scene = evaluateView(u, BUILTIN_VIEWS.orbit!);
@@ -128,7 +130,7 @@ test('视图:大小来自属性,目录大小沿 contains 汇总,规则按顺序�
 });
 
 test('视图:同一份关系,换视图就换了表达(隐藏 contains、按关系筛节点)', async () => {
-  const { evaluateView, BUILTIN_VIEWS } = await import('../src/view.ts');
+  const { evaluateView, BUILTIN_VIEWS } = await viewModules();
   const u = genesis();
   apply(u, planScan(u, ['a/x.ts'], 'repo', 'demo'));
   apply(u, { op: 'addNode', id: 'goal', label: 'goal', attrs: { type: 'concept' } });
@@ -142,7 +144,7 @@ test('视图:同一份关系,换视图就换了表达(隐藏 contains、按关�
 });
 
 test('视图:宇宙里的 kind=view 节点覆盖内置视图,坏 JSON 只报错不崩', async () => {
-  const { listViews } = await import('../src/view.ts');
+  const { listViews } = await viewModules();
   const u = genesis();
   apply(u, { op: 'addNode', id: '~view/galaxy', label: '我的银河', attrs: { kind: 'view', spec: '{"look":"plain"}' } });
   apply(u, { op: 'addNode', id: '~view/bad', label: 'bad', attrs: { kind: 'view', spec: '{oops' } });
@@ -153,7 +155,7 @@ test('视图:宇宙里的 kind=view 节点覆盖内置视图,坏 JSON 只报错�
 });
 
 test('视图:color by group —— 同一子树继承同一个颜色', async () => {
-  const { evaluateView, BUILTIN_VIEWS } = await import('../src/view.ts');
+  const { evaluateView, BUILTIN_VIEWS } = await viewModules();
   const u = genesis();
   apply(u, planScan(u, ['a/b/x.ts', 'a/c/y.ts', 'z/w.ts'], 'repo', 'demo'));
   const c = new Map(evaluateView(u, BUILTIN_VIEWS.orbit!).nodes.map((n) => [n.id, n.color]));
@@ -163,7 +165,7 @@ test('视图:color by group —— 同一子树继承同一个颜色', async () 
 });
 
 test('折叠:默认只展开到第一层,收起的容器带"缩影",大小不因折叠而变', async () => {
-  const { evaluateView, BUILTIN_VIEWS } = await import('../src/view.ts');
+  const { evaluateView, BUILTIN_VIEWS } = await viewModules();
   const FLAT_FOLD = { ...BUILTIN_VIEWS.galaxy!, layout: 'flat' as const, expand: { relation: 'contains', depth: 1 } };
   const u = genesis();
   apply(u, planScan(u, ['a/x.ts', 'a/y.md', 'b/z.ts', 'top.txt'], 'repo', 'demo', () => ({ size: 100 })));
@@ -186,7 +188,7 @@ test('折叠:默认只展开到第一层,收起的容器带"缩影",大小不因
 });
 
 test('折叠:节点预算 —— 一层层展开、先展开小的,放不下的保持收起;手动展开不受限;透明容器不会把内容藏起来', async () => {
-  const { evaluateView, BUILTIN_VIEWS, DEFAULT_MAX_NODES } = await import('../src/view.ts');
+  const { evaluateView, BUILTIN_VIEWS, DEFAULT_MAX_NODES } = await viewModules();
   const u = genesis();
   const files = [...Array.from({ length: 200 }, (_, i) => `big/f${i}.ts`), ...[1, 2, 3, 4, 5].flatMap((k) => [`s${k}/a.ts`, `s${k}/b.ts`, `s${k}/sub/c.ts`])];
   apply(u, planScan(u, files, 'repo', 'demo', () => ({ size: 100 })));
@@ -207,7 +209,7 @@ test('折叠:节点预算 —— 一层层展开、先展开小的,放不下的�
 });
 
 test('折叠:内部关系消失,跨容器关系提升到容器上并汇总计数', async () => {
-  const { evaluateView, BUILTIN_VIEWS } = await import('../src/view.ts');
+  const { evaluateView, BUILTIN_VIEWS } = await viewModules();
   const FLAT_FOLD = { ...BUILTIN_VIEWS.galaxy!, layout: 'flat' as const, expand: { relation: 'contains', depth: 1 } };
   const u = genesis();
   apply(u, planScan(u, ['a/x.ts', 'a/y.ts', 'b/z.ts', 'b/w.ts'], 'repo', 'demo'));
@@ -229,7 +231,7 @@ test('折叠:内部关系消失,跨容器关系提升到容器上并汇总计数
 });
 
 test('折叠:contains 里有环也不会让节点消失', async () => {
-  const { evaluateView, BUILTIN_VIEWS } = await import('../src/view.ts');
+  const { evaluateView, BUILTIN_VIEWS } = await viewModules();
   const u = genesis();
   for (const id of ['p', 'q']) apply(u, { op: 'addNode', id, label: id });
   apply(u, { op: 'addEdge', from: 'p', type: 'contains', to: 'q' });
@@ -239,7 +241,7 @@ test('折叠:contains 里有环也不会让节点消失', async () => {
 });
 
 test('信号:recency 把时间戳变成新鲜度,颜色/大小随之变化,目录取后代里最新的', async () => {
-  const { evaluateView, BUILTIN_VIEWS, recencyWeight, validateSpec } = await import('../src/view.ts');
+  const { evaluateView, BUILTIN_VIEWS, recencyWeight, validateSpec } = await viewModules();
   const DAY = 86_400_000, now = Date.UTC(2026, 9, 1);
   assert.equal(recencyWeight(now, 10, now), 1);
   assert.ok(Math.abs(recencyWeight(now - 10 * DAY, 10, now) - 0.5) < 1e-9);
@@ -278,7 +280,7 @@ test('信号:操作日志里每个节点最近被触及的时间', async () => {
 });
 
 test('校验:能指出写错的规则取值,给 AI 和编辑器明确的反馈', async () => {
-  const { validateSpec } = await import('../src/view.ts');
+  const { validateSpec } = await viewModules();
   assert.match(validateSpec({ size: [{ by: 'degre' }] }).join('\n'), /degree/);
   assert.match(validateSpec({ color: [{ by: 'colour' }] }).join('\n'), /attr:/);
   assert.match(validateSpec({ size: [{ rollup: { relation: 'contains', op: 'avg' } }] }).join('\n'), /rollup/);
@@ -286,14 +288,14 @@ test('校验:能指出写错的规则取值,给 AI 和编辑器明确的反馈',
 });
 
 test('表达式:大小/颜色/样式/筛选都能写成表达式,信号与度数可用,函数节点可被调用', async () => {
-  const { evaluateView, validateSpec } = await import('../src/view.ts');
+  const { evaluateView, validateSpec } = await viewModules();
   const DAY = 86_400_000, now = Date.UTC(2026, 9, 1);
   const u = genesis();
   apply(u, planScan(u, ['a/hot.ts', 'a/cold.ts', 'a/big.md', 'b/x.ts'], 'repo', 'demo', (p) => ({ size: { 'a/hot.ts': 100, 'a/cold.ts': 100, 'a/big.md': 9000, 'b/x.ts': 100 }[p]! })));
   apply(u, { op: 'addEdge', from: 'a/hot.ts', type: 'dependsOn', to: 'b/x.ts' });
   apply(u, { op: 'addNode', id: '~fn/boost', label: 'boost', attrs: { kind: 'function', code: '(t, s) => log1p(s) * (days(t) < 7 ? 3 : 1)' } });
   const signals = { fileChanged: { 'a/hot.ts': now - DAY, 'a/cold.ts': now - 90 * DAY, 'a/big.md': now - 90 * DAY, 'b/x.ts': now - 90 * DAY } };
-  const spec: import('../src/view.ts').ViewSpec = {
+  const spec: import('../src/viewspec.ts').ViewSpec = {
     select: { where: "type == 'file' && size > 50" },
     size: [{ expr: 'fn.boost(fileChanged, size)', scale: 'linear', range: [1, 10] }],
     color: [{ when: "ext == 'md'", value: '#112233' }, { expr: 'recent(fileChanged, 7)', from: '#000000', to: '#ffffff' }],
@@ -367,7 +369,7 @@ test('存储:延迟写入 —— 日志先落盘,别的进程读到的仍然是�
 
 
 test('空间:每个容器是独立的小世界 —— 只含直接子节点;子节点之间的关系被汇总;通向外面的关系成为"外部链接"', async () => {
-  const { compileView, BUILTIN_VIEWS } = await import('../src/view.ts');
+  const { compileView, BUILTIN_VIEWS } = await viewModules();
   const u = genesis();
   apply(u, planScan(u, ['a/x.ts', 'a/lib/y.ts', 'a/lib/z.ts', 'b/w.ts', 'top.txt'], 'repo', 'demo', () => ({ size: 10 })));
   apply(u, { op: 'addNode', id: 'goal', label: 'goal', attrs: { type: 'concept' } });
@@ -404,7 +406,7 @@ test('空间:每个容器是独立的小世界 —— 只含直接子节点;子�
 });
 
 test('tag:容器不显示为节点,而是作为 tag 打在节点上', async () => {
-  const { evaluateView, BUILTIN_VIEWS, validateSpec } = await import('../src/view.ts');
+  const { evaluateView, BUILTIN_VIEWS, validateSpec } = await viewModules();
   const u = genesis();
   apply(u, planScan(u, ['a/b/x.ts', 'a/y.ts', 'c/z.ts', 'top.md'], 'repo', 'demo', () => ({ size: 10 })));
   const scene = evaluateView(u, BUILTIN_VIEWS.tags!);
@@ -418,7 +420,7 @@ test('tag:容器不显示为节点,而是作为 tag 打在节点上', async () =
 });
 
 test('contains 可以有多个上级:文件夹那条进容器树,别的容器画成淡线(平铺和空间都看得见)', async () => {
-  const { evaluateView, compileView } = await import('../src/view.ts');
+  const { evaluateView, compileView } = await viewModules();
   const u = genesis();
   apply(u, { op: 'addNode', id: 'root', label: 'root', attrs: { type: 'dir' } });
   apply(u, { op: 'addNode', id: 'src/', label: 'src', attrs: { type: 'dir', file: 'src/' } });

@@ -12,13 +12,14 @@ import { RULE_PREFIX, lint, listRules } from './lint.ts';
 import { StarsError, getEdge, type Attrs, type Universe } from './model.ts';
 import { type Op } from './ops.ts';
 import { arrange, undoWithFs } from './fsops.ts';
-import { filterNodes, neighborhood, shortestPath, type Dir } from './query.ts';
+import { QUERY_PREFIX, filterNodes, listQueries, neighborhood, shortestPath, type Dir } from './query.ts';
 import { listFiles, planScan, selfRel, statMeta } from './scan.ts';
 import { planStamp, seenDiff, seenPath, seenState, stampOnSummary } from './stale.ts';
 import { applyDraft, readDraft, Store, updateDraft } from './store.ts';
 import { draftPreview, draftSummary } from './draft.ts';
 import { styleKindOf, styleOp, styleTypes, type StyleKind, type StyleTypeInfo } from './styles.ts';
-import { BUILTIN_VIEWS, QUERY_PREFIX, compileView, evaluateView, listQueries, listViews, validateSpec } from './view.ts';
+import { compileView, evaluateView } from './view.ts';
+import { BUILTIN_VIEWS, listViews, validateSpec } from './viewspec.ts';
 
 /** CLI 的全部选项(全局选项 + 各命令的选项);脚本里的 stars.exec 也按它解析 */
 export const CLI_OPTIONS = {

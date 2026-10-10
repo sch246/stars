@@ -8,7 +8,8 @@ import { parse } from '../src/format.ts';
 import { apply, type Op } from '../src/ops.ts';
 import { Store } from '../src/store.ts';
 import { styleOp, styleTypes, styleKindOf } from '../src/styles.ts';
-import { BUILTIN_VIEWS, compileView, validateSpec, type ViewSpec } from '../src/view.ts';
+import { compileView } from '../src/view.ts';
+import { BUILTIN_VIEWS, validateSpec, type ViewSpec } from '../src/viewspec.ts';
 
 const genesis = readFileSync(new URL('../genesis.stars', import.meta.url), 'utf8');
 

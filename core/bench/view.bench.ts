@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { parse } from '../src/format.ts';
 import { apply } from '../src/ops.ts';
 import { planScan } from '../src/scan.ts';
-import { BUILTIN_VIEWS, compileView, evaluateView } from '../src/view.ts';
+import { compileView, evaluateView } from '../src/view.ts';
+import { BUILTIN_VIEWS } from '../src/viewspec.ts';
 
 const N = Number(process.argv[2] ?? 100_000);
 const time = <T>(label: string, fn: () => T): T => {

@@ -1,7 +1,7 @@
-// 查询:L0 只做最基本的三件事 —— 过滤节点、取邻域、找路径。
-// 路径表达式(auth -dependsOn*->)留给 L1。
+// 查询:过滤节点、取邻域、找路径;保存的查询(~query/<名字>)的定义。
+// 表达式里的路径条件(from / to / near ……)和保存的查询的结果在视图编译时算,见 viewexpr.ts。
 
-import { type Edge, type Node, type Universe, edgeKey, isSchemaId } from './model.ts';
+import { type Edge, type Node, type Universe, SCHEMA_PREFIX, edgeKey, isSchemaId } from './model.ts';
 
 export type Dir = 'out' | 'in' | 'both';
 
@@ -109,4 +109,18 @@ export function shortestPath(
     frontier = next;
   }
   return null;
+}
+
+/** 保存的查询 = 一个节点:~query/<名字>,kind=query,expr 是一条布尔表达式。结果随宇宙变化,所以是"动态区域"。 */
+export const QUERY_PREFIX = `${SCHEMA_PREFIX}query/`;
+export interface SavedQuery { name: string; id: string; label: string; expr: string; color?: string; summary?: string }
+export interface QueryResult extends SavedQuery { members: string[]; error?: string }
+export function listQueries(u: Universe): SavedQuery[] {
+  const out: SavedQuery[] = [];
+  for (const n of u.nodes.values()) {
+    if (!n.id.startsWith(QUERY_PREFIX) || n.attrs.kind !== 'query' || n.attrs.expr === undefined) continue;
+    const name = n.id.slice(QUERY_PREFIX.length);
+    out.push({ name, id: n.id, label: n.label || name, expr: n.attrs.expr, color: n.attrs.color, summary: n.attrs.summary });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
 }

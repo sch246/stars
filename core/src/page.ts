@@ -16,7 +16,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const viewerDir = resolve(here, '..', 'viewer');
 
 /** 浏览器能直接 import 的共享模块(都不依赖 Node),按依赖顺序(静态导出按这个顺序拼)。 */
-export const BROWSER_MODULES = ['model', 'expr', 'styles', 'view', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync', 'bridge', 'cmdline', 'jsonc', 'toml', 'draft', 'scriptnode', 'arrange'];
+export const BROWSER_MODULES = ['model', 'expr', 'styles', 'query', 'viewspec', 'viewgraph', 'viewexpr', 'viewfold', 'view', 'ops', 'proposals', 'llf', 'format', 'textsync', 'bridge', 'cmdline', 'jsonc', 'toml', 'draft', 'scriptnode', 'arrange'];
 const BROWSER_SET = new Set(BROWSER_MODULES);
 export const isBrowserModule = (name: string) => BROWSER_SET.has(name);
 

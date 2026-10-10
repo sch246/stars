@@ -101,11 +101,12 @@
 <script type="application/json" id="stars-config">__STARS_CONFIG__</script>
 <script src="/d3.js"></script>
 <script type="module">
-import { compileView, hashColor, listViews, validateSpec, QUERY_PREFIX } from '/core/view.js';
+import { compileView, hashColor } from '/core/view.js';
+import { listViews, validateSpec } from '/core/viewspec.js';
 import { edgeKey } from '/core/model.js';
 import { apply } from '/core/ops.js';
 import { nodeProposalKey, trackProposals } from '/core/proposals.js';
-import { filterNodes, neighborhood, shortestPath } from '/core/query.js';
+import { QUERY_PREFIX, filterNodes, neighborhood, shortestPath } from '/core/query.js';
 import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '/core/llf.js';
 import { jsoncDelete, jsoncInsert, jsoncParse, jsoncSet } from '/core/jsonc.js';
 import { tomlDelete, tomlInsert, tomlParse, tomlSet } from '/core/toml.js';

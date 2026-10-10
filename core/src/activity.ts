@@ -1,7 +1,7 @@
 // "信号":关于每个节点的、宇宙文件本身没有记录的时间信息。
 //   touched      图里最近被编辑(来自操作日志)
 //   fileChanged  节点指向的文件最近被提交过,或工作区里正有未提交的修改(来自 git)
-// 视图规则可以用它们给节点上色/定大小(见 view.ts 的 recency)。仅 Node 端使用。
+// 视图规则可以用它们给节点上色/定大小(见 view.ts 的 recencyWeight)。仅 Node 端使用。
 
 import { execFileSync } from 'node:child_process';
 import { statSync } from 'node:fs';
