@@ -31,6 +31,8 @@ export interface ServerOptions {
   mountId?: string;
   debounceMs?: number;
   pollSec?: number;
+  /** 按触发跑脚本节点(默认开;false = 只能手动跑) */
+  agent?: boolean;
 }
 
 export interface ServerHandle {
@@ -61,6 +63,7 @@ export function startServer(
   projects.set(main.id, main);
   const mountId = options.mountId ?? 'repo';
   if (options.watch) main.startWatch(mountId, log, options);
+  if (options.agent !== false) main.startAgent(log);
 
   const openProject = (dir: string, create = false): Project => {
     const abs = resolve(expandHome(dir));
@@ -81,6 +84,7 @@ export function startServer(
     const p = new Project(new Store(file), abs);
     projects.set(p.id, p);
     if (options.watch) p.startWatch(mountId, log, options);
+    if (options.agent !== false) p.startAgent(log);
     rememberRecent(abs);
     return p;
   };

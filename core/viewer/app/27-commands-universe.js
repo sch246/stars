@@ -122,6 +122,40 @@ defCmd('query-set', {
     return commitOp(had ? { op: 'setNode', id, label: o.label, set } : { op: 'addNode', id, label: o.label ?? name, attrs: { kind: 'query', ...set } }, `${had ? '~' : '+'} 查询 ${name}(现在匹配 ${count} 个)`, c);
   },
 });
+defCmd('script-set', {
+  group: '宇宙', effect: 'write', title: '新建 / 修改脚本节点 ~script/<名字>(代码在节点里,或指向文件;触发写在属性里)',
+  usage: "script-set <名字> --code '<JS>' | --ref <脚本文件> [-a on=change,file:src/**,stale,start] [-a every=10m] [-a draft=true] [-a enabled=false] [-s 说明] [--unset 键 …]",
+  flags: { code: 'code', ref: 'ref', a: 'attr', s: 'summary', l: 'label', unset: 'unset' }, multi: ['attr', 'unset'], more: true,
+  run: (a, o, c) => {
+    need(a, 1, CMDS.get('script-set'));
+    noProposing(c, '写脚本节点');
+    const name = a[0];
+    if (!/^[\p{L}\p{N}_.-]+$/u.test(name)) throw new Error('脚本名只能含字母、数字、_ . -');
+    const set = kvs(o.attr);
+    if (o.code !== undefined) set.code = o.code;
+    if (o.ref !== undefined) set.file = o.ref;
+    if (o.summary !== undefined) set.summary = o.summary;
+    const id = SCRIPT_PREFIX + name, had = needUni().nodes.get(id);
+    const merged = { ...(had ? had.attrs : {}), ...set };
+    for (const k of o.unset || []) delete merged[k];
+    const problems = checkScriptAttrs(merged);
+    if (problems.length) throw new Error(problems.join(';'));
+    const unset = (o.unset || []).filter((k) => had && k in had.attrs);
+    return commitOp(had ? { op: 'setNode', id, label: o.label, set, unset } : { op: 'addNode', id, label: o.label ?? name, attrs: { kind: 'script', ...set } }, `${had ? '~' : '+'} 脚本 ${name}`, c);
+  },
+});
+defCmd('script-run', {
+  group: '宇宙', effect: 'write', title: '在服务端跑一个脚本节点(和触发的一样:子进程,有记录),跑完显示输出', usage: 'script-run <名字> [参数…]',
+  args: [{ name: '脚本', values: () => listScripts(needUni()).map((d) => d.name) }], more: true,
+  run: async (a, o, c) => {
+    need(a, 1, CMDS.get('script-run'));
+    noProposing(c, '跑脚本');
+    if (c && c.src === 'page') throw new Error('页面不能跑脚本节点(它在服务端以你的权限运行)');
+    const rec = await runScript(a[0], a.slice(1));
+    const head = `${rec.status === 'ok' ? '✓' : rec.status === 'timeout' ? '⏱ 超时' : '✗'} ${a[0]}  ${rec.ms} ms${rec.ops ? ` · 写了 ${rec.ops} 处` : ''}${rec.draft ? ` · 草稿 +${rec.draft}` : ''}`;
+    return { out: [head, (rec.out || '').trim()].filter(Boolean).join('\n'), data: rec };
+  },
+});
 defCmd('rule-set', {
   group: '宇宙', effect: 'write', title: '自定义体检规则(存成节点 ~rule/<名字>):命中表达式的节点各报一条', usage: "rule-set <名字> --expr '<表达式>' [-s 提示] [-a level=warn|error|info]",
   flags: { expr: 'expr', s: 'summary', a: 'attr', l: 'label' }, multi: ['attr'], more: true,
@@ -253,6 +287,17 @@ defCmd('queries', {
   run: () => {
     const res = needCompiled().queryResults();
     return { out: res.map((r) => `${r.name.padEnd(16)} ${r.error ? '错误:' + r.error : String(r.members.length).padStart(5) + ' 个'}   ${r.expr}`).join('\n') || "(还没有保存的查询;过滤框里写 = 表达式,再点「存为查询」)", data: res.map((r) => ({ name: r.name, label: r.label, expr: r.expr, count: r.members.length, error: r.error })) };
+  },
+});
+defCmd('scripts', {
+  group: '查询', effect: 'read', title: '列出脚本节点:触发、最近一次运行',
+  run: () => {
+    const defs = listScripts(needUni());
+    return {
+      out: defs.map((d) => { const r = raw.get(RUN_PREFIX + d.name); return `${d.name.padEnd(16)} ${describeTriggers(d)}${d.file ? `  [${d.file}]` : ''}${r ? `   上次 ${r.attrs.status} ${ago(Date.parse(r.attrs.t))}` : '   还没跑过'}${d.problems.length ? '\n  ✗ ' + d.problems.join(';') : ''}`; }).join('\n')
+        || "(还没有脚本节点;script-set 名字 --code 'export default async (stars) => { … }' -a on=change)",
+      data: defs.map((d) => ({ name: d.name, triggers: describeTriggers(d), file: d.file, problems: d.problems })),
+    };
   },
 });
 defCmd('rules', {

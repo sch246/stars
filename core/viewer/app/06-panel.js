@@ -55,6 +55,7 @@ function renderSide() {
   const n = selected && raw.get(selected);
   syncFile(n || null);
   const sn = selected && (isSpaces() ? compiled.node(selected) : sim.get(selected));
+  if (isScriptNode(n)) { keepEdits(el, () => { el.innerHTML = scriptPanel(n); }); return; }
   if (!n && draftOn && draftMark) { el.innerHTML = draftPanel(); return; }
   if (!n && qActive && compiled) {
     const r = compiled.queryResults().find((x) => x.name === qActive);
@@ -73,6 +74,7 @@ function renderSide() {
       : `<div class="row sev-${g.sev}"><b>${g.items.length} × ${esc(rule)}</b></div><div class="row sev-${g.sev}" style="opacity:.7">例如 ${esc(g.items[0].message)}</div>`).join('');
     el.innerHTML = `<h3>日志</h3>`
       + (issues ? `<div class="sec"><div class="t">需要关注</div>${issues}</div>` : '')
+      + scriptsSection()
       + `<div class="sec"><div class="t">最近变更</div>${feed || '<span class="tag">暂无</span>'}</div>`;
     return;
   }

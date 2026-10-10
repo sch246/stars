@@ -1,10 +1,12 @@
 // 内核命令:读写宇宙文件、不需要查看器的那一批(add / link / ls / show / nb …)。
 // CLI(stars <命令>)和 Node 脚本(stars run x.js 里的 stars.exec / stars.cmd)都走这里:返回 { out, data },
 // out 给人看,data 给程序(--json 打印的就是它)。选项的写法与 CLI 相同,定义在 CLI_OPTIONS。
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { type ParseArgsConfig } from 'node:util';
 import { loadSignals } from './activity.ts';
+import { readRuns } from './runlog.ts';
+import { SCRIPT_PREFIX, checkScriptAttrs, describeTriggers, listScripts, scriptDef } from './scriptnode.ts';
 import { checkExpr, compileFn } from './expr.ts';
 import { RULE_PREFIX, lint, listRules } from './lint.ts';
 import { StarsError, type Attrs, type Universe } from './model.ts';
@@ -53,6 +55,7 @@ export const CLI_OPTIONS = {
   expr: { type: 'string' },
   from: { type: 'string' },
   n: { type: 'string', short: 'n' },
+  'no-agent': { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
 } as const satisfies ParseArgsConfig['options'];
 
@@ -64,7 +67,7 @@ export type CliOpts = {
 export interface KernelCtx { store: Store; author: string; /** 项目根目录(体检查文件、扫描、信号) */ root: string }
 export interface CmdOut { out: string; data?: unknown; exitCode?: number }
 
-export const KERNEL_COMMANDS = new Set(['add', 'set', 'rm', 'link', 'unlink', 'accept', 'stamp', 'scan', 'undo', 'ls', 'show', 'nb', 'path', 'lint', 'stale', 'log', 'views', 'view', 'view-set', 'fn-set', 'query', 'query-set', 'queries', 'draft', 'types', 'type-set', 'rule-set', 'rules']);
+export const KERNEL_COMMANDS = new Set(['add', 'set', 'rm', 'link', 'unlink', 'accept', 'stamp', 'scan', 'undo', 'ls', 'show', 'nb', 'path', 'lint', 'stale', 'log', 'views', 'view', 'view-set', 'fn-set', 'query', 'query-set', 'queries', 'draft', 'types', 'type-set', 'rule-set', 'rules', 'script-set', 'scripts']);
 
 function kv(list: string[] | undefined): Attrs {
   const attrs: Attrs = {};
@@ -313,6 +316,38 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
       return {
         out: rows.map((r) => `${r.name.padEnd(16)} ${String(r.count).padStart(5)}  ${r.level.padEnd(5)} ${r.message}   ${r.expr}`).join('\n')
           || "(还没有自定义规则;stars rule-set 没说明的文件 --expr \"type == 'file' && !summary\" -s 文件没有说明)",
+        data: rows,
+      };
+    }
+    case 'script-set': {   // 脚本节点 ~script/<名字>(L4,见 agent.ts):代码在节点里(--code / --from)或指向文件(--ref);触发写在属性里
+      need(1, "script-set <名字> --code '<JS>' | --from <文件> | --ref <脚本文件> [-a on=change,file:src/**,stale,start] [-a every=10m] [-a draft=true] [-a enabled=false] [-a timeout=2m] [-s 说明] [--unset 键 …]");
+      const name = args[0]!;
+      if (!/^[\p{L}\p{N}_.-]+$/u.test(name)) throw new StarsError('脚本名只能含字母、数字、_ . -');
+      const set: Attrs = kv(o.attr);
+      if (o.code !== undefined) set.code = o.code;
+      if (o.from !== undefined) set.code = readFileSync(resolve(o.from), 'utf8');
+      if (o.ref !== undefined) set.file = o.ref.replace(/\\/g, '/');
+      if (o.summary !== undefined) set.summary = o.summary;
+      const id = SCRIPT_PREFIX + name, u = store.peek(), had = u.nodes.get(id);
+      const merged: Attrs = { ...(had?.attrs ?? {}), ...set };
+      for (const k of o.unset ?? []) delete merged[k];
+      const problems = checkScriptAttrs(merged);
+      if (problems.length) throw new StarsError(problems.join(';'));
+      const unset = (o.unset ?? []).filter((k) => had && k in had.attrs);
+      const op: Op = had ? { op: 'setNode', id, label: o.label, set, unset } : { op: 'addNode', id, label: o.label ?? name, attrs: { kind: 'script', ...set } };
+      const r = wrote(op, `${had ? '~' : '+'} 脚本 ${name}`);
+      const def = scriptDef(store.peek(), name)!;
+      const missing = def.file && !existsSync(resolve(ctx.root, def.file)) ? `\n  注意:${def.file} 还不存在` : '';
+      return { ...r, out: `${r.out}  (${describeTriggers(def)};stars run ${SCRIPT_PREFIX}${name} 手动跑)${missing}` };
+    }
+    case 'scripts': {   // 脚本节点:触发、最近一次运行
+      const defs = listScripts(store.peek()), runs = readRuns(store.file);
+      const last = new Map(runs.map((r) => [r.script, r]));
+      const rows = defs.map((d) => ({ name: d.name, triggers: describeTriggers(d), file: d.file, summary: d.summary, problems: d.problems, last: last.get(d.name) ?? null }));
+      return {
+        out: rows.map((r) => `${r.name.padEnd(16)} ${r.triggers}${r.file ? `  [${r.file}]` : ''}\n  ${r.last ? `上次 ${r.last.t.replace('T', ' ').slice(0, 19)} ${r.last.trigger} ${r.last.status} ${r.last.ms}ms${r.last.ops ? ` 写了 ${r.last.ops} 处` : ''}${r.last.draft ? ` 草稿 +${r.last.draft}` : ''}` : '还没跑过'}`
+          + `${r.summary ? `  · ${r.summary}` : ''}${r.problems.length ? `\n  ✗ ${r.problems.join(';')}` : ''}`).join('\n')
+          || "(还没有脚本节点;stars script-set 名字 --code 'export default async (stars) => { … }' -a on=change)",
         data: rows,
       };
     }

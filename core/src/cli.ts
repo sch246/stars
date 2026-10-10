@@ -12,6 +12,9 @@ import { StarsError } from './model.ts';
 import { exportHtml } from './exporter.ts';
 import { FsWatcher } from './watch.ts';
 import { startServer } from './serve.ts';
+import { Project } from './project.ts';
+import { runScriptNode } from './agent.ts';
+import { SCRIPT_PREFIX, scriptDef, type TriggerInfo } from './scriptnode.ts';
 import { runNodeScript, sendUi } from './script.ts';
 import { DraftStore, readDraft, Store } from './store.ts';
 
@@ -64,6 +67,14 @@ const HELP = `stars —— 关系编辑器(内核 CLI)
   watch                              监听文件系统,把文件/目录的新增、删除、重命名实时同步进宇宙(Ctrl-C 退出)  [--mount repo] [--debounce 80] [--poll 120]
   export <out.html>                  导出成一个自包含的 HTML(含查看器与当前宇宙),拷到任何机器双击就能看(只读)
   serve                              启动实时查看器  [--port 4321] [--host 127.0.0.1] [--allow-host 域名 ...(反向代理用,也可用 STARS_ALLOW_HOSTS)] [--watch(同时实时同步文件系统)]
+                                     [--no-agent(不按触发跑脚本节点,只能手动跑)]
+
+脚本节点与 agent 循环(L4:代码存在宇宙里,手动跑或按触发跑,每次运行都有记录)
+  script-set <名字>                  新建 / 修改脚本节点 ~script/<名字>   --code '<JS>' | --from <文件(代码存进节点)> | --ref <脚本文件(节点指向它)>
+                                     [-a on=change,file:src/**,stale,start] [-a every=10m] [-a draft=true(写进草稿)] [-a enabled=false] [-a timeout=2m] [-s 说明]
+  scripts                            列出脚本节点:触发、最近一次运行
+  run ~script/<名字> [参数…]         手动跑一个脚本节点(脚本里 stars.trigger 是这次为什么跑)
+  agent                              不开查看器,只在后台按触发跑脚本节点(serve 本身也会跑)   [--watch 同时同步文件系统]
 
 遥控(查看器里的每个操作都是一条命令,见控制台的 help)
   ui <命令…>                         把一行命令发给打开着的查看器页面执行,打印它的输出   [--port N 指定服务] [--json 每条命令打印一行 {ok, out, data}]
@@ -132,7 +143,19 @@ function run(): void {
       return;
     }
     case 'run': {
-      need(1, 'run <脚本.js|.ts> [参数…]');
+      need(1, 'run <脚本.js|.ts | ~script/名字> [参数…]');
+      // 脚本节点:~script/<名字>,或者没有这个文件、但有同名的脚本节点
+      const target = args[0]!;
+      const node = target.startsWith(SCRIPT_PREFIX) ? target.slice(SCRIPT_PREFIX.length)
+        : !existsSync(resolve(target)) && store.exists() && scriptDef(new Store(file).peek(), target) ? target : null;
+      if (node !== null) {
+        let trigger: TriggerInfo | undefined;
+        try { trigger = process.env.STARS_TRIGGER ? JSON.parse(process.env.STARS_TRIGGER) as TriggerInfo : undefined; } catch { /* 坏的就当手动 */ }
+        runScriptNode(node, { store, file, root: root(), port: o.port ? Number(o.port) : undefined, args: scriptArgs, author: o.author ?? process.env.STARS_AUTHOR, trigger, runId: process.env.STARS_RUN_ID })
+          .then((rec) => { if (rec.status !== 'ok') process.exitCode = 1; if (o.draft || rec.draft) draftNote(); })
+          .catch((err: Error) => { console.error(err instanceof StarsError ? `错误: ${err.message}` : err); process.exitCode = err instanceof StarsError ? 2 : 1; });
+        return;
+      }
       const author = o.author ?? process.env.STARS_AUTHOR ?? 'script:' + relative(root(), resolve(args[0]!)).replace(/\\/g, '/');
       runNodeScript(args[0]!, { store, author, root: root(), file, port: o.port ? Number(o.port) : undefined, args: scriptArgs })
         .then(() => { if (o.draft) draftNote(); })
@@ -180,12 +203,23 @@ function run(): void {
       remoteUi().catch((err: Error) => { console.error(`错误: ${err.message}`); process.exitCode = 2; });
       return;
     }
+    case 'agent': {   // 不开查看器,只在后台按触发跑脚本节点(L4);--watch 同时同步文件系统(file:… 触发要它)
+      const baseDir = root();
+      const p = new Project(store instanceof DraftStore ? new Store(file) : store, baseDir);
+      if (o.watch) p.startWatch(o.mount ?? 'repo', console.log, watchOptions());
+      const loop = p.startAgent(console.log);
+      const auto = loop.scripts().filter((d) => d.enabled && (d.on.length || d.every));
+      console.log(`agent 循环:${loop.scripts().length} 个脚本节点,${auto.length} 个有触发${o.watch ? '' : '(没开 --watch:file 触发只认宇宙里文件节点的变化)'} · Ctrl-C 退出`);
+      process.on('SIGINT', () => { p.close(); process.exit(0); });
+      return;
+    }
     case 'serve': {
       const extra = [...(o['allow-host'] ?? []), ...(process.env.STARS_ALLOW_HOSTS?.split(',') ?? [])].map((h) => h.trim()).filter(Boolean);
       const baseDir = process.env.STARS_ROOT ?? dirname(file);
       const server = startServer(store, Number(o.port ?? 4321), baseDir, o.host ?? '127.0.0.1', console.log, extra, {
         watch: !!o.watch, mountId: o.mount ?? 'repo',
         debounceMs: o.debounce ? Number(o.debounce) : undefined, pollSec: o.poll ? Number(o.poll) : undefined,
+        agent: !o['no-agent'],
       });
       process.on('SIGINT', () => { server.close(); process.exit(0); });
       return;

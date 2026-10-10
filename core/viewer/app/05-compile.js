@@ -129,7 +129,7 @@ function recompute(structural = true) {
     n.x = (nb ? nb.x : 0) + Math.cos(a) * d; n.y = (nb ? nb.y : 0) + Math.sin(a) * d;
     if (nb) { n.vx = 0; n.vy = 0; }
   }
-  if (selected && !sim.has(selected)) selected = null;
+  if (selected && !sim.has(selected) && !(selected.startsWith('~') && raw.has(selected))) selected = null;   // 模式节点(脚本、类型……)不在图上,选中了就一直选着
 
   rebuildGraph();
   renderViews(); renderChips(); renderSide(); renderLegend(); renderReview(); renderTagbar();

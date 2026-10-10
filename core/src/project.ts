@@ -6,6 +6,7 @@ import { type ServerResponse } from 'node:http';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { invalidateSignals, loadSignals, type LiveSignals } from './activity.ts';
+import { AgentLoop } from './agent.ts';
 import { configDir } from './config.ts';
 import { gitTreeUniverse } from './history.ts';
 import { lint } from './lint.ts';
@@ -26,6 +27,8 @@ export class Project {
   readonly live: LiveSignals = { size: {}, changed: {} };
   watching = false;
   fsw: FsWatcher | null = null;
+  /** 脚本节点的触发循环(L4,见 agent.ts):serve 给每个打开的项目都开,stars agent 也用它 */
+  agent: AgentLoop | null = null;
   private logOffset: number;
   private lastSig: string;
   private delivered: number;
@@ -90,12 +93,13 @@ export class Project {
       const r = this.store.readLogSince(this.logOffset);
       this.logOffset = r.offset;
       const sig = fileSig(this.store.file);
-      if (r.reset) { this.lastSig = sig; this.delivered = this.store.logCount(); this.send(JSON.parse(this.snapshotLine())); return; }
+      if (r.reset) { this.lastSig = sig; this.delivered = this.store.logCount(); this.send(JSON.parse(this.snapshotLine())); this.agent?.refresh(); return; }
       if (r.entries.length > 0) {
         this.lastSig = sig;
         this.delivered = r.entries[r.entries.length - 1]!.n;
         this.send({ type: 'ops', entries: r.entries, n: this.delivered });
         this.scheduleIssues();
+        this.agent?.onOps(r.entries);
         return;
       }
       if (sig !== this.lastSig) {
@@ -121,6 +125,7 @@ export class Project {
   filesChanged(rels: Iterable<string>): void {
     const set = new Set(rels);
     if (set.size === 0) return;
+    this.agent?.onFiles([...set]);
     for (const n of this.store.peek().nodes.values()) {
       if (n.attrs.seen && set.has(n.attrs.file?.split('#')[0] ?? '')) { this.scheduleIssues(); return; }
     }
@@ -130,7 +135,11 @@ export class Project {
     if (this.issueTimer) return;
     this.issueTimer = setTimeout(() => {
       this.issueTimer = undefined;
-      try { this.send({ type: 'issues', issues: lint(this.store.peek(), { baseDir: this.baseDir, skipFileStat: this.watching }) }); } catch { /* 文件正被写 */ }
+      try {
+        const issues = lint(this.store.peek(), { baseDir: this.baseDir, skipFileStat: this.watching });
+        this.send({ type: 'issues', issues });
+        this.agent?.onIssues(issues);
+      } catch { /* 文件正被写 */ }
     }, 1500);
   }
 
@@ -170,7 +179,17 @@ export class Project {
     log(`[${this.name}] 实时同步已开启:启动对账 ${first.ms.toFixed(0)}ms`);
   }
 
+  /** 开始按触发跑脚本节点(见 agent.ts);运行的开始、结束推给查看器(type: run) */
+  startAgent(log: (m: string) => void): AgentLoop {
+    if (this.agent) return this.agent;
+    this.agent = new AgentLoop({ store: this.store, root: this.baseDir, log: (m) => log(`[${this.name}] ${m}`), onEvent: (e) => this.send(e) });
+    this.agent.start();
+    if (this.agent.scripts().some((d) => d.enabled && d.on.some((t) => t.kind === 'stale'))) this.scheduleIssues();   // 先体检一次:已经过期的也触发
+    return this.agent;
+  }
+
   close(): void {
+    this.agent?.stop();
     for (const t of [this.timer, this.issueTimer, this.liveTimer, this.gitTimer, this.draftTimer]) clearTimeout(t);
     this.dirWatcher.close();
     this.fsw?.stop();

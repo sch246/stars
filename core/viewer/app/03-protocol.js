@@ -33,6 +33,7 @@ const waitApplied = (n) => (lastN >= n ? Promise.resolve() : new Promise((ok) =>
 function wakeApplied() { for (let i = appliedWaiters.length - 1; i >= 0; i--) if (appliedWaiters[i].n <= lastN) appliedWaiters.splice(i, 1)[0].ok(); }
 function handle(m) {
   if (m.type === 'draft') { setDraft(m.entries || []); return; }
+  if (m.type === 'run') { onRun(m); return; }
   if (m.type === 'ops' || m.type === 'signals' || m.type === 'issues') {
     if (replay) { staleLive = true; return; } // 回放中:实时更新先不动画面,退出回放时重新同步
     if (m.type === 'ops') return applyOps(m.entries);

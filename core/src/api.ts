@@ -15,6 +15,7 @@ import { expandHome, readRecent, type Project } from './project.ts';
 import { selfRel } from './scan.ts';
 import { planStamp, seenDiff, stampOnSummary } from './stale.ts';
 import { applyDraft, updateDraft } from './store.ts';
+import { readRuns } from './runlog.ts';
 
 /** 服务的共享状态(serve.ts 建好后交给接口) */
 export interface ServerCtx {
@@ -115,6 +116,10 @@ export const GET: Record<string, Handler> = {
     const h = gitHistory(proj.store.file, limit, want === 'repo' ? 'repo' : 'file', proj.baseDir);
     return want === 'auto' && !h.commits.length ? gitHistory(proj.store.file, limit, 'repo', proj.baseDir) : h;
   },
+  '/api/runs': ({ q, proj }) => ({   // 脚本节点的运行记录(最近的在后)与正在跑的
+    runs: readRuns(proj.store.file, { script: q.get('script') ?? undefined, limit: Math.min(500, Number(q.get('limit')) || 30) }),
+    running: proj.agent?.runningNames() ?? [],
+  }),
   '/api/state': ({ q, proj, s }) => {
     const hash = q.get('commit') ?? '';
     if ((q.get('scope') as HistoryScope) === 'repo') {
@@ -210,6 +215,13 @@ export const POST: Record<string, Handler> = {
       return { ok: true, draft };
     }
     throw new HttpError(400, 'action 应为 apply / drop / add');
+  },
+  // 跑一个脚本节点(子进程,和触发的一样);跑完返回运行记录
+  '/api/run': async ({ body, proj, author }) => {
+    if (typeof body.name !== 'string' || !body.name) throw new HttpError(400, '需要 name(脚本节点 ~script/<名字> 的名字)');
+    const agent = proj.agent ?? proj.startAgent(() => {});
+    const args = Array.isArray(body.args) ? body.args.map(String) : [];
+    return { ok: true, record: await agent.runNow(body.name, { kind: 'manual', by: author }, args) };
   },
   '/api/stamp': ({ body, proj, author }) => {   // 说明仍然有效:记下这些节点指向的文件现在的版本
     if (!Array.isArray(body.ids) || !body.ids.every((x) => typeof x === 'string')) throw new HttpError(400, '需要 ids');
