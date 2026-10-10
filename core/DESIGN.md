@@ -921,7 +921,7 @@ AI 建议用 `stars link ... --proposed --author <名字>` 写入;人用 `stars 
 `test/browser/` 是查看器的交互测试:点、拖、框选、右键、键盘、剪贴板、拖进文件,检查的是图和磁盘上的结果。
 **不装 Playwright / Puppeteer**:`cdp.ts` 直接说 Chrome DevTools 协议(Node 自带的 WebSocket),提供鼠标、键盘、在页面里求值、截图,
 页面报的错和弹窗都记下来(弹窗默认点「确定」)。找 Chrome 的顺序:环境变量 `STARS_CHROME`(或 `CHROME_PATH`)> 常见安装位置 > PATH;
-找不到就跳过(不算失败)。
+找不到就跳过(不算失败);CI 上(有环境变量 `CI`)找不到直接失败,免得悄悄全跳过,Chrome 也不开沙箱(Ubuntu 24.04 限制了用户命名空间)。
 
 - `stage.ts` 搭舞台:临时 git 仓库(`docs/readme.md`、`src/{app,auth,util}.ts`)+ 概念(`ideas` 装着 `idea/a|b|c`,模块 `auth-mod`),
   进程内起服务(实时同步开着),无头 Chrome 打开查看器,关掉公转和跟随镜头,展开 repo / ideas / docs / src。
@@ -940,6 +940,7 @@ AI 建议用 `stars link ... --proposed --author <名字>` 写入;人用 `stars 
 cd core
 node --test "test/*.test.ts"                 # 测试(npm test)
 npm run test:ui                              # 浏览器里的交互测试(要装了 Chrome / Chromium / Edge,约 2.5 分钟,见「浏览器测试」)
+npm ci && npm run typecheck                  # 类型检查(tsconfig.json 只做检查;只有这一步要装 typescript、@types/node)
 bash demo/live.sh                            # 打开 http://localhost:4321,看宇宙生长
 AUTO=1 bash demo/live-fs.sh                  # 文件的新增/改名/修改/删除实时出现在查看器里(http://localhost:4331)
 bash demo/history.sh                         # 打开 http://localhost:4322,点 ⏱ 时间线,回放一段有分叉与合并的历史
@@ -997,7 +998,7 @@ node src/cli.ts serve --watch                # 实时查看器 + 文件系统同
 - 关系的批量建立:多对多现在是「每一对都连」,没有「一一对应」(选中没有顺序,配对有歧义);关系一多(某个节点几十条边、
   剪贴板里一组连到另一组)图会糊成一团,打算用前面说的 tag 式呈现或换视图来解决,还在想。
 - id 里不能有空白,所以磁盘上名字带空格的文件当不了节点;复制、粘贴进来的文件改用 `-`(`a-copy.ts`、`my-note.txt`)。
-  外面拖进来的只能是文件,文件夹拖不进来;一次最多 48 MB。撤销「复制文件」「新建文件」会删掉它,哪怕之后改过它。
+  外面拖进来的只能是文件,文件夹拖不进来;一次最多 48 MB。撤销「复制文件」「新建文件」= 把它挪进回收站(之后改过也不会丢)。
   回收站不会自己清空(`.git/stars-trash/` 或 `.stars-trash/`,不要了就删掉)。
 - 移动有几个上级的概念时,从视图里它所在的那个容器移出(CLI 要 `--from`);剪贴板、最近用过的关系类型存在浏览器里,换浏览器就没了。
 - 页面桥的级别是按命令粗分的,不能细到"只能写某个区域"(那是 L3 的"用关系表达的权限");提议级"只能动自己的提议"靠操作日志里的作者(`page:<路径>`)判断。
