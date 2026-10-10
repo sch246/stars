@@ -4,6 +4,7 @@
 // 这个文件同时在 Node(CLI)和浏览器(查看器)里运行:只依赖 model.ts,不碰 DOM、不碰文件系统。
 
 import { type Node, type Universe, SCHEMA_PREFIX, isSchemaId, isSymmetric, schemaNode } from './model.ts';
+import { STYLE_DEFAULT_SHAPES, STYLE_MODES } from './styles.ts';
 import { checkExpr, compileExpr, compileFn, freeIdentifiers, type ExprEnv, type ExprGraph } from './expr.ts';
 
 export type Shape = 'dot' | 'star' | 'nebula' | 'ringed' | 'pulsar';
@@ -50,6 +51,8 @@ export interface ColorRule {
 export interface StyleRule {
   when?: When;
   shape?: Shape;
+  /** "type":形状取节点自己的 shape 属性,其次类型节点(~类型)的 shape,再其次内置默认(见 styles.ts) */
+  by?: 'type';
   /** 表达式,返回形状名(dot/star/nebula/ringed/pulsar) */
   expr?: string;
 }
@@ -208,6 +211,8 @@ export interface CompiledView {
   matches(expr: string): string[];
   /** 保存的查询(~query/<名字>)的结果:算一次缓存;某条算不出来就带 error */
   queryResults(): QueryResult[];
+  /** 这个节点的大小 / 颜色 / 形状由哪条规则决定(下标;-1 = 没有规则管它,用的是类型节点或默认) */
+  explain(id: string): { size: number; color: number; style: number } | undefined;
 }
 
 /** 保存的查询 = 一个节点:~query/<名字>,kind=query,expr 是一条布尔表达式。结果随宇宙变化,所以是"动态区域"。 */
@@ -234,12 +239,8 @@ const GALAXY_COLOR: ColorRule[] = [
   { when: { type: 'file' }, by: 'attr:ext' },
   { by: 'type' },
 ];
-const GALAXY_STYLE: StyleRule[] = [
-  { when: { type: 'dir' }, shape: 'nebula' },
-  { when: { type: 'file' }, shape: 'star' },
-  { when: { type: 'module' }, shape: 'ringed' },
-  { when: { type: 'concept' }, shape: 'pulsar' },
-];
+// 形状按类型:类型节点(~dir、~module……)写了 shape 就用它,没写就是内置的(目录星云、文件恒星、模块带环、概念脉冲星)
+const GALAXY_STYLE: StyleRule[] = [{ by: 'type' }];
 
 /** 平面布局默认最多放多少个节点:力导向在浏览器里能流畅跑、标签还看得清的量级 */
 export const DEFAULT_MAX_NODES = 1500;
@@ -318,11 +319,7 @@ export const BUILTIN_VIEWS: Record<string, ViewSpec> = {
     select: { withRelations: ['dependsOn', 'related', 'describes'] },
     size: [{ by: 'degree', range: [5, 15] }],
     color: [{ by: 'type' }],
-    style: [
-      { when: { type: 'module' }, shape: 'ringed' },
-      { when: { type: 'concept' }, shape: 'pulsar' },
-      { shape: 'star' },
-    ],
+    style: [{ by: 'type' }],
     relations: {
       contains: { mode: 'hidden' },
       describes: { mode: 'faint', distance: 70, strength: 0.2 },
@@ -466,7 +463,21 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     if (i === undefined) { i = typeNames.length; typeNames.push(t); typeIdx.set(t, i); }
     return i;
   };
-  const relOf = (t: string): RelationRule => spec.relations?.[t] ?? spec.relations?.['*'] ?? { mode: 'line' };
+  // 边类型的外观:视图里专门写了这种边的规则 > 类型节点(~类型)上的 color / width / arrow / mode > 视图的兜底规则 *
+  const schemaRel = (t: string): Partial<RelationRule> => {
+    const a = schemaNode(u, t)?.attrs;
+    if (!a) return {};
+    const r: Partial<RelationRule> = {};
+    if (a.color && /^#[0-9a-fA-F]{6}$/.test(a.color)) r.color = a.color;
+    if (a.width && Number(a.width) > 0) r.width = Number(a.width);
+    if (a.arrow === 'true' || a.arrow === 'false') r.arrow = a.arrow === 'true';
+    if (a.mode && STYLE_MODES.includes(a.mode)) r.mode = a.mode as RelationMode;
+    return r;
+  };
+  const relOf = (t: string): RelationRule => {
+    const own = spec.relations?.[t];
+    return own ? { ...schemaRel(t), ...own } : { ...(spec.relations?.['*'] ?? { mode: 'line' }), ...schemaRel(t) };
+  };
 
   // ---- 边:压成数组;顺手确定容器树(同一节点取第一条 relation 入边作父节点) ----
   const E0 = u.edges.size;
@@ -498,7 +509,7 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
   const tRel = typeNames.map(relOf);
   const tShown = tRel.map((r) => r.mode !== 'hidden');
   const tSym = typeNames.map((t) => isSymmetric(u, t));
-  const tColor = typeNames.map((t, i) => tRel[i]!.color ?? schemaNode(u, t)?.attrs.color ?? hashColor(`edge:${t}`));
+  const tColor = typeNames.map((t, i) => tRel[i]!.color ?? hashColor(`edge:${t}`));
 
   // ---- 断环 + 深度 ----
   const state = new Uint8Array(N), path: number[] = [];
@@ -766,6 +777,21 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     const r = sizeRules[k]!;
     rad[i] = scaleValue(ruleVals[k]![i]!, maxByRule[k]!, r.scale ?? 'sqrt', r.range ?? [2, 10]);
   }
+  // 大小倍率:节点自己的 scale,其次类型节点的 scale(在"类型"面板里调)
+  const typeAttr = new Map<string, Record<string, string | undefined>>();
+  const ofType = (type: string | undefined): Record<string, string | undefined> => {
+    if (!type) return {};
+    let a = typeAttr.get(type);
+    if (!a) { a = schemaNode(u, type)?.attrs ?? {}; typeAttr.set(type, a); }
+    return a;
+  };
+  for (let i = 0; i < N; i++) {
+    const n = nodeList[i]!;
+    const sc = n.attrs.scale ?? ofType(n.attrs.type).scale;
+    if (sc === undefined) continue;
+    const x = Number(sc);
+    if (Number.isFinite(x) && x > 0) rad[i] = rad[i]! * x;
+  }
 
   // ---- 颜色 ----
   const colorRules = spec.color ?? [];
@@ -802,12 +828,15 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
   };
   const recencyTables = new Map<number, string[]>();
   const color: string[] = new Array(N);
+  const colorRuleOf = new Int16Array(N).fill(-1);
   for (let i = 0; i < N; i++) {
     if (!selected[i]) { color[i] = DEFAULT_COLOR; continue; }
     const n = nodeList[i]!;
     const k = firstMatch(colorPreds, n, i);
+    colorRuleOf[i] = k;
     const cr = k >= 0 ? colorRules[k]! : undefined;
-    let c = DEFAULT_COLOR;
+    // 没有规则管它:节点自己或类型节点写了颜色就用(改类型颜色在没写颜色规则的视图里也看得见)
+    let c = k < 0 ? (n.attrs.color ?? ofType(n.attrs.type).color ?? DEFAULT_COLOR) : DEFAULT_COLOR;
     if (cr?.expr) {
       const v = exprFor(cr.expr)(i);
       if (typeof v === 'number') {
@@ -834,10 +863,15 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
   const styleRules = spec.style ?? [];
   const stylePreds = styleRules.map((r) => compileWhen(r.when, exprFor));
   const shapeIdx = new Uint8Array(N);
+  const styleRuleOf = new Int16Array(N).fill(-1);
   for (let i = 0; i < N; i++) {
-    const k = selected[i] ? firstMatch(stylePreds, nodeList[i]!, i) : -1;
+    const n = nodeList[i]!;
+    const k = selected[i] ? firstMatch(stylePreds, n, i) : -1;
+    styleRuleOf[i] = k;
     const rule = k >= 0 ? styleRules[k]! : undefined;
-    const shape = rule?.expr ? String(exprFor(rule.expr)(i)) : rule?.shape;
+    const own = n.attrs.shape ?? ofType(n.attrs.type).shape;   // 节点自己 / 类型节点写的形状
+    const shape = rule?.expr ? String(exprFor(rule.expr)(i))
+      : rule?.by === 'type' ? own ?? STYLE_DEFAULT_SHAPES[n.attrs.type ?? ''] : rule ? rule.shape : own;
     const si = SHAPE_LIST.indexOf((shape ?? 'star') as Shape);
     shapeIdx[i] = si >= 0 ? si : 1;
   }
@@ -1085,6 +1119,7 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     ancestors: (id) => { const i = idx.get(id); return i === undefined ? [] : chainOf(i).map((v) => ids[v]!); },
     node: (id) => { const i = idx.get(id); return i === undefined ? undefined : mkNode(i); },
     parentOf: (id) => { const i = idx.get(id); return i === undefined || parent[i]! < 0 ? undefined : ids[parent[i]!]!; },
+    explain: (id) => { const i = idx.get(id); return i === undefined ? undefined : { size: sizeRule[i]!, color: colorRuleOf[i]!, style: styleRuleOf[i]! }; },
   };
 }
 
@@ -1116,7 +1151,7 @@ const KEYS = {
   expand: ['relation', 'depth', 'maxNodes', 'auto'],
   size: ['when', 'attr', 'expr', 'signal', 'recency', 'by', 'rollup', 'scale', 'range'],
   color: ['when', 'by', 'relation', 'level', 'value', 'expr', 'signal', 'halfLifeDays', 'from', 'to', 'rollup'],
-  style: ['when', 'shape', 'expr'],
+  style: ['when', 'shape', 'expr', 'by'],
   relation: ['mode', 'distance', 'strength', 'color', 'width', 'arrow', 'spin'],
 };
 const SHAPES = ['dot', 'star', 'nebula', 'ringed', 'pulsar'];
@@ -1152,7 +1187,8 @@ export function validateSpec(spec: unknown, u?: Universe): string[] {
     rules.forEach((r, i) => {
       if (!isObj(r)) { bad.push(`${key}[${i}] 必须是对象`); return; }
       unknownKeys(r, KEYS[key], `${key}[${i}]`);
-      if (key === 'style' && r.expr === undefined && !SHAPES.includes(r.shape as string)) bad.push(`style[${i}].shape 必须是 ${SHAPES.join('/')}(或写 expr)`);
+      if (key === 'style' && r.by !== undefined && r.by !== 'type') bad.push(`style[${i}].by 只能是 "type"(得到 ${JSON.stringify(r.by)})`);
+      if (key === 'style' && r.expr === undefined && r.by === undefined && !SHAPES.includes(r.shape as string)) bad.push(`style[${i}].shape 必须是 ${SHAPES.join('/')}(或写 expr、by: "type")`);
       if (r.expr !== undefined) checkSrc(r.expr, `${key}[${i}].expr`);
       if (typeof r.when === 'string') checkSrc(r.when, `${key}[${i}].when`);
       if (key === 'size' && r.by !== undefined && r.by !== 'degree') bad.push(`size[${i}].by 只能是 "degree"(得到 ${JSON.stringify(r.by)})`);

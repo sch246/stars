@@ -162,9 +162,9 @@ CLI 与查看器永远是同一套逻辑。
 | 层 | 文件 |
 |---|---|
 | 数据 | `model.ts` ⇄(节点、边、模式节点)· `ops.ts` ⇄(操作与逆操作)· `format.ts` ⇄(文本格式)· `proposals.ts` ⇄ · `draft.ts` ⇄(草稿预览) |
-| 视图与查询 | `expr.ts` ⇄(表达式编译)· `view.ts` ⇄(规则 → 场景、容器树、空间、保存的查询)· `query.ts` ⇄(邻域、最短路) |
+| 视图与查询 | `expr.ts` ⇄(表达式编译)· `view.ts` ⇄(规则 → 场景、容器树、空间、保存的查询)· `styles.ts` ⇄(类型的样式)· `query.ts` ⇄(邻域、最短路) |
 | 存储 | `store.ts`(读写宇宙文件 + 操作日志 + 草稿 + 写锁)· `merge.ts`(按事实合并)· `history.ts`(git 历史) |
-| 体检与同步 | `lint.ts` · `stale.ts`(过期检测)· `scan.ts` / `fssync.ts` / `watch.ts`(文件系统 → 宇宙)· `activity.ts`(信号) |
+| 体检与同步 | `lint.ts`(含 `~rule/` 自定义规则)· `stale.ts`(过期检测)· `scan.ts` / `fssync.ts` / `watch.ts`(文件系统 → 宇宙)· `activity.ts`(信号) |
 | 命令 | `commands.ts`(内核命令:CLI、脚本、服务端共用)· `cli.ts`(命令行入口与帮助)· `cmdline.ts` ⇄(一行命令的切分)· `script.ts`(`stars run`) |
 | 服务 | `serve.ts`(HTTP 服务、静态路由、SSE)· `api.ts`(`/api/*` 的路由表)· `project.ts`(一个打开着的项目:推送、监听、体检)· `page.ts`(拼查看器页面)· `exporter.ts`(静态导出) |
 | 文件与配置 | `files.ts`(项目里的文件读写)· `config.ts`(个人设置、快捷键、授权)· `llf.ts` ⇄ / `jsonc.ts` ⇄ / `toml.ts` ⇄(保留原文的表单格式)· `textsync.ts` ⇄ · `bridge.ts` ⇄(页面桥)· `nodefs.ts` |
@@ -176,7 +176,7 @@ CLI 与查看器永远是同一套逻辑。
 | 编号 | 内容 |
 |---|---|
 | 00–05 | 状态、设置的模型、力、与服务端的增量协议、草稿预览、编译视图与重建图 |
-| 06–12 | 侧栏面板、相机、鼠标交互、写接口、视图规则编辑器、项目、脚本 |
+| 06–12 | 侧栏面板(06a 类型面板)、相机、鼠标交互、写接口、视图规则编辑器、项目、脚本 |
 | 13–17 | 文件:类型处理器、Markdown / HTML 预览、页面桥、表单、载入与保存 |
 | 18–20 | 侧栏宽度与点别处关闭、设置面板与快捷键、时间线 |
 | 21–25 | 嵌套空间(物理)、过滤与查询、空间的绘制、空间切换与导航、主绘制循环 |
@@ -276,6 +276,41 @@ AI 用 `--proposed` 写入的边和节点(`link … --proposed`、`add … --pro
   (带一条说明由多少条内部关系汇总而来)。这是"从统计走向断言"的一步 —— 汇总是派生的,提升后才成为宇宙里的事实。
 
 所有写入都走同一条通道(带 `author: viewer`,写日志,可撤销)。
+
+## 类型的样式(L2):在图里改类型,所有视图立刻生效
+
+类型本身就是宇宙里的模式节点(`~module`、`~dependsOn`),**样式就是它们的属性**:
+
+| | 属性 |
+|---|---|
+| 节点类型(`kind=nodeType`) | `color`(#rrggbb)· `shape`(dot / star / nebula / ringed / pulsar)· `scale`(大小倍率) |
+| 边类型(`kind=edgeType`) | `color` · `width`(线宽)· `arrow`(true / false)· `mode`(line / faint / hidden / orbit / region) |
+
+视图取外观时的先后:**视图规则明确写了的 > 节点自己的同名属性 > 类型节点 > 内置默认**。具体是:
+
+- 形状:规则 `style: [{ "by": "type" }]` = 节点的 `shape` → 类型节点的 `shape` → 内置默认(目录星云、文件恒星、模块带环、概念脉冲星)。
+  内置视图都用它,所以改 `~module shape=…` 在 galaxy / recent / tags / orbit / arch / deps 里立刻看得见;规则里写死了 `shape` 的视图照规则来。
+  视图没有任何形状规则管到的节点,类型节点写了形状也用它(以前一律恒星)。
+- 颜色:`color: [{ "by": "type" }]` 早就取类型节点的 `color`;现在视图没有颜色规则管到的节点,也用节点自己 / 类型节点写的颜色(以前一律默认色)。
+  galaxy 里文件按扩展名、目录按顶层分组上色,这些视图里改文件类型的颜色看不出来 —— 「类型」面板会直接说明「这个视图里颜色由规则 color[1] 决定」。
+- 大小:按规则算出半径之后再乘 `scale`(节点自己的 > 类型节点的),所有视图都生效。
+- 边:视图里**专门写了这种边**的规则(`relations.dependsOn`)写了的字段优先,其余字段取类型节点;只落到兜底规则 `*` 的边,类型节点盖过兜底。
+  所以 `~dependsOn mode=faint` 在没专门规定 dependsOn 的视图里都变成淡线,`mode=hidden` 就是到处不画。
+
+**在查看器里改**:左上「类型」下拉列出节点类型(这个视图里没有的调暗)和边类型;点名字是显示 / 隐藏,点 ✎ 展开编辑框:
+颜色、形状(五个小图标)、大小滑条;边类型是颜色、线宽、箭头(默认 / 有 / 无)、画法(默认 / 实线 / 淡线 / 不画)。
+拖滑条、选颜色时先在本地预览(改内存里的类型节点、重算视图),松手才写进宇宙(作者 viewer,能 undo);每一项旁边的「默认」去掉这一项。
+侧栏里节点的类型名也能点(`file ✎`),直接打开它的编辑框。控制台里回显等价的命令,不弹出来挡住面板。
+
+```bash
+stars types                                                   # 节点类型、边类型:用量与样式
+stars type-set module -a color=#bd00ff -a shape=pulsar -a scale=1.5
+stars type-set dependsOn -a width=2 -a arrow=false -a mode=faint
+stars type-set module --unset scale                           # 去掉一项
+stars type-set flows -a kind=edgeType -a color=#33ffaa        # 还没有边用到的新边类型:写明 kind
+```
+
+类型节点不在就新建(`kind` 按"有没有边用这个类型"猜)。样式的检查和改法在 `styles.ts`,CLI、查看器、脚本用同一份。
 
 ## 过期检测:说明写于文件改动之前
 
@@ -761,6 +796,18 @@ git 历史(头部的按钮可以在"宇宙文件的历史"和"文件夹的历史
 | `stale` | warn | 说明写于文件改动之前(`seen` 和文件现在的内容对不上,见「过期检测」) |
 | `orphan` | info | 没有任何关系的节点 |
 | `proposed` | info | 等待人确认的 AI 提议边 |
+| `rule:<名字>` | 自定 | 宇宙里的自定义规则(见下) |
+| `rule-error` | error | 自定义规则的表达式写错了(报在规则节点上) |
+
+**自定义规则也是节点**:`~rule/<名字> kind=rule expr="<布尔表达式>" level=warn|error|info message="提示"`。
+表达式和视图规则、保存的查询同一套(属性、`degree`、路径条件 `from / to / out / into`、`fn.名字`……),命中的每个节点报一条(一条规则最多列 500 个)。
+查看器的「需要关注」、`stars lint`、服务端推的体检结果里都有。
+
+```bash
+stars rule-set 模块没说明 --expr "type == 'module' && !summary" -s 模块没有说明
+stars rule-set 没人用 --expr "type == 'module' && into('dependsOn') == 0" -a level=info -s 没有别的东西依赖它
+stars rules          # 列出规则和各自命中的数目
+```
 
 AI 建议用 `stars link ... --proposed --author <名字>` 写入;人用 `stars accept` 确认。
 
@@ -796,7 +843,7 @@ node src/cli.ts serve --watch                # 实时查看器 + 文件系统同
 |---|---|---|
 | L0 | 内核 + 文本格式 + CLI + 实时查看器 | ✅ 本次 |
 | L1 | 文件系统实时同步 ✅、视图规则编辑器 ✅、最近编辑信号 ✅、git 历史回放(含分叉)✅、按事实合并 ✅;表达式与函数节点 ✅、性能(编译/折叠)✅、接受/拒绝 proposed 与"提升为真边"的界面 ✅、静态导出 ✅、嵌套空间(放大切换 / 双击就地展开,各自独立的物理)✅、tag 视图 ✅、多项目切换 ✅、宇宙参数与热量 ✅、查看器里编辑文件 ✅、命令 / 控制台 / 命令面板 ✅、设置与快捷键是 LLF 文件(表单 ⇄ 原文)✅、遥控(`stars ui`)✅、文件类型处理器(预览 / 表单 / 宇宙概况,双击按种类)✅、页面桥(`window.stars`,按级别授权,页面的写入可以只是提议)✅、JS 脚本(`run` / `stars run`,`stars.cmd.*`)✅、关项目 / 刷新后回到原位 ✅、JSON / TOML 表单 ✅、增量重新载入 ✅、过期检测(文件哈希)✅、路径查询 ✅、保存的查询(= 动态区域)✅、批量变更预览(草稿)✅ | ✅ |
-| L2 | 视图/规则/查询都是节点;在图里改类型样式即时生效 | |
+| L2 | 视图 ✅、函数 ✅、保存的查询 ✅、自定义体检规则 ✅ 都是节点;在图里改类型样式即时生效 ✅(「类型」面板,`type-set`) | ✅ |
 | L3 | 代码节点 + 用关系表达的权限(`script --canWrite--> region`),沙箱运行 | |
 | L4 | agent 循环(事件/定时触发),运行记录写成节点 | |
 

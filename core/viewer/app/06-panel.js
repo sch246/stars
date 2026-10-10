@@ -33,15 +33,6 @@ function toggleTag(t) {
   renderTagbar(); renderSide();
 }
 
-function renderChips() {
-  const counts = new Map(), sample = new Map();
-  if (isSpaces()) {
-    for (const n of data.nodes) { if (n.id.startsWith('~')) continue; const t = typeOf(n.id); counts.set(t, (counts.get(t) || 0) + 1); if (!sample.has(t)) sample.set(t, compiled.node(n.id) || { color: '#888' }); }
-  } else for (const n of sim.values()) { const t = typeOf(n.id); counts.set(t, (counts.get(t) || 0) + 1); sample.set(t, n); }
-  $('types-badge').hidden = !hiddenTypes.size; $('types-badge').textContent = hiddenTypes.size ? '−' + hiddenTypes.size : '';
-  $('chips').innerHTML = [...counts].sort((a, b) => b[1] - a[1]).map(([t, c]) =>
-    `<span class="chip ${hiddenTypes.has(t) ? '' : 'on'}" data-t="${esc(t)}" data-cmd="type ${esc(quoteArg(t))} toggle"><i style="background:${sample.get(t).color}"></i>${esc(t)} ${c}</span>`).join('');
-}
 function setTypeShown(t, on) {
   if (on) hiddenTypes.delete(t); else hiddenTypes.add(t);
   if (isSpaces()) recompute(true); else { rebuildGraph(); renderChips(); }
@@ -93,7 +84,7 @@ function renderSide() {
     + (e.attrs.status === 'proposed' ? `<span class="sev-warn">待确认</span><span class="mini ok" data-act="accept" data-from="${esc(e.from)}" data-type="${esc(e.type)}" data-to="${esc(e.to)}">✓</span><span class="mini no" data-act="reject" data-from="${esc(e.from)}" data-type="${esc(e.type)}" data-to="${esc(e.to)}">✗</span>` : (e.attrs.status ? `<span class="sev-warn">${esc(e.attrs.status)}</span>` : '')) + '</div>';
   const myIssues = data.issues.filter((i) => i.nodes.includes(n.id) && i.rule !== 'proposed' && i.rule !== 'stale');   // 待确认的上面已经有 ✓ ✗ 了(体检结果要等 1.5 秒才推,不用它);过期有自己的一栏
   el.innerHTML = `<h3 style="color:${sn ? sn.color : '#fff'}">${esc(n.label)}</h3>
-    <div class="sub">${esc(n.id)}${n.attrs.type ? ' · ' + esc(n.attrs.type) : ''}${sn && sn.value !== undefined ? ' · 视图值 ' + esc(sn.value) : ''}</div>
+    <div class="sub">${esc(n.id)}${n.attrs.type ? ` · <span class="link ty-link" data-cmd="type-edit ${esc(quoteArg(n.attrs.type))} node" title="改这一类节点的样子">${esc(n.attrs.type)} ✎</span>` : ''}${sn && sn.value !== undefined ? ' · 视图值 ' + esc(sn.value) : ''}</div>
     ${n.attrs.status === 'proposed' ? (() => { const who = (data.proposals || {})[nodeProposalKey(n.id)]; return `<div class="sec"><div class="row"><span class="sev-warn">待确认的节点</span><span>${who ? esc(who.author) + ' · ' + ago(who.t) : '来源未知'}</span><span class="mini ok" data-act="accept" data-id="${esc(n.id)}" title="接受">✓</span><span class="mini no" data-act="reject" data-id="${esc(n.id)}" title="拒绝(删除这个节点和它的边)">✗</span></div></div>`; })() : ''}
     ${draftMark ? (draftMark.added.has(n.id) ? '<div class="sec"><span style="color:#7be0a0">草稿里新增的节点(还没落进宇宙)</span></div>' : draftMark.removed.has(n.id) ? '<div class="sec"><span style="color:#ff7a90">草稿会删掉这个节点(连同它的边)</span></div>' : draftMark.changed.has(n.id) ? `<div class="sec"><span style="color:#ffb347">草稿会改它</span>${draftChanges(n.id)}</div>` : '') : ''}
     ${n.attrs.summary ? `<p>${esc(n.attrs.summary)}</p>` : ''}

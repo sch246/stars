@@ -52,6 +52,13 @@ const HELP = `stars —— 关系编辑器(内核 CLI)
   view <name>                        计算一个视图并输出场景摘要   [--depth N 展开层数] [--max-nodes N 节点预算] [--expand id,id 强制展开] [--json 完整场景]
   view-set <name>                    新建/覆盖一个视图(规格会先校验)   --spec '<JSON>' 或 --from <文件>   [--label 显示名]
   fn-set <name>                      新建/覆盖一个函数节点,供视图表达式里 fn.<name>(...) 调用   --code '<函数表达式>' 或 --from <文件>
+  rule-set <名字>                    自定义体检规则(存成节点 ~rule/<名字>):命中表达式的节点在 lint / 查看器里各报一条
+                                     --expr '<表达式>' [-s 提示] [-a level=warn|error|info]   例:--expr "type == 'file' && !summary" -s 文件没有说明
+  rules                              列出自定义规则和各自命中的数目
+  types                              节点类型、边类型:用量与样式
+  type-set <类型>                    改类型的样式(写到类型节点 ~<类型>,不在就建;没专门规定它的视图里立刻生效)
+                                     节点类型 -a color=#rrggbb -a shape=dot|star|nebula|ringed|pulsar -a scale=1.5
+                                     边类型 -a color=… -a width=2 -a arrow=true|false -a mode=line|faint|hidden   [--unset 键 …] [-l 名字] [-s 说明]
   merge <base> <ours> <theirs>       按事实三方合并宇宙文件(git 合并驱动;结果写入 <ours>,有冲突退出码 1)
   install-merge                      在当前 git 仓库里启用上面的合并驱动(写 .git/config 和 .gitattributes)
   watch                              监听文件系统,把文件/目录的新增、删除、重命名实时同步进宇宙(Ctrl-C 退出)  [--mount repo] [--debounce 80] [--poll 120]

@@ -122,6 +122,42 @@ defCmd('query-set', {
     return commitOp(had ? { op: 'setNode', id, label: o.label, set } : { op: 'addNode', id, label: o.label ?? name, attrs: { kind: 'query', ...set } }, `${had ? '~' : '+'} 查询 ${name}(现在匹配 ${count} 个)`, c);
   },
 });
+defCmd('rule-set', {
+  group: '宇宙', effect: 'write', title: '自定义体检规则(存成节点 ~rule/<名字>):命中表达式的节点各报一条', usage: "rule-set <名字> --expr '<表达式>' [-s 提示] [-a level=warn|error|info]",
+  flags: { expr: 'expr', s: 'summary', a: 'attr', l: 'label' }, multi: ['attr'], more: true,
+  run: (a, o, c) => {
+    need(a, 1, CMDS.get('rule-set'));
+    noProposing(c, '定体检规则');
+    const name = a[0], expr = String(o.expr ?? a.slice(1).join(' ')).trim();
+    if (!/^[\p{L}\p{N}_.-]+$/u.test(name)) throw new Error('规则名只能含字母、数字、_ . -');
+    if (!expr) throw new Error("需要 --expr '<表达式>'(命中的节点算有问题)");
+    const count = needCompiled().matches(expr).length;   // 写错了在这里就抛出
+    const set = { ...kvs(o.attr), expr };
+    if (set.level !== undefined && !['error', 'warn', 'info'].includes(set.level)) throw new Error('level 只能是 error / warn / info');
+    if (o.summary !== undefined) set.message = o.summary;
+    const id = '~rule/' + name, had = uni.nodes.has(id);
+    return commitOp(had ? { op: 'setNode', id, label: o.label, set } : { op: 'addNode', id, label: o.label ?? name, attrs: { kind: 'rule', ...set } }, `${had ? '~' : '+'} 规则 ${name}(现在命中 ${count} 个,体检结果稍后推过来)`, c);
+  },
+});
+defCmd('type-set', {
+  group: '宇宙', effect: 'write', title: '改类型的样子(写到类型节点 ~<类型>,不在就建;没专门规定它的视图里立刻生效)',
+  usage: 'type-set <类型> [-a color=#rrggbb] [-a shape=dot|star|nebula|ringed|pulsar] [-a scale=1.5] · 边类型 [-a width=2] [-a arrow=true|false] [-a mode=line|faint|hidden] [--unset 键 …] [-l 名字] [-s 说明]',
+  flags: { a: 'attr', unset: 'unset', l: 'label', s: 'summary' }, multi: ['attr', 'unset'], more: true,
+  args: [{ name: '类型', values: () => [...new Set([...data.nodes.map((n) => n.attrs.type).filter(Boolean), ...data.edges.map((e) => e.type)])] }],
+  run: (a, o, c) => {
+    need(a, 1, CMDS.get('type-set'));
+    noProposing(c, '改类型的样子');
+    const set = kvs(o.attr);
+    let kind;
+    if (set.kind !== undefined) { if (set.kind !== 'nodeType' && set.kind !== 'edgeType') throw new Error('kind 只能是 nodeType / edgeType'); kind = set.kind; delete set.kind; }
+    if (!Object.keys(set).length && !(o.unset || []).length && o.label === undefined && o.summary === undefined) throw new Error('要改什么?比如 type-set module -a color=#bd00ff -a shape=ringed');
+    const op = styleOp(needUni(), a[0], set, o.unset || [], kind);
+    if (op.op === 'addNode') { if (o.label !== undefined) op.label = o.label; if (o.summary !== undefined) op.attrs = { ...op.attrs, summary: o.summary }; }
+    if (op.op === 'setNode') { if (o.label !== undefined) op.label = o.label; if (o.summary !== undefined) op.set = { ...op.set, summary: o.summary }; }
+    const k = op.op === 'addNode' ? op.attrs.kind : styleKindOf(uni, a[0]);
+    return commitOp(op, `${op.op === 'addNode' ? '+' : '~'} ${k === 'edgeType' ? '边' : '节点'}类型 ${a[0]}  ${Object.entries(set).map(([x, y]) => `${x}=${y}`).join(' ')}${(o.unset || []).length ? ' −' + o.unset.join(',') : ''}`, c);
+  },
+});
 defCmd('stamp', {
   group: '宇宙', effect: 'write', title: '说明仍然有效:记下节点指向的文件现在的版本(写说明时会自动记)', usage: 'stamp <id> … · stamp --all(有说明、还没记过版本的全部记上)', bools: ['all'], args: [nodeArg()], more: true,
   run: async (a, o, c) => {
@@ -217,6 +253,25 @@ defCmd('queries', {
   run: () => {
     const res = needCompiled().queryResults();
     return { out: res.map((r) => `${r.name.padEnd(16)} ${r.error ? '错误:' + r.error : String(r.members.length).padStart(5) + ' 个'}   ${r.expr}`).join('\n') || "(还没有保存的查询;过滤框里写 = 表达式,再点「存为查询」)", data: res.map((r) => ({ name: r.name, label: r.label, expr: r.expr, count: r.members.length, error: r.error })) };
+  },
+});
+defCmd('rules', {
+  group: '查询', effect: 'read', title: '列出自定义体检规则和各自命中的数目',
+  run: () => {
+    const c = needCompiled();
+    const rows = data.nodes.filter((n) => n.id.startsWith('~rule/') && n.attrs.kind === 'rule' && n.attrs.expr).map((n) => {
+      let count; try { count = c.matches(n.attrs.expr).length; } catch (e) { count = '错误:' + e.message; }
+      return { name: n.id.slice(6), expr: n.attrs.expr, level: n.attrs.level || 'warn', message: n.attrs.message || n.attrs.summary || n.label, count };
+    });
+    return { out: rows.map((r) => `${r.name.padEnd(16)} ${String(r.count).padStart(5)}  ${r.level.padEnd(5)} ${r.message}   ${r.expr}`).join('\n') || '(还没有自定义规则;rule-set <名字> --expr "<表达式>" -s 提示)', data: rows };
+  },
+});
+defCmd('types', {
+  group: '查询', effect: 'read', title: '节点类型、边类型:用量与样式(✎ 在「类型」面板里改)',
+  run: () => {
+    const t = styleTypes(needUni());
+    const fmt = (x) => `  ${x.name.padEnd(14)} ${String(x.count).padStart(6)}  ${Object.entries(x.style).map(([k, v]) => `${k}=${v}`).join(' ') || '(默认样式)'}${x.label !== x.name ? '  ' + x.label : ''}${x.declared ? '' : '   (还没有类型节点)'}`;
+    return { out: ['节点类型', ...t.nodes.map(fmt), '边类型', ...t.edges.map(fmt)].join('\n'), data: t };
   },
 });
 defCmd('views', { group: '查询', effect: 'read', title: '列出视图', run: () => ({ out: viewNames.map((v, i) => `${i + 1}. ${v}${v === currentView ? '   ← 当前' : ''}`).join('\n'), data: { current: currentView, names: viewNames } }) });

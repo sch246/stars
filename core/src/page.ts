@@ -3,7 +3,7 @@
 // 查看器的源码按功能分在 viewer/ 下:
 //   index.html   页面骨架(DOM、import 语句),里面两个占位:/*@STYLE@*/ 与 /*@APP@*/
 //   style.css    样式
-//   app/NN-*.js  页面脚本,按文件名顺序拼进同一个作用域(一个函数体)—— 它们共享状态,不是各自独立的模块;
+//   app/NN-*.js  页面脚本(NNa-*.js 排在 NN-*.js 之后),按文件名顺序拼进同一个作用域(一个函数体)—— 它们共享状态,不是各自独立的模块;
 //                顶层的 let / const 按顺序初始化,所以文件的先后就是执行的先后。
 // 浏览器里能直接 import 的内核模块(BROWSER_MODULES)去掉类型后原样提供:/core/<名>.js。
 // 静态导出把它们拼进同一个作用域:去掉 import / export,所以这些模块的顶层名字不能重复。
@@ -16,7 +16,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const viewerDir = resolve(here, '..', 'viewer');
 
 /** 浏览器能直接 import 的共享模块(都不依赖 Node),按依赖顺序(静态导出按这个顺序拼)。 */
-export const BROWSER_MODULES = ['model', 'expr', 'view', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync', 'bridge', 'cmdline', 'jsonc', 'toml', 'draft'];
+export const BROWSER_MODULES = ['model', 'expr', 'styles', 'view', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync', 'bridge', 'cmdline', 'jsonc', 'toml', 'draft'];
 const BROWSER_SET = new Set(BROWSER_MODULES);
 export const isBrowserModule = (name: string) => BROWSER_SET.has(name);
 
@@ -35,7 +35,7 @@ export function inlineModules(): string {
 
 /** 页面脚本的各个部分(按文件名排序) */
 export function viewerParts(): string[] {
-  return readdirSync(resolve(viewerDir, 'app')).filter((f) => /^\d+-[\w-]+\.js$/.test(f)).sort();
+  return readdirSync(resolve(viewerDir, 'app')).filter((f) => /^\d+[a-z]?-[\w-]+\.js$/.test(f)).sort();
 }
 
 const indent = (s: string) => s.replace(/^(?=.)/gm, '  ');

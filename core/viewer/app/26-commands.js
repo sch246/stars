@@ -124,6 +124,11 @@ defCmd('type', {
   args: [{ name: '类型', values: () => [...new Set(data.nodes.map((n) => typeOf(n.id)))] }, { name: '开关', values: () => ['on', 'off', 'toggle'] }],
   run: ([t, v], o, c) => { if (!t) throw new Error('用法:type <类型> [on|off|toggle]'); setTypeShown(t, onOff(v, !hiddenTypes.has(t))); },
 });
+defCmd('type-edit', {
+  group: '视图', effect: 'ui', title: '打开「类型」面板,改某个类型的样子(颜色、形状、大小;边类型是颜色、线宽、箭头、画法)', usage: 'type-edit <类型> [edge]',
+  args: [{ name: '类型', values: () => [...new Set([...data.nodes.map((n) => n.attrs.type).filter(Boolean), ...data.edges.map((e) => e.type)])] }, { name: '边', values: () => ['edge'] }],
+  run: ([t, e]) => { if (!t) throw new Error('用法:type-edit <类型> [edge]'); openTypeEditor(t, e === 'edge' ? 'edgeType' : e === 'node' ? 'nodeType' : undefined); },
+});
 defCmd('tag', {
   group: '视图', effect: 'ui', title: '点亮 / 熄灭一个 tag(tags 视图);不带参数 = 全部清除', usage: 'tag [id]', args: [nodeArg('tag')],
   run: ([t]) => { toggleTag(t || ''); },

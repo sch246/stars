@@ -6,7 +6,7 @@ import { basename, resolve } from 'node:path';
 import { type ParseArgsConfig } from 'node:util';
 import { loadSignals } from './activity.ts';
 import { checkExpr, compileFn } from './expr.ts';
-import { lint } from './lint.ts';
+import { RULE_PREFIX, lint, listRules } from './lint.ts';
 import { StarsError, type Attrs, type Universe } from './model.ts';
 import { type Op } from './ops.ts';
 import { filterNodes, neighborhood, shortestPath, type Dir } from './query.ts';
@@ -14,6 +14,7 @@ import { listFiles, planScan, selfRel, statMeta } from './scan.ts';
 import { planStamp, seenDiff, seenPath, seenState, stampOnSummary } from './stale.ts';
 import { applyDraft, readDraft, Store, updateDraft } from './store.ts';
 import { draftPreview, draftSummary } from './draft.ts';
+import { styleKindOf, styleOp, styleTypes, type StyleKind, type StyleTypeInfo } from './styles.ts';
 import { BUILTIN_VIEWS, QUERY_PREFIX, compileView, evaluateView, listQueries, listViews, validateSpec } from './view.ts';
 
 /** CLI 的全部选项(全局选项 + 各命令的选项);脚本里的 stars.exec 也按它解析 */
@@ -63,7 +64,7 @@ export type CliOpts = {
 export interface KernelCtx { store: Store; author: string; /** 项目根目录(体检查文件、扫描、信号) */ root: string }
 export interface CmdOut { out: string; data?: unknown; exitCode?: number }
 
-export const KERNEL_COMMANDS = new Set(['add', 'set', 'rm', 'link', 'unlink', 'accept', 'stamp', 'scan', 'undo', 'ls', 'show', 'nb', 'path', 'lint', 'stale', 'log', 'views', 'view', 'view-set', 'fn-set', 'query', 'query-set', 'queries', 'draft']);
+export const KERNEL_COMMANDS = new Set(['add', 'set', 'rm', 'link', 'unlink', 'accept', 'stamp', 'scan', 'undo', 'ls', 'show', 'nb', 'path', 'lint', 'stale', 'log', 'views', 'view', 'view-set', 'fn-set', 'query', 'query-set', 'queries', 'draft', 'types', 'type-set', 'rule-set', 'rules']);
 
 function kv(list: string[] | undefined): Attrs {
   const attrs: Attrs = {};
@@ -288,6 +289,57 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
       const id = `~fn/${args[0]}`, u = store.load(), had = u.nodes.has(id);
       const n = store.commit(had ? { op: 'setNode', id, label: o.label, set: { code } } : { op: 'addNode', id, label: o.label ?? args[0]!, attrs: { kind: 'function', code } }, c).entry.n;
       return { out: `${had ? '~' : '+'} 函数 fn.${args[0]}`, data: { n } };
+    }
+    case 'rule-set': {   // 自定义体检规则 = 一个节点 ~rule/<名字>:命中表达式的节点各报一条
+      need(1, "rule-set <名字> --expr '<表达式>' [-s 提示] [-a level=warn|error|info]");
+      const name = args[0]!;
+      if (!/^[\p{L}\p{N}_.-]+$/u.test(name)) throw new StarsError('规则名只能含字母、数字、_ . -');
+      if (o.expr === undefined || !o.expr.trim()) throw new StarsError("需要 --expr '<表达式>'(命中的节点算有问题),比如 --expr \"type == 'file' && !summary\"");
+      const err = checkExpr(o.expr);
+      if (err) throw new StarsError(`表达式写错了: ${err}`);
+      const u = store.peek();
+      let count: number;
+      try { count = compileView(u, {}).matches(o.expr).length; } catch (e) { throw new StarsError(`表达式写错了: ${(e as Error).message}`); }
+      const set: Attrs = { ...kv(o.attr), expr: o.expr };
+      if (set.level !== undefined && !['error', 'warn', 'info'].includes(set.level)) throw new StarsError('level 只能是 error / warn / info');
+      if (o.summary !== undefined) set.message = o.summary;
+      const id = RULE_PREFIX + name, had = u.nodes.has(id);
+      return wrote(had ? { op: 'setNode', id, label: o.label, set } : { op: 'addNode', id, label: o.label ?? name, attrs: { kind: 'rule', ...set } },
+        `${had ? '~' : '+'} 规则 ${name}(现在命中 ${count} 个;stars lint 里报出来)`);
+    }
+    case 'rules': {
+      const u = store.peek(), c = compileView(u, {});
+      const rows = listRules(u).map((r) => { let n: number | string; try { n = c.matches(r.expr).length; } catch (e) { n = `错误:${(e as Error).message}`; } return { ...r, count: n }; });
+      return {
+        out: rows.map((r) => `${r.name.padEnd(16)} ${String(r.count).padStart(5)}  ${r.level.padEnd(5)} ${r.message}   ${r.expr}`).join('\n')
+          || "(还没有自定义规则;stars rule-set 没说明的文件 --expr \"type == 'file' && !summary\" -s 文件没有说明)",
+        data: rows,
+      };
+    }
+    case 'types': {   // 节点类型、边类型:用量与样式
+      const t = styleTypes(store.peek());
+      const fmt = (x: StyleTypeInfo) => `  ${x.name.padEnd(14)} ${String(x.count).padStart(6)}  ${Object.entries(x.style).map(([k, v]) => `${k}=${v}`).join(' ') || '(默认样式)'}`
+        + `${x.label !== x.name ? `  ${x.label}` : ''}${x.declared ? '' : '   (还没有类型节点)'}`;
+      return {
+        out: ['节点类型', ...t.nodes.map(fmt), '边类型', ...t.edges.map(fmt),
+          'stars type-set <类型> -a color=#rrggbb -a shape=ringed -a scale=1.5 改节点类型 · -a width=2 -a arrow=false -a mode=faint 改边类型(没专门规定它的视图里立刻生效)'].join('\n'),
+        data: t,
+      };
+    }
+    case 'type-set': {   // 改类型的样式:写到类型节点 ~<类型> 上(不在就建)
+      need(1, 'type-set <类型> [-a color=#rrggbb] [-a shape=dot|star|nebula|ringed|pulsar] [-a scale=1.5] [-a width=2] [-a arrow=true|false] [-a mode=line|faint|hidden] [--unset 键 …] [-l 名字] [-s 说明]');
+      const set = kv(o.attr), u = store.peek();
+      let kind: StyleKind | undefined;
+      if (set.kind !== undefined) {
+        if (set.kind !== 'nodeType' && set.kind !== 'edgeType') throw new StarsError('kind 只能是 nodeType / edgeType');
+        kind = set.kind; delete set.kind;
+      }
+      if (!Object.keys(set).length && !o.unset?.length && o.label === undefined && o.summary === undefined) throw new StarsError('要改什么?比如 stars type-set module -a color=#bd00ff -a shape=ringed');
+      const op = styleOp(u, args[0]!, set, o.unset ?? [], kind);
+      if (op.op === 'addNode') { if (o.label !== undefined) op.label = o.label; if (o.summary !== undefined) op.attrs = { ...op.attrs, summary: o.summary }; }
+      if (op.op === 'setNode') { if (o.label !== undefined) op.label = o.label; if (o.summary !== undefined) op.set = { ...op.set, summary: o.summary }; }
+      const k = op.op === 'addNode' ? op.attrs?.kind : styleKindOf(u, args[0]!);
+      return wrote(op, `${op.op === 'addNode' ? '+' : '~'} ${k === 'edgeType' ? '边' : '节点'}类型 ${args[0]}  ${Object.entries(set).map(([a, b]) => `${a}=${b}`).join(' ')}${o.unset?.length ? ` −${o.unset.join(',')}` : ''}`);
     }
     case 'draft': {   // 草稿(批量改动的预览):看 / 整批应用 / 丢弃
       const sub = args[0] ?? 'show';

@@ -41,7 +41,7 @@
     <div><code>select</code> onlyTypes / hideTypes / withRelations · <code>expand</code> depth, maxNodes(平面布局的节点预算,默认 1500)· <code>tags</code> relation, depth</div>
     <div><code>size[]</code> when, attr | signal(+recency.halfLifeDays) | by:"degree", rollup, scale(sqrt/log/linear), range</div>
     <div><code>color[]</code> when, by: type | attr:x | group | recency(signal, halfLifeDays, from, to, rollup), value</div>
-    <div><code>style[]</code> when, shape: dot/star/nebula/ringed/pulsar</div>
+    <div><code>style[]</code> when, shape: dot/star/nebula/ringed/pulsar,或 <code>by: "type"</code>(节点 / 类型节点的 shape,在「类型」面板里改)</div>
     <div><code>relations</code> 边类型 → mode: region/orbit/line/faint/hidden, distance, strength, color, arrow, spin(<code>*</code> 为兜底)</div>
     <div><code>forces</code> 自定义布局力:函数节点数组(如 <code>["~fn/名字"]</code>),每个是 <code>(nodes, links, alpha, ctx) =&gt; void</code>,每 tick 调用(用 <code>stars fn-set</code> 建)</div>
     <div><b>表达式</b>(原生 JS 编译,很快):<code>size[].expr</code> 数值 · <code>color[].expr</code> 返回 #rrggbb 或 0..1(配 from/to) · <code>style[].expr</code> 返回形状名 · <code>when</code>/<code>select.where</code> 可写布尔表达式</div>
@@ -114,6 +114,7 @@ import { textDiff, textHash, textNormEol, textPatch } from '/core/textsync.js';
 import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } from '/core/bridge.js';
 import { cmdLine, cmdQuote, cmdTokenize } from '/core/cmdline.js';
 import { draftNodeOf, draftPreview, draftSummary } from '/core/draft.js';
+import { STYLE_DEFAULT_SHAPES, STYLE_SHAPES, styleKindOf, styleOp, styleTypes } from '/core/styles.js';
 (() => {
 /*@APP@*/
 })();
