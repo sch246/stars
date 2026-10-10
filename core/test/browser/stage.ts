@@ -133,9 +133,10 @@ export async function openStage(expand: string[] = ['repo', 'ideas', 'docs/', 's
   };
 }
 
-/** 一个场景:拿不到 Chrome 就跳过;失败时把截图留在临时目录里,路径写进错误信息 */
+/** 一个场景:拿不到 Chrome 就跳过(CI 上不许跳,直接失败);失败时把截图留在临时目录里,路径写进错误信息 */
 export async function scene(t: { skip: (msg: string) => void; name: string }, body: (s: Stage) => Promise<void>, expand?: string[]): Promise<void> {
   const s = await openStage(expand);
+  if (!s && process.env.CI) throw new Error('CI 上没找到 Chrome / Chromium(设 STARS_CHROME=可执行文件路径)');
   if (!s) { t.skip('没找到 Chrome / Chromium(设 STARS_CHROME=可执行文件路径)'); return; }
   try {
     await body(s);

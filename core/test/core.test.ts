@@ -293,7 +293,7 @@ test('表达式:大小/颜色/样式/筛选都能写成表达式,信号与度数
   apply(u, { op: 'addEdge', from: 'a/hot.ts', type: 'dependsOn', to: 'b/x.ts' });
   apply(u, { op: 'addNode', id: '~fn/boost', label: 'boost', attrs: { kind: 'function', code: '(t, s) => log1p(s) * (days(t) < 7 ? 3 : 1)' } });
   const signals = { fileChanged: { 'a/hot.ts': now - DAY, 'a/cold.ts': now - 90 * DAY, 'a/big.md': now - 90 * DAY, 'b/x.ts': now - 90 * DAY } };
-  const spec = {
+  const spec: import('../src/view.ts').ViewSpec = {
     select: { where: "type == 'file' && size > 50" },
     size: [{ expr: 'fn.boost(fileChanged, size)', scale: 'linear', range: [1, 10] }],
     color: [{ when: "ext == 'md'", value: '#112233' }, { expr: 'recent(fileChanged, 7)', from: '#000000', to: '#ffffff' }],

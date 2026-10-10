@@ -2,13 +2,18 @@
   "name": "stars-core",
   "version": "0.0.1",
   "private": true,
-  "description": "星罗内核:节点 + 带类型的边 + 文本格式 + CLI + 实时查看器。零依赖,需要 Node >= 22.18。",
+  "description": "星罗内核:节点 + 带类型的边 + 文本格式 + CLI + 实时查看器。运行零依赖,需要 Node >= 22.18。",
   "type": "module",
   "bin": { "stars": "./src/cli.ts" },
   "scripts": {
     "stars": "node src/cli.ts",
     "test": "node --test \"test/*.test.ts\"",
-    "test:ui": "node --test --test-concurrency=1 \"test/browser/*.test.ts\""
+    "test:ui": "node --test --test-concurrency=1 \"test/browser/*.test.ts\"",
+    "typecheck": "tsc -p ."
   },
-  "engines": { "node": ">=22.18" }
+  "engines": { "node": ">=22.18" },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^7.0.2"
+  }
 }

@@ -409,7 +409,7 @@ interface Csr { start: Int32Array; list: Int32Array }
 
 function buildCsr(N: number, from: ArrayLike<number>, to: ArrayLike<number>, pick: (e: number) => boolean, count: number): Csr {
   const start = new Int32Array(N + 1);
-  for (let e = 0; e < count; e++) if (pick(e)) start[from[e]! + 1]++;
+  for (let e = 0; e < count; e++) if (pick(e)) start[from[e]! + 1]!++;
   for (let i = 0; i < N; i++) start[i + 1]! += start[i]!;
   const fill = start.slice(0, N);
   const list = new Int32Array(start[N]!);

@@ -32,7 +32,7 @@ export function touchedFromLog(log: LogEntry[]): Record<string, number> {
     if (!Number.isFinite(t)) continue;
     const ids: string[] = [];
     opIds(e.op, ids);
-    for (const id of ids) if (!(touched[id] >= t)) touched[id] = t;
+    for (const id of ids) if ((touched[id] ?? -Infinity) < t) touched[id] = t;
   }
   return touched;
 }

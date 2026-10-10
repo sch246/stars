@@ -162,7 +162,7 @@ function llfRawLines(text: string): LlfRawLine[] {
     out.push({ raw: text.slice(pos, nl), start: pos, end: nl + 1 });
     pos = nl + 1;
   }
-  if (out[out.length - 1].raw === '') out.pop();
+  if (out.at(-1)?.raw === '') out.pop();
   return out;
 }
 
@@ -170,7 +170,7 @@ function llfRawLines(text: string): LlfRawLine[] {
 function llfLinesFrom(raws: LlfRawLine[], from: number, to: number): LlfLine[] {
   const lines: LlfLine[] = [];
   for (let idx = from; idx < to; idx++) {
-    const { raw, start, end } = raws[idx];
+    const { raw, start, end } = raws[idx]!;
     const no = idx - from + 1;
     if (llfStrip(raw) === '') throw new LlfError('E01', '只含空白的行', no);
     let n = 0;
@@ -212,8 +212,8 @@ class LlfParser {
 
   // 跳过注释行
   peek(): LlfLine | null {
-    while (this.i < this.lines.length && this.lines[this.i].content.startsWith('#')) this.i++;
-    return this.i < this.lines.length ? this.lines[this.i] : null;
+    while (this.i < this.lines.length && this.lines[this.i]!.content.startsWith('#')) this.i++;
+    return this.i < this.lines.length ? this.lines[this.i]! : null;
   }
 
   message(bodyStart: number, bodyEnd: number): LlfNode {
@@ -256,7 +256,7 @@ class LlfParser {
       seen.add(key);
       entries.push(this.value(nxt, rest, head, key, tag, indent));
     }
-    if (entries.length) parent.end = entries[entries.length - 1].end;
+    if (entries.length) parent.end = entries[entries.length - 1]!.end;
   }
 
   list(parent: LlfNode, indent: number): void {
@@ -274,7 +274,7 @@ class LlfParser {
       }
       items.push(this.value(nxt, rest, llfHead(rest, nxt.no), undefined, tag, indent));
     }
-    if (items.length) parent.end = items[items.length - 1].end;
+    if (items.length) parent.end = items[items.length - 1]!.end;
   }
 
   plainKey(content: string, no: number): [string, string] {
@@ -295,7 +295,7 @@ class LlfParser {
     let out = '';
     let i = 1;
     while (i < content.length) {
-      const c = content[i];
+      const c = content[i]!;
       if (c === '"') {
         const rest = content.slice(i + 1);
         if (rest === '') throw new LlfError('E04', '条目行只有键、没有头', no);
@@ -305,7 +305,7 @@ class LlfParser {
       if (c === '\\') {
         i++;
         if (i >= content.length) throw new LlfError('E13', '引号键转义不完整', no);
-        const e = content[i];
+        const e = content[i]!;
         if (Object.hasOwn(llfEscapes, e)) {
           out += llfEscapes[e];
           i++;
@@ -384,7 +384,7 @@ class LlfParser {
       node.value = '';
       node.valueStart = node.valueEnd = headStart + 1;
       // 文本块必须紧跟 `-` 行(SPEC §5):中间夹注释时不开始文本块,后面的 `|` 行报 E11
-      if (this.i < this.lines.length && this.lines[this.i].content.startsWith('|')) {
+      if (this.i < this.lines.length && this.lines[this.i]!.content.startsWith('|')) {
         this.textBlock(node);
         return node;
       }
@@ -415,11 +415,11 @@ class LlfParser {
 
   // 文本块:紧接着的连续 `|` 行;遇到第一个非 `|` 行(含注释)就结束
   textBlock(node: LlfNode): void {
-    const first = this.lines[this.i];
+    const first = this.lines[this.i]!;
     let last = first;
     const out: string[] = [];
-    while (this.i < this.lines.length && this.lines[this.i].content.startsWith('|')) {
-      last = this.lines[this.i++];
+    while (this.i < this.lines.length && this.lines[this.i]!.content.startsWith('|')) {
+      last = this.lines[this.i++]!;
       out.push(last.content.slice(1));
     }
     node.value = out.join('\n');
@@ -431,8 +431,8 @@ class LlfParser {
   // 紧挨在上面的注释;空注释行(只有 #)是分隔:它和它上面的注释不属于这个节点(比如文件开头的说明)
   commentsBefore(line: LlfLine): string[] {
     const out: string[] = [];
-    for (let k = line.k - 1; k >= 0 && this.lines[k].content.startsWith('#'); k--) {
-      const c = this.lines[k].content.slice(1);
+    for (let k = line.k - 1; k >= 0 && this.lines[k]!.content.startsWith('#'); k--) {
+      const c = this.lines[k]!.content.slice(1);
       if (llfStrip(c) === '') break;
       out.push(c.startsWith(' ') ? c.slice(1) : c);
     }
@@ -470,15 +470,15 @@ export function llfParseMulti(text: string, opts: LlfOptions = {}): LlfValue[] {
   const out: LlfValue[] = [];
   let start = 0;
   while (start < raws.length) {
-    if (llfStrip(raws[start].raw) === '') {
+    if (llfStrip(raws[start]!.raw) === '') {
       start++;
       continue;
     }
     let end = start;
-    while (end < raws.length && llfStrip(raws[end].raw) !== llfTerminator) end++;
+    while (end < raws.length && llfStrip(raws[end]!.raw) !== llfTerminator) end++;
     if (end === raws.length) throw new LlfError('E02', '缺少结束符(截断)');
     const parser = new LlfParser(llfLinesFrom(raws, start, end), !!opts.tags);
-    out.push(llfNodeValue(parser.message(raws[start].start, raws[end].start)));
+    out.push(llfNodeValue(parser.message(raws[start]!.start, raws[end]!.start)));
     start = end + 1;
   }
   return out;
@@ -490,13 +490,13 @@ export function llfParseFrames(text: string, opts: LlfOptions = {}): LlfValue[] 
   const out: LlfValue[] = [];
   let start = -1;
   for (let idx = 0; idx < raws.length; idx++) {
-    const marker = llfStrip(raws[idx].raw);
+    const marker = llfStrip(raws[idx]!.raw);
     if (marker === llfBegin) {
       if (start !== -1) throw new LlfError('E02', '帧流里上一个 frame 缺少结束符(截断)');
       start = idx + 1;
     } else if (marker === llfTerminator && start !== -1) {
       const parser = new LlfParser(llfLinesFrom(raws, start, idx), !!opts.tags);
-      out.push(llfNodeValue(parser.message(raws[start].start, raws[idx].start)));
+      out.push(llfNodeValue(parser.message(raws[start]!.start, raws[idx]!.start)));
       start = -1;
     }
   }
@@ -510,7 +510,7 @@ export function llfUntag(v: LlfValue): LlfValue {
   if (Array.isArray(v)) return v.map(llfUntag);
   if (v !== null && typeof v === 'object') {
     const obj: { [k: string]: LlfValue } = {};
-    for (const k of Object.keys(v)) llfPut(obj, k, llfUntag(v[k]));
+    for (const k of Object.keys(v)) llfPut(obj, k, llfUntag(v[k]!));
     return obj;
   }
   return v;
@@ -522,7 +522,7 @@ export function llfToJson(v: LlfValue): unknown {
   if (Array.isArray(v)) return v.map(llfToJson);
   if (v !== null && typeof v === 'object') {
     const obj: { [k: string]: unknown } = {};
-    for (const k of Object.keys(v)) llfPut(obj, k, llfToJson(v[k]));
+    for (const k of Object.keys(v)) llfPut(obj, k, llfToJson(v[k]!));
     return obj;
   }
   return v;
@@ -580,7 +580,7 @@ function llfEmit(key: string | null, value: LlfValue, indent: number, lines: str
     for (const item of value) llfEmit(null, item, indent + 2, lines);
   } else if (llfIsPlainObject(value)) {
     lines.push(prefix + '{}');
-    for (const k of Object.keys(value)) llfEmit(k, value[k], indent + 2, lines);
+    for (const k of Object.keys(value)) llfEmit(k, value[k]!, indent + 2, lines);
   } else {
     throw new TypeError(`不支持的值的类型:${typeof value}`);
   }
@@ -595,7 +595,7 @@ export function llfStringify(value: LlfValue): string {
   if (value instanceof LlfTagged) throw new TypeError('顶层值不能带类型标签');
   const lines: string[] = [];
   if (llfIsPlainObject(value)) {
-    for (const k of Object.keys(value)) llfEmit(k, value[k], 0, lines);
+    for (const k of Object.keys(value)) llfEmit(k, value[k]!, 0, lines);
   } else {
     llfEmit(null, value, 0, lines);
   }
@@ -616,7 +616,7 @@ export function llfParseDoc(text: string, opts: LlfOptions = {}): LlfDoc {
   const end = raws.findIndex((r) => llfStrip(r.raw) === llfTerminator);
   if (end === -1) throw new LlfError('E02', '缺少结束符(截断)');
   if (end + 1 < raws.length) throw new LlfError('E12', '结束符之后还有内容');
-  const root = new LlfParser(llfLinesFrom(raws, 0, end), tags).message(0, raws[end].start);
+  const root = new LlfParser(llfLinesFrom(raws, 0, end), tags).message(0, raws[end]!.start);
   return { text: norm, root, strict, tags };
 }
 
@@ -703,7 +703,7 @@ export function llfSetString(text: string, path: (string | number)[], value: str
   const t = doc.text;
   let node = doc.root;
   for (let i = 0; i < path.length; i++) {
-    const seg = path[i];
+    const seg = path[i]!;
     const child = llfChild(node, seg);
     if (child === null) {
       if (typeof seg === 'number' && seg !== node.items!.length) {
@@ -760,7 +760,7 @@ export function llfParseTagExpr(name: string): LlfTagExpr {
 }
 
 function llfTagAtomEnd(s: string, i: number): number {
-  while (i < s.length && !llfTagPunct.includes(s[i])) i++;
+  while (i < s.length && !llfTagPunct.includes(s[i]!)) i++;
   return i;
 }
 

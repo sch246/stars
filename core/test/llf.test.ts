@@ -8,7 +8,7 @@ import {
 
 // vectors.json 原样拷自 sch246/llf-format(参考实现的机器可读向量)
 interface Vector { id: number | string; input: string; expected?: unknown; invalid?: boolean; expected_multi?: unknown[]; expected_frames?: unknown[]; error?: string; tags?: boolean }
-const V = JSON.parse(readFileSync(new URL('./fixtures/llf-vectors.json', import.meta.url), 'utf8')) as Record<string, Vector[]>;
+const V = JSON.parse(readFileSync(new URL('./fixtures/llf-vectors.json', import.meta.url), 'utf8')) as Record<'vectors' | 'strict_vectors' | 'frame_vectors' | 'tag_vectors' | 'tag_expr_vectors', Vector[]>;
 
 // python 参考实现给出的错误行号(llf.py 的 LLFError.line)
 const PY_LINES: Record<string, number | null> = {
@@ -139,7 +139,7 @@ function makeRng(seed: number) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
   const int = (n: number): number => Math.floor(next() * n);
-  const pick = <T>(arr: readonly T[]): T => arr[int(arr.length)];
+  const pick = <T>(arr: readonly T[]): T => arr[int(arr.length)]!;
   return { next, int, pick };
 }
 type Rng = ReturnType<typeof makeRng>;
@@ -573,7 +573,7 @@ function clone(v: LlfValue): LlfValue {
   if (Array.isArray(v)) return v.map(clone);
   if (isMap(v)) {
     const o: Record<string, LlfValue> = {};
-    for (const k of Object.keys(v)) put(o, k, clone(v[k]));
+    for (const k of Object.keys(v)) put(o, k, clone(v[k]!));
     return o;
   }
   return v;
@@ -589,7 +589,7 @@ function allPaths(v: LlfValue, prefix: Path = [], out: Path[] = []): Path[] {
   out.push(prefix);
   const u = unwrap(v);
   if (Array.isArray(u)) u.forEach((x, i) => allPaths(x, [...prefix, i], out));
-  else if (isMap(u)) for (const k of Object.keys(u)) allPaths(u[k], [...prefix, k], out);
+  else if (isMap(u)) for (const k of Object.keys(u)) allPaths(u[k]!, [...prefix, k], out);
   return out;
 }
 
@@ -598,7 +598,7 @@ function setPath(root: LlfValue, path: Path, value: string | null): LlfValue {
   if (path.length === 0) return value;
   let cur = unwrap(root) as Record<string, LlfValue> | LlfValue[];
   for (let i = 0; i < path.length; i++) {
-    const seg = path[i];
+    const seg = path[i]!;
     const last = i === path.length - 1;
     const old = Array.isArray(cur) ? cur[seg as number] : Object.hasOwn(cur, seg) ? cur[seg as string] : undefined;
     let next: LlfValue;
@@ -613,7 +613,7 @@ function setPath(root: LlfValue, path: Path, value: string | null): LlfValue {
 
 function deletePath(root: LlfValue, path: Path): LlfValue {
   const parent = unwrap(getAt(root, path.slice(0, -1))) as any;
-  const seg = path[path.length - 1];
+  const seg = path[path.length - 1]!;
   if (Array.isArray(parent)) parent.splice(seg as number, 1);
   else delete parent[seg];
   return root;

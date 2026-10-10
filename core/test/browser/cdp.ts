@@ -192,7 +192,7 @@ export async function launch({ width = 1400, height = 860, origin }: { width?: n
   const args = ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`, `--window-size=${width},${height}`,
     '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--disable-extensions', '--mute-audio', '--disable-background-networking',
     '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
-    ...(process.getuid?.() === 0 ? ['--no-sandbox'] : []), 'about:blank'];
+    ...(process.getuid?.() === 0 || process.env.CI ? ['--no-sandbox'] : []), 'about:blank'];   // root 下、CI 机器上(Ubuntu 24.04 限制了用户命名空间)沙箱起不来
   const proc = spawn(exe, args, { stdio: ['ignore', 'ignore', 'pipe'] });
   const url = await new Promise<string>((ok, fail) => {
     let err = '';

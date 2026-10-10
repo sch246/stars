@@ -1,0 +1,18 @@
+// 只做类型检查(npm run typecheck):代码由 Node 直接去掉类型来跑,不编译、不产出文件
+{
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023", "dom", "dom.iterable"],   // 带 ⇄ 的模块也在浏览器里跑;浏览器测试的 evaluate 回调在页面里执行
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+    "noEmit": true,
+    "allowImportingTsExtensions": true,   // import './x.ts'
+    "erasableSyntaxOnly": true,           // 只用能直接擦掉的语法(不用 enum / 参数属性 / namespace),Node 才跑得了
+    "verbatimModuleSyntax": true,         // 只当类型用的 import 必须写 import type,不然 Node 运行时会去找它
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "bench/**/*.ts"]
+}
