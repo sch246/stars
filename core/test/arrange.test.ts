@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { planArrange } from '../src/arrange.ts';
-import { arrange, undoWithFs } from '../src/fsops.ts';
+import { arrange, saveUploads, undoWithFs } from '../src/fsops.ts';
 import { edgeKey } from '../src/model.ts';
 import { listFiles, planScan, statMeta } from '../src/scan.ts';
 import { Store } from '../src/store.ts';
@@ -118,4 +118,21 @@ test('整理:引用 = 只加一条 contains;CLI 的 mv / cp / ln', () => {
   assert.match(k('undo').out, /已撤销/);
   assert.ok(existsSync(join(dir, 'docs/r.md')));
   assert.match(k('cp', 'y', 'repo').out, /复制 1 个/);
+});
+
+test('外面来的文件:存进文件夹(不覆盖、空白换成 -),概念也装着;撤销删掉文件', () => {
+  const { dir, store } = project();
+  const r = saveUploads(store, dir, 'docs/', [{ name: 'my note.txt', data: Buffer.from('hi') }, { name: 'r.md', data: Buffer.from('x') }], { container: null }, 't');
+  assert.deepEqual(r.created, ['docs/my-note.txt', 'docs/r-copy.md']);
+  assert.equal(readFileSync(join(dir, 'docs/r.md'), 'utf8'), '# r\n', '同名的不覆盖');
+  assert.ok(has(store, 'docs/', 'contains', 'docs/my-note.txt'));
+  assert.equal(store.load().nodes.get('docs/my-note.txt')!.attrs.size, '2');
+  const r2 = saveUploads(store, dir, null, [{ name: '../evil.png', data: Buffer.from([1]) }], { container: 'x' }, 't');
+  assert.deepEqual(r2.created, ['evil.png'], '去掉路径,存进项目根');
+  assert.ok(has(store, 'repo', 'contains', 'evil.png') && has(store, 'x', 'contains', 'evil.png'));
+  undoWithFs(store, dir, 't');
+  assert.ok(!existsSync(join(dir, 'evil.png')) && !store.load().nodes.has('evil.png'));
+  undoWithFs(store, dir, 't');
+  assert.ok(!existsSync(join(dir, 'docs/my-note.txt')));
+  assert.throws(() => saveUploads(store, dir, 'x', [{ name: 'a', data: Buffer.from('') }], {}, 't'), /不是文件夹/);
 });

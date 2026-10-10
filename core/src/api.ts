@@ -15,7 +15,7 @@ import { expandHome, readRecent, type Project } from './project.ts';
 import { selfRel } from './scan.ts';
 import { planStamp, seenDiff, stampOnSummary } from './stale.ts';
 import { applyDraft, updateDraft } from './store.ts';
-import { arrange, undoWithFs } from './fsops.ts';
+import { arrange, saveUploads, undoWithFs } from './fsops.ts';
 import { readRuns } from './runlog.ts';
 
 /** 服务的共享状态(serve.ts 建好后交给接口) */
@@ -40,6 +40,8 @@ export interface Body {
   patch?: { start: number; end: number; insert: string }; baseHash?: string;
   /** 整理(/api/arrange) */
   mode?: string; target?: string | null; rel?: string; fromMap?: Record<string, string | null>;
+  /** 外面来的文件(/api/upload):base64 */
+  files?: Array<{ name: string; b64: string }>; container?: string | null;
 }
 
 export interface ApiCall {
@@ -188,6 +190,12 @@ export const POST: Record<string, Handler> = {
     return s.openProject(body.dir, !!body.create).info();
   },
   '/api/undo': ({ proj, author }) => ({ ok: true, n: undoWithFs(proj.store, proj.baseDir, author).n }),
+  // 外面来的文件(粘贴、拖进查看器):存进 dir 这个文件夹(不给 = 项目根),建好节点;container 也装着它们
+  '/api/upload': ({ body, s, proj, author }) => {
+    const files = Array.isArray(body.files) ? body.files.filter((f) => f && typeof f.name === 'string' && typeof f.b64 === 'string').map((f) => ({ name: f.name, data: Buffer.from(f.b64, 'base64') })) : [];
+    const r = saveUploads(proj.store, proj.baseDir, typeof body.dir === 'string' ? body.dir : null, files, { container: typeof body.container === 'string' ? body.container : null, rel: typeof body.rel === 'string' ? body.rel : undefined, mountId: s.mountId }, author);
+    return { ok: true, n: r.entry.n, created: r.created };
+  },
   // 整理:移动 / 复制 / 引用进另一个容器(见 arrange.ts);文件真的在磁盘上搬,一步撤回
   '/api/arrange': ({ body, s, proj, author }) => {
     const mode = body.mode;
@@ -247,6 +255,7 @@ export const POST: Record<string, Handler> = {
 
 /** 请求体可以大一些的接口(文件内容、遥控的输出) */
 const BIG_BODY = new Set(['/api/file', '/api/ui-result']);
+const UPLOAD_LIMIT = 64 << 20;   // /api/upload:粘贴、拖进来的文件(base64)
 
 function readBody(req: IncomingMessage, limit = 1 << 20): Promise<string> {
   return new Promise((ok, fail) => {
@@ -283,7 +292,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse, url: 
     let body: Body = {};
     if (req.method === 'POST') {
       if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return json(res, 415, { error: '需要 application/json' });
-      body = JSON.parse(await readBody(req, BIG_BODY.has(url.pathname) ? 8 << 20 : 1 << 20) || '{}') as Body;
+      body = JSON.parse(await readBody(req, url.pathname === '/api/upload' ? UPLOAD_LIMIT : BIG_BODY.has(url.pathname) ? 8 << 20 : 1 << 20) || '{}') as Body;
     }
     const proj = s.projects.get(url.searchParams.get('p') ?? '') ?? s.main;
     const author = typeof body.author === 'string' && body.author.trim() ? body.author.trim().slice(0, 40) : 'viewer';

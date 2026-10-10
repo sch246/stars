@@ -295,3 +295,17 @@ code.qexpr { display: block; white-space: pre-wrap; word-break: break-all; font:
 /* 拖着整理时,路径栏上的放置目标 */
 #crumbs .crumb.drop { color: #9ef0c0; background: #7be0a022; border-radius: 5px; outline: 1px solid #7be0a088; }
 #crumbs .crumb.nodrop { color: #ff8aa0; background: #ff6e8222; border-radius: 5px; }
+/* 剪贴板(左下角) */
+#tray { left: 12px; bottom: 34px; width: 268px; padding: 6px 8px; font-size: 12px; z-index: 6; }
+#tray[hidden] { display: none; }
+#console:not([hidden]) ~ #tray { display: none; }
+#tray .tr-h { display: flex; align-items: center; gap: 6px; } #tray .tr-h .t { cursor: pointer; color: var(--muted); font-size: 11px; letter-spacing: .04em; user-select: none; } #tray .tr-h .mini { margin-left: auto; }
+#tray .tr-l { max-height: 34vh; overflow: auto; margin-top: 4px; }
+#tray .tr-e { display: flex; align-items: center; gap: 6px; padding: 3px 5px; border-radius: 6px; cursor: pointer; }
+#tray .tr-e:hover { background: #7aa7ff1a; } #tray .tr-e.top { background: #7aa7ff22; }
+#tray .tr-e.gone .lb { text-decoration: line-through; opacity: .5; }
+#tray .tr-e .ico { width: 14px; text-align: center; color: #9db4ff; flex: none; }
+#tray .tr-e .lb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#tray .tr-e .acts { display: none; gap: 2px; flex: none; } #tray .tr-e:hover .acts, #tray .tr-e.top .acts { display: flex; }
+#tray .tr-e .acts span { padding: 0 4px; border-radius: 4px; color: var(--muted); } #tray .tr-e .acts span:hover { color: #fff; background: #7aa7ff33; }
+#tray .tr-f { color: var(--muted); font-size: 10.5px; margin-top: 4px; line-height: 1.4; }

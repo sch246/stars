@@ -11,8 +11,8 @@ import { type Node, type Universe, StarsError, edgeKey, isSchemaId } from './mod
 import { type Op } from './ops.ts';
 
 export type ArrangeMode = 'move' | 'copy' | 'ref';
-/** 磁盘上的动作(路径相对项目根;文件夹以 / 结尾) */
-export interface FsAct { act: 'move' | 'copy' | 'delete'; from: string; to: string }
+/** 磁盘上的动作(路径相对项目根;文件夹以 / 结尾)。create = 新写了一个文件(粘贴、拖进来的),撤销时删掉 */
+export interface FsAct { act: 'move' | 'copy' | 'delete' | 'create'; from: string; to: string }
 export interface ArrangeOpts {
   /** 容器关系(视图的 expand.relation),默认 contains;文件系统的结构永远是 contains */
   rel?: string;
@@ -32,6 +32,19 @@ export interface ArrangePlan {
 
 const arrangeBase = (p: string) => p.replace(/\/$/, '').split('/').pop()!;
 const arrangeParentPath = (p: string) => { const t = p.replace(/\/$/, ''); const i = t.lastIndexOf('/'); return i < 0 ? '' : t.slice(0, i + 1); };
+
+/** 文件夹 dir(以 / 结尾或空 = 根)里不和别人重名的路径:a.ts → a-copy.ts → a-copy2.ts(文件夹 x/ → x-copy/;id 里不能有空白) */
+export function arrangeFreePath(dir: string, name: string, isDir: boolean, taken: (p: string) => boolean): string {
+  const dot = isDir ? -1 : name.lastIndexOf('.'), stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : '', tail = isDir ? '/' : '';
+  let p = dir + name + tail;
+  for (let i = 1; taken(p); i++) p = `${dir}${stem}-copy${i > 1 ? i : ''}${ext}${tail}`;
+  return p;
+}
+/** 外面来的文件名(粘贴、拖进来的)变成能当 id 的:去掉路径,空白换成 -,控制字符和引号去掉 */
+export function arrangeCleanName(name: string): string {
+  const base = String(name).split(/[\\/]/).pop()!.replace(/[\u0000-\u001f"]/g, '').replace(/\s+/g, '-').replace(/^#+/, '');
+  return base && base !== '.' && base !== '..' ? base : 'file';
+}
 
 /** 文件系统节点:扫描出来的 dir / file(id 就是路径),或者挂载根 */
 export function arrangeIsFs(n: Node | undefined, mountId?: string): boolean {
@@ -135,12 +148,7 @@ export function planArrange(u: Universe, mode: ArrangeMode, ids: string[], targe
   const map = new Map<string, string>(), used = new Set<string>();
   const free = (id: string) => !u.nodes.has(id) && !used.has(id);
   const copyId = (id: string) => { let c = `${id}-copy`; for (let i = 2; !free(c); i++) c = `${id}-copy${i}`; used.add(c); return c; };
-  const copyPath = (dir: string, name: string, isD: boolean) => {   // a.ts → a-copy.ts → a-copy2.ts(文件夹:x/ → x-copy/;id 里不能有空白)
-    const dot = isD ? -1 : name.lastIndexOf('.'), stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : '', tail = isD ? '/' : '';
-    let p = dir + name + tail;
-    for (let i = 1; !free(p); i++) p = `${dir}${stem}-copy${i > 1 ? i : ''}${ext}${tail}`;
-    used.add(p); return p;
-  };
+  const copyPath = (dir: string, name: string, isD: boolean) => { const p = arrangeFreePath(dir, name, isD, (x) => !free(x)); used.add(p); return p; };
   const order: string[] = [];
   for (const id of roots) {
     let base: string;
@@ -187,5 +195,6 @@ export function planArrange(u: Universe, mode: ArrangeMode, ids: string[], targe
 
 /** 撤销一组磁盘动作要做的动作(倒序):搬回去;复制出来的删掉 */
 export function arrangeRevertFs(acts: FsAct[]): FsAct[] {
-  return [...acts].reverse().map((a): FsAct => (a.act === 'move' ? { act: 'move', from: a.to, to: a.from } : a.act === 'copy' ? { act: 'delete', from: a.to, to: a.from } : { act: 'copy', from: a.to, to: a.from }));
+  return [...acts].reverse().map((a): FsAct => (a.act === 'move' ? { act: 'move', from: a.to, to: a.from }
+    : a.act === 'copy' || a.act === 'create' ? { act: 'delete', from: a.to, to: a.act === 'copy' ? a.from : a.to } : { act: 'copy', from: a.to, to: a.from }));
 }

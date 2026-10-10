@@ -141,6 +141,7 @@ function recompute(structural = true) {
 
 const selTail = () => (selection.size > 1 ? ` · <span data-cmd="select" style="cursor:pointer" title="点一下取消选择">已选 <b>${selection.size}</b></span>` : '');
 function renderStatus() {
+  try { renderTray(); } catch { /* 剪贴板那一节还没初始化 */ }
   const nn = data.nodes.filter((n) => !n.id.startsWith('~')).length;
   const ne = data.issues.filter((i) => i.severity === 'error').length, nw = data.issues.filter((i) => i.severity === 'warn').length;
   // 只在有问题时才显示错误/警告数(点一下看详情 = lint 命令)
