@@ -33,7 +33,11 @@ export async function sendUi(line: string, opts: { file: string | null; port?: n
   return { delivered: r.delivered ?? 0, result: r.result ?? null, url };
 }
 
-export interface ScriptCtx extends KernelCtx { file: string; port?: number; args: string[]; script: string }
+export interface ScriptCtx extends KernelCtx {
+  file: string; port?: number; args: string[]; script: string;
+  /** 这次为什么跑(脚本节点被触发时有,见 agent.ts):{ kind: 'manual' | 'change' | 'file' | 'stale' | 'every' | 'start', … } */
+  trigger?: unknown;
+}
 export interface ExecResult { out: string; data?: unknown }
 
 /** 脚本拿到的 stars 对象(Node 版) */
@@ -92,6 +96,7 @@ export function scriptApi(ctx: ScriptCtx) {
       return { nodes: [...u.nodes.values()], edges: [...u.edges.values()], proposals: proposalsFromLog(store.readLog(), u), n: store.logCount() };
     },
     info: async () => ({ runner: 'node', script: ctx.script, file: ctx.file, root: ctx.root, author: ctx.author, level: 'write' }),
+    trigger: ctx.trigger ?? null,
     on,
     print: (...a: unknown[]) => console.log(...a),
     exit: (code = 0) => process.exit(code),
@@ -107,12 +112,19 @@ export function scriptApi(ctx: ScriptCtx) {
 /** stars run:载入脚本(globalThis 上有 stars 和 args);有默认导出的函数就调用它,返回值打印出来 */
 export async function runNodeScript(path: string, ctx: Omit<ScriptCtx, 'script'>): Promise<void> {
   const abs = resolve(path);
-  const stars = scriptApi({ ...ctx, script: abs });
+  await runScriptModule(pathToFileURL(abs).href, abs, ctx);
+}
+
+/** 按模块地址跑(文件 → file:// 地址;脚本节点里的代码 → data: 地址)。key 决定 stars.store 存在哪 */
+export async function runScriptModule(url: string, key: string, ctx: Omit<ScriptCtx, 'script'>): Promise<unknown> {
+  const stars = scriptApi({ ...ctx, script: key });
   const g = globalThis as Record<string, unknown>;
   g.stars = stars; g.args = ctx.args;
-  const m = await import(pathToFileURL(abs).href) as { default?: unknown };
+  const m = await import(url) as { default?: unknown };
   if (typeof m.default === 'function') {
     const r = await (m.default as (s: unknown, a: string[]) => unknown)(stars, ctx.args);
     if (r !== undefined) console.log(typeof r === 'string' ? r : JSON.stringify(r, null, 2));
+    return r;
   }
+  return undefined;
 }

@@ -1,4 +1,4 @@
-stars 1 rev=25
+stars 1 rev=26
 
 node .gitattributes ".gitattributes" type=file file=.gitattributes size=66
 node .gitignore ".gitignore" type=file file=.gitignore size=70
@@ -127,7 +127,7 @@ node webapp/src/vite-env.d.ts "vite-env.d.ts" type=file file=webapp/src/vite-env
 node webapp/tsconfig.json "tsconfig.json" type=file file=webapp/tsconfig.json ext=json size=450
 node webapp/vite.config.ts "vite.config.ts" type=file file=webapp/vite.config.ts ext=ts size=163
 node ~concept "概念" kind=nodeType color=#4facfe
-node ~contains "包含" kind=edgeType summary="A 包含 B。形成树状结构,不能有环,B 只有一个直接上级。" acyclic=true single-parent=true
+node ~contains "包含" kind=edgeType summary="A 包含 B。不能有环;包含的是什么(文件夹包含文件、模块包含文件、主题包含概念……)由视图决定,B 可以同时在几个 A 里。" acyclic=true
 node ~dependsOn "依赖" kind=edgeType summary="A 需要 B 才能工作。"
 node ~describes "描述" kind=edgeType summary="A 解释/记录了 B。"
 node ~dir "目录" kind=nodeType color=#6b7280

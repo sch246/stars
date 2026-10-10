@@ -2,7 +2,7 @@ stars 1
 
 node universe "宇宙" kind=root summary="一切的起点。类型、规则、视图都将从这里长出来。"
 
-node ~contains "包含" kind=edgeType acyclic=true single-parent=true summary="A 包含 B。形成树状结构,不能有环,B 只有一个直接上级。"
+node ~contains "包含" kind=edgeType acyclic=true summary="A 包含 B。不能有环;包含的是什么(文件夹包含文件、模块包含文件、主题包含概念……)由视图决定,B 可以同时在几个 A 里。"
 node ~dependsOn "依赖" kind=edgeType summary="A 需要 B 才能工作。"
 node ~describes "描述" kind=edgeType summary="A 解释/记录了 B。"
 node ~related "关联" kind=edgeType symmetric=true summary="A 与 B 有关,不分方向。"

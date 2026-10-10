@@ -5,7 +5,7 @@
 // 所以不依赖各平台事件语义的差异(创建/删除/重命名/覆盖写),事件丢了、重复了、乱序了,下次对账都会自愈。
 //
 // 对用户数据的态度:文件被删不等于关系应该消失。
-//   · 只有"纯结构"的节点(只有 contains 边)才会被删除;
+//   · 只有"纯结构"的节点(只有文件/目录之间的 contains 边)才会被删除;
 //   · 带有任何语义关系(依赖、描述、AI 提议……)的节点保留并标记 missing=true,文件回来时自动取消;
 //   · 重命名/移动会被识别出来(大小+文件名,或整个目录的内容签名一致),节点连同它的所有关系一起改名。
 // 文件的大小、修改时间这类高频变化的状态不写进宇宙(会让 git diff 全是噪音),只作为"实时信号"返回。
@@ -42,12 +42,14 @@ export function reconcile(
   const relOf = (id: string) => (id === mountId ? '' : u.nodes.get(id)!.attrs.file!);
   const idOfRel = (rel: string) => (rel === '' ? mountId : rel);
 
-  // contains 的孩子表 + 每个节点有没有"非结构"的边
+  // contains 的孩子表 + 每个节点有没有"非结构"的边。
+  // contains 是什么意思由视图决定(文件层级只是其中一种):两头都是文件/目录节点的才算文件系统的结构,
+  // 别的(模块包含文件、目录包含某个概念……)和依赖、描述一样是你的关系 —— 文件没了也不跟着删。
   const kids = new Map<string, string[]>();
   const parentOf = new Map<string, string>();
   const semantic = new Set<string>();
   for (const e of u.edges.values()) {
-    if (e.type === 'contains') { const l = kids.get(e.from); if (l) l.push(e.to); else kids.set(e.from, [e.to]); if (!parentOf.has(e.to)) parentOf.set(e.to, e.from); }
+    if (e.type === 'contains' && isFsNode(e.from) && isFsNode(e.to)) { const l = kids.get(e.from); if (l) l.push(e.to); else kids.set(e.from, [e.to]); if (!parentOf.has(e.to)) parentOf.set(e.to, e.from); }
     else { semantic.add(e.from); semantic.add(e.to); }
   }
   const subtree = (id: string): string[] => { // 含自己,先序

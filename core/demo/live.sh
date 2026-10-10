@@ -26,7 +26,8 @@ step link goal dependsOn core
 step link viewer dependsOn core
 step link old-webapp dependsOn core --proposed
 step link repo contains core
-step link goal contains core            # contains 声明了 single-parent:core 有两个上级,lint 报 error,节点亮红圈
+step link goal contains core            # contains 可以有多个上级:core 既在仓库里,也归在"关系编辑器"这个目标下
+step link core contains goal            # 但不能成环(contains 声明了 acyclic):lint 报 error,节点亮红圈
 step add oops "孤儿节点" -t concept       # lint 提示孤儿
 echo ">>> 完成。查看器会一直开着,Ctrl-C 退出。可以另开终端:"
 echo "    STARS_ROOT=$here node $here/core/src/cli.ts -f $work/universe.stars lint"

@@ -118,7 +118,13 @@ export class FsWatcher {
     const u = this.o.store.peek(); // 只读;提交时复用同一份内存里的宇宙,不用每次重新解析
     const r = reconcile(u, full ? snapshotFs(this.o.root, this.self) : liveFs(this.o.root, this.self), { mountId: this.o.mountId, dirs, touched });
     if (r.op) {
-      this.o.store.commit(r.op, { author: this.o.author }, undefined, { defer: true });
+      try { this.o.store.commit(r.op, { author: this.o.author }, undefined, { defer: true }); }
+      catch (e) {
+        // 对账和提交之间宇宙被别的进程改了(比如 stars mv 刚搬完文件、改完名):这批作废,稍后整个重新对一遍
+        this.o.log?.(`对账结果过期了(${(e as Error).message}),重新对账`);
+        if (!full) setTimeout(() => { if (!this.stopped) this.syncAll(); }, 200).unref();
+        return { ...r, op: null, full, ms: performance.now() - t0 };
+      }
       if (this.watchers.size > 0 || this.recursive === null) this.syncDirWatchers();
     }
     const out = { ...r, full, ms: performance.now() - t0 };

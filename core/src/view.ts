@@ -4,7 +4,8 @@
 // 这个文件同时在 Node(CLI)和浏览器(查看器)里运行:只依赖 model.ts,不碰 DOM、不碰文件系统。
 
 import { type Node, type Universe, SCHEMA_PREFIX, isSchemaId, isSymmetric, schemaNode } from './model.ts';
-import { checkExpr, compileExpr, compileFn, freeIdentifiers, type ExprEnv } from './expr.ts';
+import { STYLE_DEFAULT_SHAPES, STYLE_MODES } from './styles.ts';
+import { checkExpr, compileExpr, compileFn, freeIdentifiers, type ExprEnv, type ExprGraph } from './expr.ts';
 
 export type Shape = 'dot' | 'star' | 'nebula' | 'ringed' | 'pulsar';
 /** region:不画线,子节点被一个"域"包围;orbit:子绕父转;line/faint:连线;hidden:不显示 */
@@ -50,6 +51,8 @@ export interface ColorRule {
 export interface StyleRule {
   when?: When;
   shape?: Shape;
+  /** "type":形状取节点自己的 shape 属性,其次类型节点(~类型)的 shape,再其次内置默认(见 styles.ts) */
+  by?: 'type';
   /** 表达式,返回形状名(dot/star/nebula/ringed/pulsar) */
   expr?: string;
 }
@@ -202,8 +205,32 @@ export interface CompiledView {
   ancestors(id: string): string[];
   node(id: string): SceneNode | undefined;
   parentOf(id: string): string | undefined;
+  /** 容器树里的直接孩子(按容器关系的第一条;不管过滤和展开) */
+  children(id: string): string[];
+  /** 容器关系(视图的 expand.relation,默认 contains) */
+  readonly relation: string;
   /** 在已编译的外观上,按展开状态算出场景:只做线性扫描,不重算任何节点的大小/颜色/样式。 */
   fold(opts?: FoldOptions): Scene;
+  /** 对全部(非模式)节点算一条布尔表达式,返回匹配的 id。和视图规则同一套列与函数;写错了会抛出 */
+  matches(expr: string): string[];
+  /** 保存的查询(~query/<名字>)的结果:算一次缓存;某条算不出来就带 error */
+  queryResults(): QueryResult[];
+  /** 这个节点的大小 / 颜色 / 形状由哪条规则决定(下标;-1 = 没有规则管它,用的是类型节点或默认) */
+  explain(id: string): { size: number; color: number; style: number } | undefined;
+}
+
+/** 保存的查询 = 一个节点:~query/<名字>,kind=query,expr 是一条布尔表达式。结果随宇宙变化,所以是"动态区域"。 */
+export const QUERY_PREFIX = `${SCHEMA_PREFIX}query/`;
+export interface SavedQuery { name: string; id: string; label: string; expr: string; color?: string; summary?: string }
+export interface QueryResult extends SavedQuery { members: string[]; error?: string }
+export function listQueries(u: Universe): SavedQuery[] {
+  const out: SavedQuery[] = [];
+  for (const n of u.nodes.values()) {
+    if (!n.id.startsWith(QUERY_PREFIX) || n.attrs.kind !== 'query' || n.attrs.expr === undefined) continue;
+    const name = n.id.slice(QUERY_PREFIX.length);
+    out.push({ name, id: n.id, label: n.label || name, expr: n.attrs.expr, color: n.attrs.color, summary: n.attrs.summary });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 const GALAXY_SIZE: SizeRule[] = [
@@ -216,12 +243,8 @@ const GALAXY_COLOR: ColorRule[] = [
   { when: { type: 'file' }, by: 'attr:ext' },
   { by: 'type' },
 ];
-const GALAXY_STYLE: StyleRule[] = [
-  { when: { type: 'dir' }, shape: 'nebula' },
-  { when: { type: 'file' }, shape: 'star' },
-  { when: { type: 'module' }, shape: 'ringed' },
-  { when: { type: 'concept' }, shape: 'pulsar' },
-];
+// 形状按类型:类型节点(~dir、~module……)写了 shape 就用它,没写就是内置的(目录星云、文件恒星、模块带环、概念脉冲星)
+const GALAXY_STYLE: StyleRule[] = [{ by: 'type' }];
 
 /** 平面布局默认最多放多少个节点:力导向在浏览器里能流畅跑、标签还看得清的量级 */
 export const DEFAULT_MAX_NODES = 1500;
@@ -300,11 +323,7 @@ export const BUILTIN_VIEWS: Record<string, ViewSpec> = {
     select: { withRelations: ['dependsOn', 'related', 'describes'] },
     size: [{ by: 'degree', range: [5, 15] }],
     color: [{ by: 'type' }],
-    style: [
-      { when: { type: 'module' }, shape: 'ringed' },
-      { when: { type: 'concept' }, shape: 'pulsar' },
-      { shape: 'star' },
-    ],
+    style: [{ by: 'type' }],
     relations: {
       contains: { mode: 'hidden' },
       describes: { mode: 'faint', distance: 70, strength: 0.2 },
@@ -448,7 +467,21 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     if (i === undefined) { i = typeNames.length; typeNames.push(t); typeIdx.set(t, i); }
     return i;
   };
-  const relOf = (t: string): RelationRule => spec.relations?.[t] ?? spec.relations?.['*'] ?? { mode: 'line' };
+  // 边类型的外观:视图里专门写了这种边的规则 > 类型节点(~类型)上的 color / width / arrow / mode > 视图的兜底规则 *
+  const schemaRel = (t: string): Partial<RelationRule> => {
+    const a = schemaNode(u, t)?.attrs;
+    if (!a) return {};
+    const r: Partial<RelationRule> = {};
+    if (a.color && /^#[0-9a-fA-F]{6}$/.test(a.color)) r.color = a.color;
+    if (a.width && Number(a.width) > 0) r.width = Number(a.width);
+    if (a.arrow === 'true' || a.arrow === 'false') r.arrow = a.arrow === 'true';
+    if (a.mode && STYLE_MODES.includes(a.mode)) r.mode = a.mode as RelationMode;
+    return r;
+  };
+  const relOf = (t: string): RelationRule => {
+    const own = spec.relations?.[t];
+    return own ? { ...schemaRel(t), ...own } : { ...(spec.relations?.['*'] ?? { mode: 'line' }), ...schemaRel(t) };
+  };
 
   // ---- 边:压成数组;顺手确定容器树(同一节点取第一条 relation 入边作父节点) ----
   const E0 = u.edges.size;
@@ -456,10 +489,22 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
   const eprop = new Uint8Array(E0);
   const parent = new Int32Array(N).fill(-1);
   let E = 0;
+  // 一个节点在几个容器里时(contains 没有 single-parent):和文件路径对得上的那条(目录包含文件)进容器树,
+  // 不然取第一条 —— 不取决于边在文件里的先后,模块包含文件时文件夹层级也不会被打乱
+  const fsPair = (from: Node, to: Node): boolean => {
+    const tf = to.attrs.file;
+    if (from.attrs.type !== 'dir' || !tf) return false;
+    const ff = from.attrs.file;
+    return ff ? ff.endsWith('/') && tf.startsWith(ff) && tf !== ff : !tf.replace(/\/$/, '').includes('/');
+  };
+  const fsParent = new Uint8Array(N);
   for (const e of u.edges.values()) {
     const a = idx.get(e.from), b = idx.get(e.to);
     if (a === undefined || b === undefined) continue;
-    if (e.type === relation && parent[b] === -1 && a !== b) parent[b] = a;
+    if (e.type === relation && a !== b && (parent[b] === -1 || !fsParent[b])) {
+      const fs = fsPair(nodeList[a]!, nodeList[b]!);
+      if (parent[b] === -1 || fs) { parent[b] = a; fsParent[b] = fs ? 1 : 0; }
+    }
     ef[E] = a; et[E] = b; ety[E] = typeId(e.type);
     eprop[E] = e.attrs.status === 'proposed' ? 1 : 0;
     E++;
@@ -468,7 +513,7 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
   const tRel = typeNames.map(relOf);
   const tShown = tRel.map((r) => r.mode !== 'hidden');
   const tSym = typeNames.map((t) => isSymmetric(u, t));
-  const tColor = typeNames.map((t, i) => tRel[i]!.color ?? schemaNode(u, t)?.attrs.color ?? hashColor(`edge:${t}`));
+  const tColor = typeNames.map((t, i) => tRel[i]!.color ?? hashColor(`edge:${t}`));
 
   // ---- 断环 + 深度 ----
   const state = new Uint8Array(N), path: number[] = [];
@@ -506,6 +551,10 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     for (let i = 0; i < N; i++) if (parent[i]! >= 0) list[fill[parent[i]!]!++] = i;
     return { start, list };
   })();
+  // 第二个、第三个容器:一个节点可以在几个容器里(contains 没有 single-parent),容器树只用第一条;
+  // 其余的(和断环时断开的那条)画成淡线 —— 不是疆界,但看得见"它也属于那里"
+  const second = new Uint8Array(E);
+  { const rt = typeIdx.get(relation); if (rt !== undefined) for (let e = 0; e < E; e++) if (ety[e] === rt && parent[et[e]!] !== ef[e]) second[e] = 1; }
   const desc = new Int32Array(N);
   for (let k = N - 1; k >= 0; k--) { const v = order[k]!, p = parent[v]!; if (p >= 0) desc[p]! += desc[v]! + 1; }
 
@@ -589,8 +638,88 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     colCache.set(name, col);
     return col;
   };
+  // ---- 路径条件(表达式里的 from / to / near / out / into / query):全部按参数缓存,惰性计算 ----
+  const dirAdj = new Map<string, Csr>();
+  /** 按方向的邻接表:out 顺着边,in 逆着边,both 都算;对称的边类型两头都算 */
+  const adjDir = (type: string | undefined, dir: 'out' | 'in' | 'both'): Csr => {
+    const key = `${type ?? ''}|${dir}`;
+    let a = dirAdj.get(key);
+    if (a) return a;
+    const t = type === undefined ? -1 : typeIdx.get(type) ?? -2;
+    const A = new Int32Array(2 * E), B = new Int32Array(2 * E);
+    let m = 0;
+    if (t !== -2) for (let e = 0; e < E; e++) {
+      if (t >= 0 && ety[e] !== t) continue;
+      const both = dir === 'both' || tSym[ety[e]!];
+      if (dir === 'out' || both) { A[m] = ef[e]!; B[m] = et[e]!; m++; }
+      if (dir === 'in' || both) { A[m] = et[e]!; B[m] = ef[e]!; m++; }
+    }
+    a = buildCsr(N, A, B, () => true, m);
+    dirAdj.set(key, a);
+    return a;
+  };
+  const reachCache = new Map<string, Uint8Array>();
+  const countCache = new Map<string, Int32Array>();
+  const queryCache = new Map<string, Uint8Array>();
+  const queryStack: string[] = [];
+  const graph: ExprGraph = {
+    cur: { i: 0 },
+    reach(root, type, dir, maxDepth) {
+      const key = `${root}\u0000${type ?? ''}\u0000${dir}\u0000${maxDepth}`;
+      let r = reachCache.get(key);
+      if (r) return r;
+      r = new Uint8Array(N);
+      const s = idx.get(root);
+      if (s !== undefined) {
+        const adj = adjDir(type, dir), seen = new Uint8Array(N);
+        seen[s] = 1;
+        let frontier = [s];
+        for (let d = 0; d < maxDepth && frontier.length > 0; d++) {
+          const next: number[] = [];
+          for (const v of frontier) {
+            for (let k = adj.start[v]!; k < adj.start[v + 1]!; k++) { const w = adj.list[k]!; if (!seen[w]) { seen[w] = 1; r[w] = 1; next.push(w); } }
+          }
+          frontier = next;
+        }
+      }
+      reachCache.set(key, r);
+      return r;
+    },
+    count(type, other, dir) {
+      const key = `${type ?? ''}\u0000${other ?? ''}\u0000${dir}`;
+      let c = countCache.get(key);
+      if (c) return c;
+      c = new Int32Array(N);
+      const t = type === undefined ? -1 : typeIdx.get(type) ?? -2, o = other === undefined ? -1 : idx.get(other) ?? -2;
+      if (t !== -2 && o !== -2) for (let e = 0; e < E; e++) {
+        if (t >= 0 && ety[e] !== t) continue;
+        const a = dir === 'out' ? ef[e]! : et[e]!, b = dir === 'out' ? et[e]! : ef[e]!;
+        if (o < 0 || b === o) c[a]!++;
+        if (tSym[ety[e]!] && (o < 0 || a === o)) c[b]!++; // 对称边:两头都算出边也都算入边
+      }
+      countCache.set(key, c);
+      return c;
+    },
+    query(name) {
+      let r = queryCache.get(name);
+      if (r) return r;
+      const qn = u.nodes.get(QUERY_PREFIX + name);
+      if (!qn || qn.attrs.expr === undefined) throw new Error(`没有保存的查询 "${name}"`);
+      if (queryStack.includes(name)) throw new Error(`查询循环引用: ${[...queryStack, name].join(' → ')}`);
+      queryStack.push(name);
+      const outer = graph.cur.i; // 里面会把 cur 走一遍,算完要还原,外面那条表达式还在算第 outer 个节点
+      try {
+        const f = exprFor(qn.attrs.expr);
+        r = new Uint8Array(N);
+        for (let i = 0; i < N; i++) if (!isSchemaId(ids[i]!) && f(i)) r[i] = 1;
+      } finally { queryStack.pop(); graph.cur.i = outer; }
+      queryCache.set(name, r);
+      return r;
+    },
+  };
+
   const userFns: Record<string, (...args: never[]) => unknown> = {};
-  const exprEnv: ExprEnv = { column: exprColumn, fns: userFns, now };
+  const exprEnv: ExprEnv = { column: exprColumn, fns: userFns, now, graph };
   for (const n of nodeList) { // 函数节点:~fn/<名字>,kind=function,code 是一个函数表达式
     if (!n.id.startsWith(`${SCHEMA_PREFIX}fn/`) || n.attrs.kind !== 'function' || !n.attrs.code) continue;
     userFns[n.id.slice(SCHEMA_PREFIX.length + 3)] = compileFn(n.attrs.code, exprEnv);
@@ -652,6 +781,21 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     const r = sizeRules[k]!;
     rad[i] = scaleValue(ruleVals[k]![i]!, maxByRule[k]!, r.scale ?? 'sqrt', r.range ?? [2, 10]);
   }
+  // 大小倍率:节点自己的 scale,其次类型节点的 scale(在"类型"面板里调)
+  const typeAttr = new Map<string, Record<string, string | undefined>>();
+  const ofType = (type: string | undefined): Record<string, string | undefined> => {
+    if (!type) return {};
+    let a = typeAttr.get(type);
+    if (!a) { a = schemaNode(u, type)?.attrs ?? {}; typeAttr.set(type, a); }
+    return a;
+  };
+  for (let i = 0; i < N; i++) {
+    const n = nodeList[i]!;
+    const sc = n.attrs.scale ?? ofType(n.attrs.type).scale;
+    if (sc === undefined) continue;
+    const x = Number(sc);
+    if (Number.isFinite(x) && x > 0) rad[i] = rad[i]! * x;
+  }
 
   // ---- 颜色 ----
   const colorRules = spec.color ?? [];
@@ -688,12 +832,15 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
   };
   const recencyTables = new Map<number, string[]>();
   const color: string[] = new Array(N);
+  const colorRuleOf = new Int16Array(N).fill(-1);
   for (let i = 0; i < N; i++) {
     if (!selected[i]) { color[i] = DEFAULT_COLOR; continue; }
     const n = nodeList[i]!;
     const k = firstMatch(colorPreds, n, i);
+    colorRuleOf[i] = k;
     const cr = k >= 0 ? colorRules[k]! : undefined;
-    let c = DEFAULT_COLOR;
+    // 没有规则管它:节点自己或类型节点写了颜色就用(改类型颜色在没写颜色规则的视图里也看得见)
+    let c = k < 0 ? (n.attrs.color ?? ofType(n.attrs.type).color ?? DEFAULT_COLOR) : DEFAULT_COLOR;
     if (cr?.expr) {
       const v = exprFor(cr.expr)(i);
       if (typeof v === 'number') {
@@ -720,10 +867,15 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
   const styleRules = spec.style ?? [];
   const stylePreds = styleRules.map((r) => compileWhen(r.when, exprFor));
   const shapeIdx = new Uint8Array(N);
+  const styleRuleOf = new Int16Array(N).fill(-1);
   for (let i = 0; i < N; i++) {
-    const k = selected[i] ? firstMatch(stylePreds, nodeList[i]!, i) : -1;
+    const n = nodeList[i]!;
+    const k = selected[i] ? firstMatch(stylePreds, n, i) : -1;
+    styleRuleOf[i] = k;
     const rule = k >= 0 ? styleRules[k]! : undefined;
-    const shape = rule?.expr ? String(exprFor(rule.expr)(i)) : rule?.shape;
+    const own = n.attrs.shape ?? ofType(n.attrs.type).shape;   // 节点自己 / 类型节点写的形状
+    const shape = rule?.expr ? String(exprFor(rule.expr)(i))
+      : rule?.by === 'type' ? own ?? STYLE_DEFAULT_SHAPES[n.attrs.type ?? ''] : rule ? rule.shape : own;
     const si = SHAPE_LIST.indexOf((shape ?? 'star') as Shape);
     shapeIdx[i] = si >= 0 ? si : 1;
   }
@@ -791,7 +943,7 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     for (let i = 0; i < N; i++) visible[i] = treeVis[i]! & selected[i]!;
 
     // 3. 边:折叠掉的内部关系提升到容器上,按 (起点,类型,终点) 汇总
-    interface Agg { from: number; to: number; type: number; count: number; real: boolean; proposed: boolean }
+    interface Agg { from: number; to: number; type: number; count: number; real: boolean; proposed: boolean; sec: number }
     const aggs = new Map<number, Agg>();
     for (let e = 0; e < E; e++) {
       const t = ety[e]!;
@@ -800,9 +952,9 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
       if (a === b || !visible[a] || !visible[b]) continue;
       const lifted = a !== ef[e] || b !== et[e];
       if (lifted && tSym[t] && ids[a]! > ids[b]!) { const x = a; a = b; b = x; }
-      const key = (a * N + b) * nT + t;
+      const key = ((a * N + b) * nT + t) * 2 + second[e]!;
       let g = aggs.get(key);
-      if (!g) { g = { from: a, to: b, type: t, count: 0, real: false, proposed: true }; aggs.set(key, g); }
+      if (!g) { g = { from: a, to: b, type: t, count: 0, real: false, proposed: true, sec: second[e]! }; aggs.set(key, g); }
       g.count++;
       if (!lifted) g.real = true;
       if (!eprop[e]) g.proposed = false;
@@ -840,17 +992,7 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
       nodes.push(sn);
     }
     const edges: SceneEdge[] = [];
-    for (const g of aggs.values()) {
-      const te = tEdge[g.type]!;
-      const edge: SceneEdge = {
-        from: ids[g.from]!, to: ids[g.to]!, type: typeNames[g.type]!, mode: te.mode,
-        color: tColor[g.type]!, width: te.width, arrow: te.arrow, proposed: g.proposed, count: g.count, lifted: !g.real,
-      };
-      if (te.distance !== undefined) edge.distance = te.distance;
-      if (te.strength !== undefined) edge.strength = te.strength;
-      if (te.spin !== undefined) edge.spin = te.spin;
-      edges.push(edge);
-    }
+    for (const g of aggs.values()) edges.push(mkEdge(g.from, g.to, g.type, g.count, g.real, g.proposed, g.sec));
     const expand: Scene['expand'] = { relation };
     if (expandAuto) expand.auto = expandAuto;
     return { look, nodes, edges, expand };
@@ -877,17 +1019,20 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     }
     return sn;
   };
-  const mkEdge = (from: number, to: number, t: number, count: number, real: boolean, proposed: boolean): SceneEdge => {
+  /** sec:第二个容器的 contains(见 second):疆界 / 轨道画不出"也属于",改成淡线,不带距离、公转 */
+  function mkEdge(from: number, to: number, t: number, count: number, real: boolean, proposed: boolean, sec = 0): SceneEdge {
     const te = tEdge[t]!;
+    const weak = sec === 1 && (te.mode === 'region' || te.mode === 'orbit');
     const edge: SceneEdge = {
-      from: ids[from]!, to: ids[to]!, type: typeNames[t]!, mode: te.mode,
-      color: tColor[t]!, width: te.width, arrow: te.arrow, proposed, count, lifted: !real,
+      from: ids[from]!, to: ids[to]!, type: typeNames[t]!, mode: weak ? 'faint' : te.mode,
+      color: tColor[t]!, width: te.width, arrow: weak ? true : te.arrow, proposed, count, lifted: !real,
     };
+    if (weak) return edge;
     if (te.distance !== undefined) edge.distance = te.distance;
     if (te.strength !== undefined) edge.strength = te.strength;
     if (te.spin !== undefined) edge.spin = te.spin;
     return edge;
-  };
+  }
   const chainOf = (v: number): number[] => { const c: number[] = []; for (let x = v; x >= 0; x = parent[x]!) c.push(x); return c.reverse(); };
   const spaceCache = new Map<number, SpaceScene>();
 
@@ -916,7 +1061,7 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     }
     const here = ci < 0 ? new Set<number>() : new Set<number>(chainOf(ci));
 
-    interface Agg { from: number; to: number; type: number; count: number; real: boolean; proposed: boolean }
+    interface Agg { from: number; to: number; type: number; count: number; real: boolean; proposed: boolean; sec: number }
     const internal = new Map<number, Agg>();
     const external = new Map<string, ExternalLink & { _k: string }>();
     for (let e = 0; e < E; e++) {
@@ -929,15 +1074,15 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
         let a = ra, b = rb;
         const lifted = a !== ef[e] || b !== et[e];
         if (lifted && tSym[t] && ids[a]! > ids[b]!) { const x = a; a = b; b = x; }
-        const key = (a * N + b) * nT + t;
+        const key = ((a * N + b) * nT + t) * 2 + second[e]!;
         let g = internal.get(key);
-        if (!g) { g = { from: a, to: b, type: t, count: 0, real: false, proposed: true }; internal.set(key, g); }
+        if (!g) { g = { from: a, to: b, type: t, count: 0, real: false, proposed: true, sec: second[e]! }; internal.set(key, g); }
         g.count++;
         if (!lifted) g.real = true;
         if (!eprop[e]) g.proposed = false;
         continue;
       }
-      if (t === relTypeIdx) continue; // 结构性的"包含"关系不当作外部链接
+      if (t === relTypeIdx && !second[e]) continue; // 容器树上的"包含"是空间本身,不当作外部链接;第二个容器的照样伸出去
       const out = ra >= 0, inside = out ? ra : rb, otherIdx = out ? et[e]! : ef[e]!;
       let other = otherIdx;
       for (const v of chainOf(otherIdx)) if (!here.has(v)) { other = v; break; } // 两条祖先链分叉处
@@ -949,21 +1094,38 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     const out: SpaceScene = {
       id,
       nodes: children.map(mkNode),
-      edges: [...internal.values()].map((g) => mkEdge(g.from, g.to, g.type, g.count, g.real, g.proposed)),
+      edges: [...internal.values()].map((g) => mkEdge(g.from, g.to, g.type, g.count, g.real, g.proposed, g.sec)),
       external: [...external.values()].map(({ _k, ...rest }) => rest),
     };
     spaceCache.set(ci, out);
     return out;
   }
 
+  const matches = (expr: string): string[] => {
+    const f = compileExpr(expr, exprEnv), out: string[] = [];
+    for (let i = 0; i < N; i++) if (!isSchemaId(ids[i]!) && f(i)) out.push(ids[i]!);
+    return out;
+  };
+  let queryList: QueryResult[] | null = null;
+  const queryResults = (): QueryResult[] => (queryList ??= listQueries(u).map((q): QueryResult => {
+    try {
+      const r = graph.query(q.name), members: string[] = [];
+      for (let i = 0; i < N; i++) if (r[i]) members.push(ids[i]!);
+      return { ...q, members };
+    } catch (err) { return { ...q, members: [], error: (err as Error).message }; }
+  }));
+
   return {
-    nodeCount: N, edgeCount: E, fold, space,
+    nodeCount: N, edgeCount: E, fold, space, matches, queryResults,
     layout: spec.layout ?? 'flat',
     look,
     enterAt: spec.space?.enterAt ?? 0.42,
     ancestors: (id) => { const i = idx.get(id); return i === undefined ? [] : chainOf(i).map((v) => ids[v]!); },
     node: (id) => { const i = idx.get(id); return i === undefined ? undefined : mkNode(i); },
     parentOf: (id) => { const i = idx.get(id); return i === undefined || parent[i]! < 0 ? undefined : ids[parent[i]!]!; },
+    children: (id) => { const i = idx.get(id), out: string[] = []; if (i !== undefined) for (let k = treeKids.start[i]!; k < treeKids.start[i + 1]!; k++) out.push(ids[treeKids.list[k]!]!); return out; },
+    relation,
+    explain: (id) => { const i = idx.get(id); return i === undefined ? undefined : { size: sizeRule[i]!, color: colorRuleOf[i]!, style: styleRuleOf[i]! }; },
   };
 }
 
@@ -995,7 +1157,7 @@ const KEYS = {
   expand: ['relation', 'depth', 'maxNodes', 'auto'],
   size: ['when', 'attr', 'expr', 'signal', 'recency', 'by', 'rollup', 'scale', 'range'],
   color: ['when', 'by', 'relation', 'level', 'value', 'expr', 'signal', 'halfLifeDays', 'from', 'to', 'rollup'],
-  style: ['when', 'shape', 'expr'],
+  style: ['when', 'shape', 'expr', 'by'],
   relation: ['mode', 'distance', 'strength', 'color', 'width', 'arrow', 'spin'],
 };
 const SHAPES = ['dot', 'star', 'nebula', 'ringed', 'pulsar'];
@@ -1031,7 +1193,8 @@ export function validateSpec(spec: unknown, u?: Universe): string[] {
     rules.forEach((r, i) => {
       if (!isObj(r)) { bad.push(`${key}[${i}] 必须是对象`); return; }
       unknownKeys(r, KEYS[key], `${key}[${i}]`);
-      if (key === 'style' && r.expr === undefined && !SHAPES.includes(r.shape as string)) bad.push(`style[${i}].shape 必须是 ${SHAPES.join('/')}(或写 expr)`);
+      if (key === 'style' && r.by !== undefined && r.by !== 'type') bad.push(`style[${i}].by 只能是 "type"(得到 ${JSON.stringify(r.by)})`);
+      if (key === 'style' && r.expr === undefined && r.by === undefined && !SHAPES.includes(r.shape as string)) bad.push(`style[${i}].shape 必须是 ${SHAPES.join('/')}(或写 expr、by: "type")`);
       if (r.expr !== undefined) checkSrc(r.expr, `${key}[${i}].expr`);
       if (typeof r.when === 'string') checkSrc(r.when, `${key}[${i}].when`);
       if (key === 'size' && r.by !== undefined && r.by !== 'degree') bad.push(`size[${i}].by 只能是 "degree"(得到 ${JSON.stringify(r.by)})`);

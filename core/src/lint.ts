@@ -4,6 +4,8 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { type Universe, SCHEMA_PREFIX, isSchemaId, schemaNode } from './model.ts';
+import { seenPath, seenState } from './stale.ts';
+import { compileView } from './view.ts';
 
 export type Severity = 'error' | 'warn' | 'info';
 
@@ -136,6 +138,17 @@ const missingFile: Rule = (u, o) => {
   return out;
 };
 
+/** 说明写于文件改动之前:节点记的 seen(写说明时文件的版本)和文件现在的内容对不上(见 stale.ts) */
+const stale: Rule = (u, o) => {
+  if (!o.baseDir) return [];
+  const out: Issue[] = [];
+  for (const n of u.nodes.values()) {
+    if (!n.attrs.seen || seenState(o.baseDir, n.attrs) !== 'stale') continue;
+    out.push({ rule: 'stale', severity: 'warn', nodes: [n.id], message: `${n.id} 的说明写于文件改动之前: ${seenPath(n.attrs)}` });
+  }
+  return out;
+};
+
 const orphan: Rule = (u) => {
   const touched = new Set<string>();
   for (const e of u.edges.values()) {
@@ -160,6 +173,34 @@ const proposed: Rule = (u) => [
     })),
 ];
 
+// 自定义规则 = 宇宙里的节点:~rule/<名字> kind=rule expr="<布尔表达式>" level=warn|error|info message="…"。
+// 表达式和视图规则、保存的查询同一套(属性、degree、路径条件 from / to / out / into、fn.名字……),命中的节点各报一条。
+export const RULE_PREFIX = `${SCHEMA_PREFIX}rule/`;
+export interface CustomRule { name: string; id: string; expr: string; level: Severity; message: string }
+export function listRules(u: Universe): CustomRule[] {
+  const out: CustomRule[] = [];
+  for (const n of u.nodes.values()) {
+    if (!n.id.startsWith(RULE_PREFIX) || n.attrs.kind !== 'rule' || !n.attrs.expr) continue;
+    const name = n.id.slice(RULE_PREFIX.length), lv = n.attrs.level;
+    out.push({ name, id: n.id, expr: n.attrs.expr, level: lv === 'error' || lv === 'info' ? lv : 'warn', message: n.attrs.message ?? n.attrs.summary ?? (n.label || name) });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+const CUSTOM_CAP = 500;
+const custom: Rule = (u) => {
+  const rules = listRules(u);
+  if (!rules.length) return [];
+  const c = compileView(u, {});
+  const out: Issue[] = [];
+  for (const r of rules) {
+    let ids: string[];
+    try { ids = c.matches(r.expr); } catch (err) { out.push({ rule: 'rule-error', severity: 'error', nodes: [r.id], message: `规则 ${r.name} 写错了: ${(err as Error).message}` }); continue; }
+    for (const id of ids.slice(0, CUSTOM_CAP)) out.push({ rule: `rule:${r.name}`, severity: r.level, nodes: [id], message: `${id}: ${r.message}` });
+    if (ids.length > CUSTOM_CAP) out.push({ rule: `rule:${r.name}`, severity: r.level, nodes: [], message: `规则 ${r.name} 还有 ${ids.length - CUSTOM_CAP} 个节点没列出` });
+  }
+  return out;
+};
+
 export const RULES: Record<string, Rule> = {
   'dangling-edge': dangling,
   'undeclared-edge-type': undeclaredEdgeType,
@@ -167,8 +208,10 @@ export const RULES: Record<string, Rule> = {
   cycle,
   'multiple-parents': multipleParents,
   'missing-file': missingFile,
+  stale,
   orphan,
   proposed,
+  custom,
 };
 
 const ORDER: Record<Severity, number> = { error: 0, warn: 1, info: 2 };
