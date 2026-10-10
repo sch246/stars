@@ -26,7 +26,8 @@ const HELP = `stars —— 关系编辑器(内核 CLI)
   init                               用创世文件新建 universe.stars
   add <id> [label]                   新建节点   [-t 类型] [-s 摘要] [--ref 文件路径] [-a k=v ...] [--proposed]
   set <id>                           修改节点   [-l 标签] [-a k=v ...] [--unset k ...]
-  rm <id> ...                        删除节点(连带其所有边;几个一起删 = 一步撤回)
+  rm <id> ... [--node-only]          删除节点(连带其所有边;几个一起删 = 一步撤回);文件 / 文件夹挪进回收站
+                                     (.git/stars-trash/ 或 .stars-trash/),undo 搬回来;--node-only 只删节点
   link <from> <type> <to>            建边       [--proposed] [-a k=v ...]
   unlink <from> <type> <to>          删边
   relink <from> <type> <to> [--type 新类型] [--reverse]   改边的类型 / 方向(属性跟着走)

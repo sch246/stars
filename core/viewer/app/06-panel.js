@@ -52,6 +52,7 @@ const summ = (e) => {
 
 function renderSide() {
   const el = $('side-info');
+  if (el.querySelector('.nd-editing:focus')) return;   // 正在侧栏里改名 / 改说明 / 改属性:别把输入框重画掉(改完会再画)
   const n = selected && raw.get(selected);
   syncFile(n || null);
   const sn = selected && (isSpaces() ? compiled.node(selected) : sim.get(selected));
@@ -81,17 +82,23 @@ function renderSide() {
     return;
   }
   const out = data.edges.filter((e) => e.from === n.id), inn = data.edges.filter((e) => e.to === n.id);
-  const attrs = Object.entries(n.attrs).filter(([k]) => !['type', 'summary', 'seen'].includes(k))
-    .map(([k, v]) => `<div class="row"><span class="tag">${esc(k)}</span><span>${esc(k === 'size' ? fmtBytes(+v) : v)}</span></div>`).join('');
+  const live = !window.__STARS_STATIC__ && !replay, ro = new Set(isFsNode(n.id) ? ['file', 'size', 'ext'] : []);   // 文件节点的 file / size / ext 由同步管,不在这里改
+  const attrs = Object.entries(n.attrs).filter(([k]) => !['summary', 'seen'].includes(k))
+    .map(([k, v]) => `<div class="row nd-attr" data-k="${esc(k)}"><span class="tag">${esc(k)}</span><span class="${live && !ro.has(k) ? 'nd-v' : ''}"${live && !ro.has(k) ? ' title="点一下改"' : ''}>${esc(k === 'size' ? fmtBytes(+v) : v)}</span>`
+      + `${live && !ro.has(k) ? `<span class="mini nd-x" data-nunset="${esc(k)}" title="删掉这个属性">×</span>` : ''}</div>`).join('')
+    + (live ? '<div class="row"><span class="mini" data-nadd="1" title="加一个属性(key = value)">+ 属性</span></div>' : '');
+  const ej = (e) => esc(JSON.stringify([e.from, e.type, e.to]));
   const edgeRow = (e, other, arrow) => `<div class="row link" data-id="${esc(other)}"><span class="tag">${arrow}</span>`
-    + `<span style="color:${edgeColors.get(`${e.from}|${e.type}|${e.to}`) || '#8a8aa8'}">${esc(e.type)}</span><span>${esc(raw.get(other)?.label || other)}</span>`
+    + `<span class="ed-type" data-eone="${ej(e)}" title="选中这条关系" style="color:${edgeColors.get(`${e.from}|${e.type}|${e.to}`) || '#8a8aa8'}">${esc(e.type)}</span><span>${esc(raw.get(other)?.label || other)}</span>`
+    + (live ? `<span class="ed-acts"><span class="mini" data-eretype="${ej(e)}" title="改类型">✎</span><span class="mini" data-erev="${ej(e)}" title="反转方向">⇄</span><span class="mini no" data-erm="${ej(e)}" title="删掉这条关系">✗</span></span>` : '')
     + (e.attrs.status === 'proposed' ? `<span class="sev-warn">待确认</span><span class="mini ok" data-act="accept" data-from="${esc(e.from)}" data-type="${esc(e.type)}" data-to="${esc(e.to)}">✓</span><span class="mini no" data-act="reject" data-from="${esc(e.from)}" data-type="${esc(e.type)}" data-to="${esc(e.to)}">✗</span>` : (e.attrs.status ? `<span class="sev-warn">${esc(e.attrs.status)}</span>` : '')) + '</div>';
   const myIssues = data.issues.filter((i) => i.nodes.includes(n.id) && i.rule !== 'proposed' && i.rule !== 'stale');   // 待确认的上面已经有 ✓ ✗ 了(体检结果要等 1.5 秒才推,不用它);过期有自己的一栏
-  el.innerHTML = `<h3 style="color:${sn ? sn.color : '#fff'}">${esc(n.label)}</h3>
+  el.innerHTML = `<h3 class="nd-title" style="color:${sn ? sn.color : '#fff'}"${live ? ' title="点一下改名(F2)"' : ''}>${esc(n.label)}</h3>
     <div class="sub">${esc(n.id)}${n.attrs.type ? ` · <span class="link ty-link" data-cmd="type-edit ${esc(quoteArg(n.attrs.type))} node" title="改这一类节点的样子">${esc(n.attrs.type)} ✎</span>` : ''}${sn && sn.value !== undefined ? ' · 视图值 ' + esc(sn.value) : ''}</div>
     ${n.attrs.status === 'proposed' ? (() => { const who = (data.proposals || {})[nodeProposalKey(n.id)]; return `<div class="sec"><div class="row"><span class="sev-warn">待确认的节点</span><span>${who ? esc(who.author) + ' · ' + ago(who.t) : '来源未知'}</span><span class="mini ok" data-act="accept" data-id="${esc(n.id)}" title="接受">✓</span><span class="mini no" data-act="reject" data-id="${esc(n.id)}" title="拒绝(删除这个节点和它的边)">✗</span></div></div>`; })() : ''}
     ${draftMark ? (draftMark.added.has(n.id) ? '<div class="sec"><span style="color:#7be0a0">草稿里新增的节点(还没落进宇宙)</span></div>' : draftMark.removed.has(n.id) ? '<div class="sec"><span style="color:#ff7a90">草稿会删掉这个节点(连同它的边)</span></div>' : draftMark.changed.has(n.id) ? `<div class="sec"><span style="color:#ffb347">草稿会改它</span>${draftChanges(n.id)}</div>` : '') : ''}
-    ${n.attrs.summary ? `<p>${esc(n.attrs.summary)}</p>` : ''}
+    ${n.attrs.summary ? `<p class="${live ? 'nd-sum' : ''}"${live ? ' title="点一下改说明"' : ''}>${esc(n.attrs.summary)}</p>` : live ? '<div class="nd-sum empty">+ 写说明</div>' : ''}
+    ${live ? `<div class="btns nd-btns"><span class="btn" data-cmd="rename ${esc(quoteArg(n.id))}" title="F2">改名</span><span class="btn" data-ndlink="1" title="接下来点哪个节点就连到哪个;右键从它拖到另一个节点也行">连到…</span><span class="btn" data-cmd="delete" title="Del${isFsNode(n.id) ? ';文件挪进回收站,撤销拿回来' : ''}">删除</span></div>` : ''}
     ${seenSection(n)}
     ${sn && sn.container ? (isSpaces()
       ? `<div class="sec"><div class="row"><span class="tag">空间</span><span>${sn.children} 个直接子项 · ${sn.descendants} 个后代${expandedSet.has(sn.id) ? ' · 已就地展开' : ''}${curSpaceId === sn.id ? ' · 你在这里' : ''}</span></div>`

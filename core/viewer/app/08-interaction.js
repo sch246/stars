@@ -80,11 +80,14 @@ d3.select(canvas).call(d3.drag()
   }));
 canvas.addEventListener('mousemove', (ev) => { pointerXY = [ev.offsetX, ev.offsetY]; hovered = find(ev.offsetX, ev.offsetY) || null; canvas.style.cursor = hovered ? 'pointer' : 'default'; });
 // 点击统一入口(选中 + 原地双击)。canvas 的 click 只在"没有真正拖动"时触发,所以拖动不会被误当成点击。
-let lastTap = null;                        // 第一次点击:{ id, x, y, t }
+let lastTap = null;                        // 第一次点击:{ id, domain, x, y, t }(x, y 是 client 坐标)
 const TAP_MS = 500, TAP_PX = 10;           // 原地双击:同一屏幕位置,500ms 以内(和系统双击阈值一致)
-function performDouble(id) {   // 双击 = 执行这类节点的双击命令(设置 → 快捷键 → 双击,keys.llf 的 dblclick)
-  if (id == null) return;
-  const line = dblLine(id);
+/** 双击 = 执行这类节点的双击命令(设置 → 快捷键 → 双击,keys.llf 的 dblclick);
+ *  双击空地(或就地展开的文件夹里的空地)= 在那里新建节点(见「新建节点」) */
+function performDouble(tap) {
+  if (!tap) return;
+  if (tap.id == null || tap.domain) { openCreator(tap.x, tap.y, tap.domain ? tap.id : undefined); return; }
+  const line = dblLine(tap.id);
   if (line) exec(line, 'mouse');
 }
 function handleTap(px, py, hit, ev) {
@@ -92,11 +95,11 @@ function handleTap(px, py, hit, ev) {
   const now = performance.now();
   if (lastTap && now - lastTap.t < TAP_MS && Math.hypot(px - lastTap.x, py - lastTap.y) < TAP_PX) {
     // 第二次点击仍落在第一次的位置附近 → 算在第一次的目标上,第二次点到的"当地东西"忽略(镜头已经移动也不影响)
-    const id = lastTap.id; lastTap = null;
-    performDouble(id);
+    const tap = lastTap; lastTap = null;
+    performDouble(tap);
     return;
   }
-  lastTap = { id: hit && hit.n ? hit.n.id : null, x: px, y: py, t: now };
+  lastTap = { id: hit && hit.n ? hit.n.id : null, domain: !!(hit && hit.domain), x: px, y: py, t: now };
   const id = hit ? hit.n.id : null;
   if (id !== selected) did(id ? 'select ' + quoteArg(id) : 'select', 'mouse');   // 回显:点一下 = select 命令
   select(id, false);
@@ -108,13 +111,13 @@ let swallowClick = false, dblCand = null;
 addEventListener('mousedown', (ev) => {
   swallowClick = false; dblCand = null;
   if (!lastTap || ev.button) return;
-  if (performance.now() - lastTap.t < TAP_MS && Math.hypot(ev.clientX - lastTap.x, ev.clientY - lastTap.y) < TAP_PX) dblCand = { id: lastTap.id, x: ev.clientX, y: ev.clientY };
+  if (performance.now() - lastTap.t < TAP_MS && Math.hypot(ev.clientX - lastTap.x, ev.clientY - lastTap.y) < TAP_PX) dblCand = { tap: lastTap, x: ev.clientX, y: ev.clientY };
 }, true);
 addEventListener('mousemove', (ev) => { if (dblCand && Math.hypot(ev.clientX - dblCand.x, ev.clientY - dblCand.y) > 3) dblCand = null; }, true);
 addEventListener('mouseup', () => {
   if (!dblCand) return;
-  const id = dblCand.id; dblCand = null; lastTap = null; swallowClick = true;
-  performDouble(id);   // 第二次是原地点击(没有拖动)→ 算在第一次点击的目标上
+  const tap = dblCand.tap; dblCand = null; lastTap = null; swallowClick = true;
+  performDouble(tap);   // 第二次是原地点击(没有拖动)→ 算在第一次点击的目标上
 }, true);
 addEventListener('click', (ev) => {
   if (!swallowClick) return;

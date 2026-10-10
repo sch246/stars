@@ -123,6 +123,8 @@ function recompute(structural = true) {
   for (const n of sim.values()) {
     if (n.x !== undefined) continue;
     if (n.tx !== undefined) { n.x = n.tx; n.y = n.ty; n.vx = 0; n.vy = 0; continue; }
+    const at = spawnAt.get(n.id);
+    if (at && at.key === '*') { n.x = at.x; n.y = at.y; n.vx = 0; n.vy = 0; spawnAt.delete(n.id); continue; }   // 双击新建的:就在双击的位置
     const p = n.parent && sim.get(n.parent);
     const e = scene.edges.find((e) => (e.from === n.id && sim.get(e.to)?.x !== undefined) || (e.to === n.id && sim.get(e.from)?.x !== undefined));
     const nb = p && p.x !== undefined ? p : e ? sim.get(e.from === n.id ? e.to : e.from) : null;

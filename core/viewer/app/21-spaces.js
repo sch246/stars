@@ -79,7 +79,12 @@ function getSpace(id) {
     const n = { ...sn };
     decorate(n, o);
     if (o) { n.x = o.x; n.y = o.y; }
-    else { const a = i * 2.39996, rr = 14 * Math.sqrt(i + 1); n.x = Math.cos(a) * rr; n.y = Math.sin(a) * rr; if (old) n.born = performance.now(); }
+    else {
+      const at = spawnAt.get(sn.id);
+      if (at && at.key === key) { n.x = at.x; n.y = at.y; spawnAt.delete(sn.id); }   // 双击新建的:就在双击的位置
+      else { const a = i * 2.39996, rr = 14 * Math.sqrt(i + 1); n.x = Math.cos(a) * rr; n.y = Math.sin(a) * rr; }
+      if (old) n.born = performance.now();
+    }
     byId.set(n.id, n);
     return n;
   });

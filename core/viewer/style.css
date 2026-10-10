@@ -309,3 +309,20 @@ code.qexpr { display: block; white-space: pre-wrap; word-break: break-all; font:
 #tray .tr-e .acts { display: none; gap: 2px; flex: none; } #tray .tr-e:hover .acts, #tray .tr-e.top .acts { display: flex; }
 #tray .tr-e .acts span { padding: 0 4px; border-radius: 4px; color: var(--muted); } #tray .tr-e .acts span:hover { color: #fff; background: #7aa7ff33; }
 #tray .tr-f { color: var(--muted); font-size: 10.5px; margin-top: 4px; line-height: 1.4; }
+/* 新建节点的小框 */
+#creator { position: fixed; z-index: 40; width: 300px; padding: 7px 8px; border-radius: 10px; box-shadow: 0 8px 28px #0008; }
+#creator .cr-row { display: flex; gap: 6px; }
+#creator input { box-sizing: border-box; background: #05050c; border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 5px 7px; font: inherit; font-size: 13px; outline: none; min-width: 0; }
+#creator input:focus { border-color: #4a5a9a; }
+#creator .cr-name { flex: 1; } #creator .cr-type { width: 92px; flex: none; }
+#creator .cr-hint { color: var(--muted); font-size: 10.5px; margin-top: 5px; line-height: 1.4; }
+/* 侧栏里就地改 */
+#side .nd-title, #side .nd-sum, #side .nd-v { cursor: text; border-radius: 4px; }
+#side .nd-title:hover, #side .nd-sum:hover, #side .nd-v:hover { background: #7aa7ff14; }
+#side .nd-sum.empty { color: var(--muted); font-size: 12px; margin: 6px 0; cursor: pointer; }
+#side .nd-btns { margin: 6px 0 2px; }
+#side .nd-rename { width: 100%; box-sizing: border-box; font-size: 16px; font-weight: 600; background: #05050c; border: 1px solid #4a5a9a; color: #fff; border-radius: 6px; padding: 3px 6px; margin: 2px 0 4px; outline: none; }
+#side .nd-edit { width: 100%; box-sizing: border-box; background: #05050c; border: 1px solid #4a5a9a; color: var(--text); border-radius: 6px; padding: 4px 6px; font: inherit; font-size: 12.5px; outline: none; resize: vertical; }
+#side .nd-attr .nd-x { visibility: hidden; } #side .nd-attr:hover .nd-x { visibility: visible; }
+#side .row .ed-acts { display: none; gap: 2px; margin-left: auto; } #side .row:hover .ed-acts { display: inline-flex; }
+#side .ed-type { cursor: pointer; } #side .ed-type:hover { text-decoration: underline; }

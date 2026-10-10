@@ -136,3 +136,22 @@ test('外面来的文件:存进文件夹(不覆盖、空白换成 -),概念也�
   assert.ok(!existsSync(join(dir, 'docs/my-note.txt')));
   assert.throws(() => saveUploads(store, dir, 'x', [{ name: 'a', data: Buffer.from('') }], {}, 't'), /不是文件夹/);
 });
+
+test('删除:文件 / 文件夹挪进回收站,撤销搬回来、关系都回来;--node-only 只删节点;回收站不进扫描', () => {
+  const { dir, store } = project();
+  const r = arrange(store, dir, 'delete', ['src/', 'src/a.ts', 'x'], null, {}, 't');
+  assert.equal(r.plan.fs.length, 1, '文件夹里的文件跟着文件夹挪,不单独挪');
+  assert.match(r.plan.fs[0]!.to, /^\.stars-trash\/.+\/src\/$/);
+  assert.ok(!existsSync(join(dir, 'src')) && existsSync(join(dir, r.plan.fs[0]!.to, 'a.ts')));
+  const u = store.load();
+  assert.ok(!u.nodes.has('src/') && !u.nodes.has('src/a.ts') && !u.nodes.has('src/b.ts') && !u.nodes.has('x'));
+  assert.ok(u.nodes.has('y'), '概念里的东西不跟着删');
+  assert.deepEqual(listFiles(dir, 'universe.stars').filter((f) => f.includes('stars-trash')), [], '回收站不进扫描');
+  undoWithFs(store, dir, 't');
+  assert.ok(existsSync(join(dir, 'src/a.ts')));
+  assert.ok(has(store, 'src/b.ts', 'dependsOn', 'src/a.ts') && has(store, 'ideas', 'contains', 'src/a.ts') && has(store, 'x', 'contains', 'y'), '关系都回来了');
+  const k = runKernel('rm', ['docs/r.md', '--node-only'].slice(0, 1), { 'node-only': true } as never, { store, author: 't', root: dir });
+  assert.match(k.out, /- docs\/r\.md/);
+  assert.ok(existsSync(join(dir, 'docs/r.md')) && !store.load().nodes.has('docs/r.md'));
+  assert.throws(() => planArrange(store.load(), 'delete', ['repo'], null), /根目录/);
+});

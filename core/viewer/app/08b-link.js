@@ -245,11 +245,12 @@ function edgePanel(se) {
 }
 $('side-info').addEventListener('click', (ev) => {
   const t = ev.target;
-  const one = t.closest('[data-eone]'), rv = t.closest('[data-erev]'), rm = t.closest('[data-erm]'), act = t.closest('[data-eact]');
-  if (!one && !rv && !rm && !act) return;
+  const one = t.closest('[data-eone]'), rv = t.closest('[data-erev]'), rm = t.closest('[data-erm]'), act = t.closest('[data-eact]'), rt = t.closest('[data-eretype]');
+  if (!one && !rv && !rm && !act && !rt) return;
   ev.stopPropagation();
   const parse = (el, k) => { const [from, type, to] = JSON.parse(el.dataset[k]); return { from, type, to }; };
   if (one) { const e = parse(one, 'eone'); selectEdge(e); return; }
+  if (rt) { const r = rt.getBoundingClientRect(); openLinkPicker({ mode: 'retype', edges: [parse(rt, 'eretype')], x: r.left - 240, y: r.bottom }); return; }
   if (rv) { relinkEdges([parse(rv, 'erev')], { reverse: true }); return; }
   if (rm) { const e = parse(rm, 'erm'); exec(`unlink ${quoteArg(e.from)} ${quoteArg(e.type)} ${quoteArg(e.to)}`, 'ui'); return; }
   const se = selEdge; if (!se) return;

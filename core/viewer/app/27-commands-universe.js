@@ -42,16 +42,28 @@ defCmd('set', {
   },
 });
 defCmd('rm', {
-  group: '宇宙', effect: 'write', title: '删除节点(连带它的边;给几个 = 一次删掉,一步撤回)', usage: 'rm <id…>', args: [nodeArg()], more: true,
-  run: (a, o, c) => {
+  group: '宇宙', effect: 'write', title: '删除节点(连带它的边;给几个 = 一次删掉,一步撤回)。文件 / 文件夹连文件一起挪进回收站,撤销时搬回来;--node-only 只删节点',
+  usage: 'rm <id…> [--node-only]', bools: ['node-only'], args: [nodeArg()], more: true,
+  run: async (a, o, c) => {
     need(a, 1, CMDS.get('rm'));
     const ids = [...new Set(a)];
     for (const id of ids) if (!raw.has(id)) throw new Error(`节点不存在:${id}`);
+    const files = o['node-only'] ? [] : ids.filter((id) => isFsNode(id));
+    const what = ids.length === 1 ? raw.get(ids[0])?.label || ids[0] : `${ids.length} 个节点`;
     if (proposing(c)) for (const id of ids) ownProposal(c, nodeProposalKey(id), `节点 ${id}`);
-    else if (c.src !== 'page' && !confirm(ids.length === 1 ? `删除节点 ${ids[0]} 和它的所有边?(之后可以 undo)`
-      : `删除这 ${ids.length} 个节点和它们的所有边?(之后可以 undo)\n\n${ids.slice(0, 12).join('\n')}${ids.length > 12 ? `\n… 还有 ${ids.length - 12} 个` : ''}`)) return;   // 页面已经被你授权「写」,不弹框(照样能 undo)
+    else if (c.src !== 'page' && (ids.length > 1 || files.length) && !confirm(`删除${ids.length > 1 ? `这 ${ids.length} 个节点和它们` : `「${raw.get(ids[0])?.label || ids[0]}」和它`}的所有边?`
+      + (files.length ? `\n其中 ${files.length} 个是文件 / 文件夹,会挪进回收站(.git/stars-trash/ 或 .stars-trash/)。` : '')
+      + `\n之后可以撤销(Ctrl Z / undo)。${ids.length > 1 ? `\n\n${ids.slice(0, 12).join('\n')}${ids.length > 12 ? `\n… 还有 ${ids.length - 12} 个` : ''}` : ''}`)) return;   // 单个普通节点直接删(能撤销);页面已经被你授权「写」,不弹框
+    if (files.length && !proposing(c)) {   // 动磁盘的走整理接口(服务端在写锁里挪文件 + 提交)
+      const r = await api('/api/arrange', { mode: 'delete', ids, target: null, author: (c && c.author) || 'viewer' });
+      if (r.n) await waitApplied(r.n);
+      if (c.src !== 'page') toast(`${esc(r.summary)} · <span data-cmd="undo" style="cursor:pointer;text-decoration:underline">撤销</span>`, false, 5000);
+      return { out: `${r.summary}   #${r.n}`, data: r };
+    }
     const ops = ids.map((id) => ({ op: 'removeNode', id }));
-    return commitOp(ops.length === 1 ? ops[0] : { op: 'batch', ops }, ids.length === 1 ? `- ${ids[0]}` : `- ${ids.length} 个节点`, c);
+    const r = await commitOp(ops.length === 1 ? ops[0] : { op: 'batch', ops }, ids.length === 1 ? `- ${ids[0]}` : `- ${ids.length} 个节点`, c);
+    if (c.src !== 'page') toast(`已删除 ${esc(what)} · <span data-cmd="undo" style="cursor:pointer;text-decoration:underline">撤销</span>`, false, 4000);
+    return r;
   },
 });
 defCmd('delete', {
@@ -249,6 +261,7 @@ defCmd('undo', {
   run: async (a, o, c) => {
     noProposing(c, '撤销');
     const r = await api('/api/undo', {}); await waitApplied(r.n); if (!$('review').hidden) rvMsg(`已撤销(操作 #${r.n})`);
+    if (['key', 'ui', 'mouse'].includes(c.src)) { toast('已撤销'); return { data: { n: r.n } }; }   // 按键 / 点按钮:提示一下就好,不拉出控制台
     return { out: `已撤销   #${r.n}`, data: { n: r.n } };
   },
 });

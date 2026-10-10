@@ -39,6 +39,7 @@ let selected = null, hovered = null, query = '';
 // 不变式:selected 不为空时一定在 selection 里;只选了一个时两者一样。selVer 每改一次集合加一(缓存用)
 const selection = new Set();
 let selVer = 0;
+const spawnAt = new Map();         // 刚新建的节点 id → { key: 空间(平铺 = '*'), x, y }:出生在双击的位置(见「新建节点」)
 let selEdge = null;                // 选中的边:{ from, type, to } 或汇总边 { lifted: true, from, type, to, count }(见「关系」一节)
 // 过滤:query 是过滤框里的字(以 = 开头就是表达式);qActive 是点亮的保存的查询(动态区域)。filt = 两者有一个在起作用
 let filt = false, qActive = null, qErr = '';

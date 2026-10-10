@@ -5,12 +5,16 @@
 //          外面指向它的不复制(像复制文件:它引用别人照旧,没人引用副本)。文件 / 文件夹在磁盘上真的复制一份。
 //          概念里装着的文件不复制文件本身,副本照样装着原来那个文件。
 //   引用 = 也放进这里:只加一条容器关系(一个节点可以在几个容器里),什么都不搬。
+//   删除 = 节点连同它的边删掉;文件 / 文件夹挪进回收站(git 仓库里是 .git/stars-trash/,否则 .stars-trash/),撤销时搬回来。
+//          只删节点、文件留着的话,开着同步时它马上又会被加回来(没有说明和关系),所以默认连文件一起。
 // 放进它自己或它里面的东西,一律拒绝。这里只算「要做什么」(图的操作 + 磁盘动作),真正动磁盘的是 fsops.ts。
 // 这个文件同时在 Node 和浏览器里运行;静态导出拼进同一个作用域:顶层名字都以 arrange 开头。
 import { type Node, type Universe, StarsError, edgeKey, isSchemaId } from './model.ts';
 import { type Op } from './ops.ts';
 
-export type ArrangeMode = 'move' | 'copy' | 'ref';
+export type ArrangeMode = 'move' | 'copy' | 'ref' | 'delete';
+/** 回收站目录(相对项目根);扫描和同步都跳过它 */
+export const ARRANGE_TRASH = '.stars-trash/';
 /** 磁盘上的动作(路径相对项目根;文件夹以 / 结尾)。create = 新写了一个文件(粘贴、拖进来的),撤销时删掉 */
 export interface FsAct { act: 'move' | 'copy' | 'delete' | 'create'; from: string; to: string }
 export interface ArrangeOpts {
@@ -20,6 +24,10 @@ export interface ArrangeOpts {
   from?: Record<string, string | null>;
   /** 文件系统的挂载根(扫描时的根目录节点);不给 = 找没有 file 属性的 dir 节点 */
   mountId?: string;
+  /** 删除:回收站目录(以 / 结尾)与这一次的子目录名;nodeOnly = 只删节点,文件留着 */
+  trash?: string;
+  stamp?: string;
+  nodeOnly?: boolean;
 }
 export interface ArrangePlan {
   op: Op | null;
@@ -97,6 +105,24 @@ export function planArrange(u: Universe, mode: ArrangeMode, ids: string[], targe
   }
   const ops: Op[] = [], fs: FsAct[] = [], result: string[] = [], skipped: string[] = [];
   const tLabel = target === null ? '顶层' : label(target);
+
+  if (mode === 'delete') {   // 选中的每一个都删(不只最外层);文件夹连同里面的文件节点
+    const trash = opts.trash ?? ARRANGE_TRASH, stamp = opts.stamp ?? new Date().toISOString().replace(/[:.]/g, '-');
+    const gone = new Set<string>();
+    for (const id of uniq) {
+      if (gone.has(id)) continue;
+      if (isFs(id) && !opts.nodeOnly) {
+        const old = pathOf(id);
+        fs.push({ act: 'move', from: old, to: `${trash}${stamp}/${old}` });
+        for (const n of u.nodes.values()) if (n.id === id || (isDir(id) && isFs(n.id) && n.id !== mount && pathOf(n.id).startsWith(old))) gone.add(n.id);
+      } else gone.add(id);
+    }
+    // 外层文件夹挪走时里面的已经跟着走了:里面的那几条不再单独挪
+    for (let i = fs.length - 1; i >= 0; i--) if (fs.some((a, j) => j !== i && a.from.endsWith('/') && fs[i]!.from !== a.from && fs[i]!.from.startsWith(a.from))) fs.splice(i, 1);
+    for (const id of gone) ops.push({ op: 'removeNode', id });
+    const files = [...gone].filter((id) => isFs(id)).length;
+    return done(`删除 ${gone.size} 个节点${fs.length ? `(${files} 个文件 / 文件夹挪进回收站 ${trash}${stamp}/)` : ''}`);
+  }
 
   if (mode === 'ref') {
     if (target === null) throw new StarsError('引用要放进一个容器里');

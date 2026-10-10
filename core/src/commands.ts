@@ -59,6 +59,7 @@ export const CLI_OPTIONS = {
   'no-agent': { type: 'boolean' },
   reverse: { type: 'boolean' },
   top: { type: 'boolean' },
+  'node-only': { type: 'boolean' },
   rel: { type: 'string' },
   help: { type: 'boolean', short: 'h' },
 } as const satisfies ParseArgsConfig['options'];
@@ -149,10 +150,14 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
     case 'set':
       need(1, 'set <id> [-l 标签] [-a k=v] [--unset k]');
       return wrote(described({ op: 'setNode', id: args[0]!, label: o.label, set: nodeAttrs(), unset: o.unset }), `~ ${args[0]}`);
-    case 'rm': {
-      need(1, 'rm <id> ...');
-      const ids = [...new Set(args)], ops = ids.map((id): Op => ({ op: 'removeNode', id }));
-      return wrote(ops.length === 1 ? ops[0]! : { op: 'batch', ops }, ids.length === 1 ? `- ${ids[0]}` : `- ${ids.length} 个节点`);
+    case 'rm': {   // 文件 / 文件夹节点连文件一起挪进回收站(撤销时搬回来);--node-only 只删节点
+      need(1, 'rm <id> ... [--node-only]');
+      const ids = [...new Set(args)];
+      const r = arrange(store, ctx.root, 'delete', ids, null, { nodeOnly: !!o['node-only'] }, ctx.author);
+      const e = r.entry;
+      if (!e) return { out: '没有要删的' };
+      const note = ids.length === 1 && !r.plan.fs.length ? `- ${ids[0]}` : r.plan.summary;
+      return e.draft ? { out: `${note}   (草稿 #${e.draft})`, data: { draft: e.draft } } : { out: note, data: { n: e.n, fs: r.plan.fs } };
     }
     case 'link': {
       need(3, 'link <from> <type> <to>');
