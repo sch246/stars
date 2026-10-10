@@ -36,7 +36,9 @@ bindings !map<command> {}
   ctrl+a - select --all
   delete - delete
   ctrl+z - undo
-  n - new
+  space - new
+  tab - group
+  shift+tab - ungroup
   f2 - rename
 # 双击:节点的种类 → 命令。$id 换成被双击的节点,$path 换成它的文件路径,$dir 换成文件所在的目录。
 #   container 容器(文件夹等,能展开的)· file 一般文件 · image 图片 · markdown Markdown · html 网页 · form 配置(LLF / JSON / TOML)

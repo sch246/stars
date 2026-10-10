@@ -5,6 +5,8 @@
 //          外面指向它的不复制(像复制文件:它引用别人照旧,没人引用副本)。文件 / 文件夹在磁盘上真的复制一份。
 //          概念里装着的文件不复制文件本身,副本照样装着原来那个文件。
 //   引用 = 也放进这里:只加一条容器关系(一个节点可以在几个容器里),什么都不搬。
+//   打包 = 新建一个域,把同一层的几个放进去(在文件夹里 = 真的新建文件夹、把文件搬进去;在概念里 = 一个概念域)。
+//   解散 = 域里的东西放回上一层,再删掉这个域;会丢东西(域自己的说明、关系)或有冲突(重名、磁盘上还有图里没有的文件)时先报出来。
 //   删除 = 节点连同它的边删掉;文件 / 文件夹挪进回收站(git 仓库里是 .git/stars-trash/,否则 .stars-trash/),撤销时搬回来。
 //          只删节点、文件留着的话,开着同步时它马上又会被加回来(没有说明和关系),所以默认连文件一起。
 // 放进它自己或它里面的东西,一律拒绝。这里只算「要做什么」(图的操作 + 磁盘动作),真正动磁盘的是 fsops.ts。
@@ -12,11 +14,12 @@
 import { type Node, type Universe, StarsError, edgeKey, isSchemaId } from './model.ts';
 import { type Op } from './ops.ts';
 
-export type ArrangeMode = 'move' | 'copy' | 'ref' | 'delete';
+export type ArrangeMode = 'move' | 'copy' | 'ref' | 'delete' | 'group' | 'ungroup';
 /** 回收站目录(相对项目根);扫描和同步都跳过它 */
 export const ARRANGE_TRASH = '.stars-trash/';
-/** 磁盘上的动作(路径相对项目根;文件夹以 / 结尾)。create = 新写了一个文件(粘贴、拖进来的),撤销时删掉 */
-export interface FsAct { act: 'move' | 'copy' | 'delete' | 'create'; from: string; to: string }
+/** 磁盘上的动作(路径相对项目根;文件夹以 / 结尾)。create = 新写了一个文件(粘贴、拖进来的),撤销时删掉;
+ *  mkdir = 新建空文件夹(打包),rmdir = 删掉空文件夹(解散;不空就失败,整步倒回) */
+export interface FsAct { act: 'move' | 'copy' | 'delete' | 'create' | 'mkdir' | 'rmdir'; from: string; to: string }
 export interface ArrangeOpts {
   /** 容器关系(视图的 expand.relation),默认 contains;文件系统的结构永远是 contains */
   rel?: string;
@@ -28,14 +31,24 @@ export interface ArrangeOpts {
   trash?: string;
   stamp?: string;
   nodeOnly?: boolean;
+  /** 打包:新域的名字与类型(概念域的 type,默认 concept);inferParent = 上一层没给时自己找(共同的上级) */
+  name?: string;
+  type?: string;
+  inferParent?: boolean;
+  /** 解散:有会丢东西的冲突(域自己的说明、关系)也照做 */
+  force?: boolean;
+  /** 磁盘上这个路径有没有东西(起新名字时避开;fsops 传进来) */
+  exists?: (path: string) => boolean;
 }
 export interface ArrangePlan {
   op: Op | null;
   fs: FsAct[];
   summary: string;
-  /** 结果里对应原来每个(根)节点的 id:移动后可能改了名,复制后是副本 */
+  /** 结果里对应原来每个(根)节点的 id:移动后可能改了名,复制后是副本;打包 = 新域;解散 = 放回去的那些 */
   result: string[];
   skipped: string[];
+  /** 解散时的冲突:hard = 做不了(重名……),soft = 会丢东西(force 才做);有冲突时 op 为 null */
+  conflicts?: { hard: string[]; soft: string[] };
 }
 
 const arrangeBase = (p: string) => p.replace(/\/$/, '').split('/').pop()!;
@@ -90,7 +103,7 @@ export function planArrange(u: Universe, mode: ArrangeMode, ids: string[], targe
 
   // ---- 检查 ----
   const uniq = [...new Set(ids)];
-  if (!uniq.length) throw new StarsError('没有要整理的节点');
+  if (!uniq.length && mode !== 'group') throw new StarsError('没有要整理的节点');
   for (const id of uniq) {
     if (!u.nodes.has(id)) throw new StarsError(`节点不存在: ${id}`);
     if (isSchemaId(id)) throw new StarsError(`模式节点不能整理: ${id}`);
@@ -105,6 +118,91 @@ export function planArrange(u: Universe, mode: ArrangeMode, ids: string[], targe
   }
   const ops: Op[] = [], fs: FsAct[] = [], result: string[] = [], skipped: string[] = [];
   const tLabel = target === null ? '顶层' : label(target);
+  const onDisk = opts.exists ?? (() => false);
+  /** 文件 / 文件夹搬进 destPath(以 / 结尾或空)这个文件夹:节点按路径改名(文件夹里的一起),换 contains 的上级,记一条磁盘搬动 */
+  const fsRelocate = (id: string, destPath: string, destId: string, oldParent: string | null): string => {
+    const old = pathOf(id), nu = destPath + arrangeBase(old) + (isDir(id) ? '/' : '');
+    const pairs: Array<[string, string]> = [];
+    for (const n of u.nodes.values()) if (n.id === id || (isDir(id) && isFs(n.id) && n.id !== mount && pathOf(n.id).startsWith(old))) pairs.push([n.id, nu + pathOf(n.id).slice(old.length)]);
+    ops.push({ op: 'renameNodes', pairs });
+    for (const [a, b] of pairs) { const n = u.nodes.get(a)!; ops.push({ op: 'setNode', id: b, ...(n.label === arrangeBase(a) ? { label: arrangeBase(b) } : {}), set: { file: b } }); }
+    if (oldParent !== null && u.edges.has(edgeKey(oldParent, 'contains', id))) ops.push({ op: 'removeEdge', from: oldParent, type: 'contains', to: nu });
+    ops.push({ op: 'addEdge', from: destId, type: 'contains', to: nu });
+    fs.push({ act: 'move', from: old, to: nu });
+    return nu;
+  };
+  const fsParentOf = (id: string) => idOfPath(arrangeParentPath(pathOf(id)));
+  /** 节点在 parent 这一层吗(文件按所在文件夹;别的按容器关系;parent = null 是顶层 = 没有上级) */
+  const inLayer = (id: string, parent: string | null) => (isFs(id) ? fsParentOf(id) === parent : parent === null ? !(parents.get(id) ?? []).length : u.edges.has(edgeKey(parent, rel, id)));
+
+  if (mode === 'group') {
+    let parent = target;
+    if (parent === null && opts.inferParent && roots.length) {   // 共同的上级:每个节点的上级集合取交集
+      const sets = roots.map((id) => new Set(isFs(id) ? [fsParentOf(id)] : parents.get(id) ?? []));
+      const common = [...sets[0]!].filter((p) => sets.every((s) => s.has(p)));
+      if (common.length > 1) throw new StarsError(`这几个同时在 ${common.map(label).join('、')} 里,要指明打包在哪一层(--from)`);
+      parent = common[0] ?? null;
+      if (parent === null && !roots.every((id) => inLayer(id, null))) throw new StarsError('不是同一层的,打包不了(打包只能打包同一层的几个)');
+    }
+    for (const id of roots) if (!inLayer(id, parent)) throw new StarsError(`「${label(id)}」不在「${parent === null ? '顶层' : label(parent)}」这一层(打包只能打包同一层的几个)`);
+    const name = (opts.name ?? '').trim() || '新域';
+    const folder = parent !== null && isDir(parent) && (roots.length === 0 || roots.some(isFs));   // 在文件夹里:域就是文件夹
+    let cid: string;
+    if (folder) {
+      cid = arrangeFreePath(pathOf(parent!), arrangeCleanName(name), true, (p) => u.nodes.has(p) || onDisk(p));
+      ops.push({ op: 'addNode', id: cid, label: arrangeBase(cid), attrs: { type: 'dir', file: cid } }, { op: 'addEdge', from: parent!, type: 'contains', to: cid });
+      fs.push({ act: 'mkdir', from: cid, to: cid });
+    } else {
+      const base = arrangeCleanName(name);
+      cid = base; for (let i = 2; u.nodes.has(cid); i++) cid = `${base}-${i}`;
+      ops.push({ op: 'addNode', id: cid, label: name, attrs: { type: opts.type || 'concept' } });
+      if (parent !== null) ops.push({ op: 'addEdge', from: parent, type: rel, to: cid });
+    }
+    for (const id of roots) {
+      if (isFs(id)) fsRelocate(id, cid, cid, parent);
+      else {
+        if (parent !== null) ops.push({ op: 'removeEdge', from: parent, type: rel, to: id });
+        ops.push({ op: 'addEdge', from: cid, type: rel, to: id });
+      }
+    }
+    result.push(cid);
+    return done(roots.length ? `打包 ${roots.length} 个 → ${folder ? '新文件夹' : '新域'}「${arrangeBase(cid) === cid ? name : arrangeBase(cid)}」` : `新建${folder ? '文件夹' : '域'}「${folder ? arrangeBase(cid) : name}」`);
+  }
+
+  if (mode === 'ungroup') {
+    if (uniq.length !== 1) throw new StarsError('一次解散一个域');
+    const c = uniq[0]!, kidsOf = [...new Set(kids.get(c) ?? [])];
+    let parent: string | null;
+    if (isFs(c)) parent = fsParentOf(c);
+    else if (target !== null || !opts.inferParent) parent = target;
+    else {
+      const ps = parents.get(c) ?? [];
+      if (ps.length > 1) throw new StarsError(`「${label(c)}」在 ${ps.length} 个容器里(${ps.map(label).join('、')}),要指明放回哪一层(--from)`);
+      parent = ps[0] ?? null;
+    }
+    if (parent !== null && !inLayer(c, parent)) throw new StarsError(`「${label(c)}」不在「${label(parent)}」里`);
+    const hard: string[] = [], soft: string[] = [];
+    if (!kidsOf.length && !isFs(c)) soft.push(`「${label(c)}」里面是空的,解散就是删掉它`);
+    for (const k of kidsOf) {
+      if (!isFs(k)) continue;
+      if (parent === null || !isDir(parent)) { hard.push(`「${label(k)}」是文件,只能放进文件夹`); continue; }
+      const nu = pathOf(parent) + arrangeBase(pathOf(k)) + (isDir(k) ? '/' : '');
+      if (u.nodes.has(nu)) hard.push(`「${label(parent)}」里已经有 ${arrangeBase(nu)} 了`);
+    }
+    if (u.nodes.get(c)!.attrs.summary) soft.push(`「${label(c)}」自己的说明会丢掉`);
+    const own = [...u.edges.values()].filter((e) => (e.from === c || e.to === c)
+      && !(e.to === c && (e.type === rel || e.type === 'contains') && e.from === parent)
+      && !(e.from === c && (e.type === rel || e.type === 'contains') && kidsOf.includes(e.to)));
+    if (own.length) soft.push(`「${label(c)}」还有 ${own.length} 条别的关系会丢掉(${[...new Set(own.map((e) => e.type))].slice(0, 4).join('、')}${own.length > 4 ? '…' : ''})`);
+    if (hard.length || (soft.length && !opts.force)) return { op: null, fs: [], summary: `解散「${label(c)}」有冲突`, result: [], skipped: [], conflicts: { hard, soft } };
+    for (const k of kidsOf) {
+      if (isFs(k)) result.push(fsRelocate(k, pathOf(parent!), parent!, null));
+      else { if (parent !== null && !u.edges.has(edgeKey(parent, rel, k))) ops.push({ op: 'addEdge', from: parent, type: rel, to: k }); result.push(k); }
+    }
+    ops.push({ op: 'removeNode', id: c });
+    if (isFs(c)) fs.push({ act: 'rmdir', from: pathOf(c), to: pathOf(c) });
+    return done(`解散「${label(c)}」:${kidsOf.length} 个放回「${parent === null ? '顶层' : label(parent)}」`);
+  }
 
   if (mode === 'delete') {   // 选中的每一个都删(不只最外层);文件夹连同里面的文件节点
     const trash = opts.trash ?? ARRANGE_TRASH, stamp = opts.stamp ?? new Date().toISOString().replace(/[:.]/g, '-');
@@ -144,17 +242,7 @@ export function planArrange(u: Universe, mode: ArrangeMode, ids: string[], targe
         if (nu === old) { skipped.push(id); result.push(id); continue; }
         if (u.nodes.has(nu) || taken.has(nu)) throw new StarsError(`「${tLabel}」里已经有 ${arrangeBase(nu)} 了`);
         taken.add(nu);
-        const pairs: Array<[string, string]> = [];
-        for (const n of u.nodes.values()) {   // 文件夹:里面的文件节点按路径一起改名
-          if (n.id === id || (isDir(id) && isFs(n.id) && n.id !== mount && pathOf(n.id).startsWith(old))) pairs.push([n.id, nu + pathOf(n.id).slice(old.length)]);
-        }
-        ops.push({ op: 'renameNodes', pairs });
-        for (const [a, b] of pairs) { const n = u.nodes.get(a)!; ops.push({ op: 'setNode', id: b, ...(n.label === arrangeBase(a) ? { label: arrangeBase(b) } : {}), set: { file: b } }); }
-        const oldParent = idOfPath(arrangeParentPath(old));
-        if (u.edges.has(edgeKey(oldParent, 'contains', id))) ops.push({ op: 'removeEdge', from: oldParent, type: 'contains', to: nu });
-        ops.push({ op: 'addEdge', from: target, type: 'contains', to: nu });
-        fs.push({ act: 'move', from: old, to: nu });
-        result.push(nu);
+        result.push(fsRelocate(id, pathOf(target), target, fsParentOf(id)));
         continue;
       }
       const ps = parents.get(id) ?? [];
@@ -174,7 +262,7 @@ export function planArrange(u: Universe, mode: ArrangeMode, ids: string[], targe
   const map = new Map<string, string>(), used = new Set<string>();
   const free = (id: string) => !u.nodes.has(id) && !used.has(id);
   const copyId = (id: string) => { let c = `${id}-copy`; for (let i = 2; !free(c); i++) c = `${id}-copy${i}`; used.add(c); return c; };
-  const copyPath = (dir: string, name: string, isD: boolean) => { const p = arrangeFreePath(dir, name, isD, (x) => !free(x)); used.add(p); return p; };
+  const copyPath = (dir: string, name: string, isD: boolean) => { const p = arrangeFreePath(dir, name, isD, (x) => !free(x) || onDisk(x)); used.add(p); return p; };
   const order: string[] = [];
   for (const id of roots) {
     let base: string;
@@ -222,5 +310,7 @@ export function planArrange(u: Universe, mode: ArrangeMode, ids: string[], targe
 /** 撤销一组磁盘动作要做的动作(倒序):搬回去;复制出来的删掉 */
 export function arrangeRevertFs(acts: FsAct[]): FsAct[] {
   return [...acts].reverse().map((a): FsAct => (a.act === 'move' ? { act: 'move', from: a.to, to: a.from }
-    : a.act === 'copy' || a.act === 'create' ? { act: 'delete', from: a.to, to: a.act === 'copy' ? a.from : a.to } : { act: 'copy', from: a.to, to: a.from }));
+    : a.act === 'copy' || a.act === 'create' ? { act: 'delete', from: a.to, to: a.act === 'copy' ? a.from : a.to }
+    : a.act === 'mkdir' ? { act: 'rmdir', from: a.to, to: a.to } : a.act === 'rmdir' ? { act: 'mkdir', from: a.from, to: a.from }
+    : { act: 'copy', from: a.to, to: a.from }));
 }

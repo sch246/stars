@@ -42,6 +42,8 @@ export interface Body {
   mode?: string; target?: string | null; rel?: string; fromMap?: Record<string, string | null>;
   /** 外面来的文件(/api/upload):base64 */
   files?: Array<{ name: string; b64: string; dir?: boolean }>; container?: string | null;
+  /** 打包 / 解散 */
+  type?: string; force?: boolean;
 }
 
 export interface ApiCall {
@@ -199,12 +201,15 @@ export const POST: Record<string, Handler> = {
   // 整理:移动 / 复制 / 引用进另一个容器(见 arrange.ts);文件真的在磁盘上搬,一步撤回
   '/api/arrange': ({ body, s, proj, author }) => {
     const mode = body.mode;
-    if (mode !== 'move' && mode !== 'copy' && mode !== 'ref' && mode !== 'delete') throw new HttpError(400, 'mode 应为 move / copy / ref / delete');
+    if (mode !== 'move' && mode !== 'copy' && mode !== 'ref' && mode !== 'delete' && mode !== 'group' && mode !== 'ungroup') throw new HttpError(400, 'mode 应为 move / copy / ref / delete / group / ungroup');
     const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === 'string') : [];
     const target = typeof body.target === 'string' ? body.target : null;
     const from = body.fromMap && typeof body.fromMap === 'object' ? body.fromMap : undefined;
-    const r = arrange(proj.store, proj.baseDir, mode, ids, target, { rel: typeof body.rel === 'string' ? body.rel : undefined, from, mountId: s.mountId }, author);
-    return { ok: true, n: r.entry?.n ?? null, summary: r.plan.summary, result: r.plan.result, skipped: r.plan.skipped, fs: r.plan.fs };
+    const r = arrange(proj.store, proj.baseDir, mode, ids, target, {
+      rel: typeof body.rel === 'string' ? body.rel : undefined, from, mountId: s.mountId,
+      name: typeof body.name === 'string' ? body.name : undefined, type: typeof body.type === 'string' ? body.type : undefined, force: body.force === true,
+    }, author);
+    return { ok: true, n: r.entry?.n ?? null, summary: r.plan.summary, result: r.plan.result, skipped: r.plan.skipped, fs: r.plan.fs, conflicts: r.plan.conflicts ?? null };
   },
   '/api/op': ({ body, proj, author }) => {
     if (!validOp(body.op)) throw new HttpError(400, '无效的操作');

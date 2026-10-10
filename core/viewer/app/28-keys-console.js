@@ -1,5 +1,5 @@
 // ---------- 键位(KEYMAP / keyMap 由 core/keys.llf + 个人 keys.llf 合成,见「快捷键」一节)----------
-const KEY_LABEL = { escape: 'Esc', enter: '⏎', backspace: '⌫', delete: 'Del', arrowleft: '←', arrowright: '→', arrowup: '↑', arrowdown: '↓', space: '空格', ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift' };
+const KEY_LABEL = { escape: 'Esc', enter: '⏎', backspace: '⌫', delete: 'Del', tab: 'Tab', arrowleft: '←', arrowright: '→', arrowup: '↑', arrowdown: '↓', space: '空格', ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift' };
 const keyLabel = (k) => k.split('+').map((p) => KEY_LABEL[p] || (p.length === 1 ? p.toUpperCase() : p)).join(' ');
 const keysOf = (line) => [...keyMap].filter(([, l]) => l === line || l.split(' ')[0] === line).map(([k]) => keyLabel(k));
 function keyName(ev) {

@@ -82,11 +82,9 @@ canvas.addEventListener('mousemove', (ev) => { pointerXY = [ev.offsetX, ev.offse
 // 点击统一入口(选中 + 原地双击)。canvas 的 click 只在"没有真正拖动"时触发,所以拖动不会被误当成点击。
 let lastTap = null;                        // 第一次点击:{ id, domain, x, y, t }(x, y 是 client 坐标)
 const TAP_MS = 500, TAP_PX = 10;           // 原地双击:同一屏幕位置,500ms 以内(和系统双击阈值一致)
-/** 双击 = 执行这类节点的双击命令(设置 → 快捷键 → 双击,keys.llf 的 dblclick);
- *  双击空地(或就地展开的文件夹里的空地)= 在那里新建节点(见「新建节点」) */
+/** 双击 = 执行这类节点的双击命令(设置 → 快捷键 → 双击,keys.llf 的 dblclick);双击就地展开的疆界 = 那个容器(收起) */
 function performDouble(tap) {
-  if (!tap) return;
-  if (tap.id == null || tap.domain) { openCreator(tap.x, tap.y, tap.domain ? tap.id : undefined); return; }
+  if (!tap || tap.id == null) return;
   const line = dblLine(tap.id);
   if (line) exec(line, 'mouse');
 }

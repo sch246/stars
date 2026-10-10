@@ -83,6 +83,7 @@ function recompute(structural = true) {
     spaceVer++;                                   // 空间按需重建,保留已有位置
     if (curSpaceId !== null && !compiled.node(curSpaceId)) curSpaceId = null;
     pruneSelection();   // 空间模式:别的空间里选中的照样留着(可以跨空间多选),只去掉已经不在的
+    for (const id of [...pendingExpand]) if (compiled.node(id)?.container) { expandedSet.add(id); pendingExpand.delete(id); savePlace(); }
     for (const id of [...expandedSet]) if (!compiled.node(id)) expandedSet.delete(id);
     scene = { look: compiled.look, nodes: [], edges: [], expand: { relation: 'contains' } };
     look = compiled.look;

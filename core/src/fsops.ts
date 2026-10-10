@@ -1,6 +1,6 @@
 // 整理(arrange.ts)里动磁盘的那一半:在写锁里先动文件、再提交图的操作;任何一步失败就把已经做的倒回去。
 // 日志里记下这次动了哪些文件(LogEntry.fs),撤销时先把文件搬回去(复制出来的删掉),再撤销图的操作。
-import { cpSync, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { ARRANGE_TRASH, type ArrangeMode, type ArrangeOpts, type ArrangePlan, type FsAct, arrangeCleanName, arrangeFreePath, arrangeIsFs, arrangeMount, arrangeRevertFs, planArrange } from './arrange.ts';
 import { StarsError, edgeKey } from './model.ts';
@@ -17,6 +17,8 @@ function inside(root: string, rel: string): string {
 
 function doAct(root: string, a: FsAct): void {
   if (a.act === 'create') return;   // 新写的文件只能由 saveUploads 写;重做不了
+  if (a.act === 'mkdir') { mkdirSync(inside(root, a.to)); return; }
+  if (a.act === 'rmdir') { rmdirSync(inside(root, a.from)); return; }   // 不空就失败(整步倒回):不会顺手删掉图里没有的文件
   const from = inside(root, a.from);
   if (a.act === 'delete') { rmSync(from, { recursive: true, force: true }); return; }
   const to = inside(root, a.to);
@@ -44,12 +46,31 @@ export function trashDir(root: string): string {
   return ARRANGE_TRASH;
 }
 
+/** 磁盘上的冲突:要搬 / 建的地方已经有东西;要删掉的空文件夹里还有图里没有的文件 */
+function diskConflicts(root: string, acts: FsAct[]): string[] {
+  const out: string[] = [], at = (p: string) => join(root, p.replace(/\/$/, ''));
+  for (const a of acts) {
+    inside(root, a.from); inside(root, a.to);
+    if ((a.act === 'move' || a.act === 'copy' || a.act === 'mkdir') && existsSync(at(a.to))) out.push(`磁盘上已经有 ${a.to} 了`);
+    if (a.act === 'rmdir') {
+      const leaving = new Set(acts.filter((m) => m.act === 'move' && m.from.startsWith(a.from) && m.from !== a.from).map((m) => m.from.slice(a.from.length).replace(/\/$/, '').split('/')[0]));
+      try { for (const name of readdirSync(at(a.from))) if (!leaving.has(name)) out.push(`磁盘上 ${a.from} 里还有图里没有的 ${name}`); } catch { /* 文件夹本来就不在 */ }
+    }
+  }
+  return out;
+}
+
 export function arrange(store: Store, root: string, mode: ArrangeMode, ids: string[], target: string | null, opts: ArrangeOpts, author: string): { plan: ArrangePlan; entry: LogEntry | null } {
   return withLock(store.file, () => {
-    const plan = planArrange(store.peek(), mode, ids, target, mode === 'delete' ? { trash: trashDir(root), ...opts } : opts);
+    const exists = (p: string) => existsSync(join(root, p.replace(/\/$/, '')));
+    const plan = planArrange(store.peek(), mode, ids, target, mode === 'delete' ? { trash: trashDir(root), exists, ...opts } : { exists, ...opts });
     if (!plan.op) return { plan, entry: null };
     if (plan.fs.length && store instanceof DraftStore) throw new StarsError('动磁盘上文件的整理不能写进草稿');
-    for (const a of plan.fs) { inside(root, a.from); inside(root, a.to); if (existsSync(join(root, a.to.replace(/\/$/, '')))) throw new StarsError(`磁盘上已经有 ${a.to} 了`); }
+    const disk = diskConflicts(root, plan.fs);
+    if (disk.length) {
+      if (mode === 'ungroup') return { plan: { ...plan, op: null, conflicts: { hard: disk, soft: [] } }, entry: null };   // 解散:冲突交给调用的人去报
+      throw new StarsError(disk[0]!);
+    }
     applyFsActs(root, plan.fs);
     try { return { plan, entry: store.commit(plan.op, { author }, undefined, plan.fs.length ? { fs: plan.fs } : {}).entry }; }
     catch (e) { applyFsActs(root, arrangeRevertFs(plan.fs)); throw e; }
