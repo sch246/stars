@@ -14,7 +14,7 @@ import { apply, type Op } from './ops.ts';
 import { expandHome, readRecent, type Project } from './project.ts';
 import { selfRel } from './scan.ts';
 import { planStamp, seenDiff, stampOnSummary } from './stale.ts';
-import { applyDraft, readDraft, writeDraft } from './store.ts';
+import { applyDraft, updateDraft } from './store.ts';
 
 /** 服务的共享状态(serve.ts 建好后交给接口) */
 export interface ServerCtx {
@@ -189,20 +189,25 @@ export const POST: Record<string, Handler> = {
   '/api/draft': ({ body, proj, author }) => {
     if (body.action === 'apply') { const r = applyDraft(proj.store, { author }); proj.sendDraft(); return { ok: true, ...r }; }
     if (body.action === 'drop') {
-      const entries = readDraft(proj.store.file), idx = new Set(Array.isArray(body.indices) ? body.indices : entries.map((_, i) => i + 1));
-      const kept = entries.filter((_, i) => !idx.has(i + 1));
-      writeDraft(proj.store.file, kept);
+      const dropped = updateDraft(proj.store.file, (entries) => {
+        const idx = new Set(Array.isArray(body.indices) ? body.indices : entries.map((_, i) => i + 1));
+        const kept = entries.filter((_, i) => !idx.has(i + 1));
+        return { entries: kept, result: entries.length - kept.length };
+      });
       proj.sendDraft();
-      return { ok: true, dropped: entries.length - kept.length };
+      return { ok: true, dropped };
     }
     if (body.action === 'add') {
-      if (!validOp(body.op)) throw new HttpError(400, '无效的操作');
-      const entries = readDraft(proj.store.file), p = draftPreview(proj.store.load(), entries, { keepRemoved: false });
-      const op = stampOnSummary(p.u, body.op, proj.baseDir);
-      apply(p.u, op);   // 现在做不了就报错,不进草稿
-      writeDraft(proj.store.file, [...entries, { t: new Date().toISOString(), author, op }]);
+      const op0 = body.op;
+      if (!validOp(op0)) throw new HttpError(400, '无效的操作');
+      const draft = updateDraft(proj.store.file, (entries) => {
+        const p = draftPreview(proj.store.load(), entries, { keepRemoved: false });
+        const op = stampOnSummary(p.u, op0, proj.baseDir);
+        apply(p.u, op);   // 现在做不了就报错,不进草稿
+        return { entries: [...entries, { t: new Date().toISOString(), author, op }], result: entries.length + 1 };
+      });
       proj.sendDraft();
-      return { ok: true, draft: entries.length + 1 };
+      return { ok: true, draft };
     }
     throw new HttpError(400, 'action 应为 apply / drop / add');
   },

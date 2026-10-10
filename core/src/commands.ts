@@ -12,7 +12,7 @@ import { type Op } from './ops.ts';
 import { filterNodes, neighborhood, shortestPath, type Dir } from './query.ts';
 import { listFiles, planScan, selfRel, statMeta } from './scan.ts';
 import { planStamp, seenDiff, seenPath, seenState, stampOnSummary } from './stale.ts';
-import { applyDraft, readDraft, Store, writeDraft } from './store.ts';
+import { applyDraft, readDraft, Store, updateDraft } from './store.ts';
 import { draftPreview, draftSummary } from './draft.ts';
 import { BUILTIN_VIEWS, QUERY_PREFIX, compileView, evaluateView, listQueries, listViews, validateSpec } from './view.ts';
 
@@ -296,13 +296,13 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
         return { out: `已应用草稿:${r.count} 条改动作为一次提交 #${r.n}(stars undo 一步撤回)`, data: r };
       }
       if (sub === 'drop') {
-        const entries = readDraft(store.file);
-        if (!entries.length) return { out: '草稿是空的', data: { dropped: 0 } };
-        if (args.length === 1) { writeDraft(store.file, []); return { out: `已丢弃整个草稿(${entries.length} 条)`, data: { dropped: entries.length } }; }
-        const idx = new Set(args.slice(1).map((x) => Number(x)));
-        for (const i of idx) if (!Number.isInteger(i) || i < 1 || i > entries.length) throw new StarsError(`没有第 ${[...args.slice(1)].find((x) => Number(x) === i) ?? i} 条(草稿共 ${entries.length} 条)`);
-        writeDraft(store.file, entries.filter((_, i) => !idx.has(i + 1)));
-        return { out: `已丢弃 ${idx.size} 条,草稿还剩 ${entries.length - idx.size} 条`, data: { dropped: idx.size } };
+        return updateDraft(store.file, (entries) => {
+          if (!entries.length) return { entries, result: { out: '草稿是空的', data: { dropped: 0 } } };
+          if (args.length === 1) return { entries: [], result: { out: `已丢弃整个草稿(${entries.length} 条)`, data: { dropped: entries.length } } };
+          const idx = new Set(args.slice(1).map((x) => Number(x)));
+          for (const i of idx) if (!Number.isInteger(i) || i < 1 || i > entries.length) throw new StarsError(`没有第 ${[...args.slice(1)].find((x) => Number(x) === i) ?? i} 条(草稿共 ${entries.length} 条)`);
+          return { entries: entries.filter((_, i) => !idx.has(i + 1)), result: { out: `已丢弃 ${idx.size} 条,草稿还剩 ${entries.length - idx.size} 条`, data: { dropped: idx.size } } };
+        });
       }
       if (sub !== 'show') throw new StarsError('用法: stars draft [show | apply | drop [序号…]]');
       const entries = readDraft(store.file);
