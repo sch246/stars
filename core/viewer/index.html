@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="stars-token" content="__STARS_TOKEN__">
+<meta name="stars-preview" content="__STARS_PREVIEW__">
 <title>星罗 · 宇宙</title>
 <style>
   :root {
@@ -165,6 +166,7 @@
   .st-in { background: #07070f; border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 1px 6px; font: inherit; outline: none; }
   .kb-list { display: flex; flex-direction: column; gap: 2px; }
   .kb-row { display: grid; grid-template-columns: 64px 1fr 40px 20px 20px; gap: 6px; align-items: center; }
+  .kb-row.dbl { grid-template-columns: 76px 1fr 40px 20px 20px; }
   .kb-row kbd { text-align: center; white-space: nowrap; overflow: hidden; } .kb-row.off kbd { text-decoration: line-through; opacity: .5; }
   .kb-cmd { background: transparent; border: 1px solid transparent; color: var(--text); border-radius: 6px; padding: 1px 6px; font: 12px ui-monospace, Menlo, Consolas, monospace; outline: none; min-width: 0; }
   .kb-cmd:hover { border-color: var(--line); } .kb-cmd:focus { border-color: var(--accent); background: #07070f; }
@@ -213,6 +215,42 @@
   #keys .grp { break-inside: avoid; margin-bottom: 10px; } #keys .grp > b { color: var(--muted); font-size: 11px; letter-spacing: .06em; font-weight: 500; }
   #keys .k { display: grid; grid-template-columns: 96px 1fr; gap: 8px; padding: 1px 0; } #keys .k span:first-child { text-align: right; white-space: nowrap; }
   #keys .k code { color: #8a90b8; font-size: 11px; margin-left: 6px; }
+  /* 文件视图:打开方式、Markdown 预览、LLF 表单、宇宙概况、全屏看图 */
+  #fp-with:empty { display: none; } #fp-with { font-size: 12px; flex: none; }
+  #fp-remember { font-size: 11px; color: var(--muted); flex: none; } #fp-remember.on { color: #fff; border-color: var(--accent); background: #7aa7ff33; }
+  #fp-pin { font-size: 11px; flex: none; opacity: .35; filter: grayscale(1); } #fp-pin.on { opacity: 1; filter: none; border-color: var(--accent); background: #7aa7ff33; }
+  #fp-md, #fp-form, #fp-uni { flex: 1; overflow: auto; padding: 10px 14px; min-width: 0; }
+  .md { line-height: 1.65; color: #d6dcff; word-break: break-word; }
+  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { color: #fff; margin: 1.1em 0 .45em; line-height: 1.3; } .md h1 { font-size: 1.5em; } .md h2 { font-size: 1.3em; border-bottom: 1px solid var(--line); padding-bottom: .2em; } .md h3 { font-size: 1.12em; }
+  .md > :first-child { margin-top: 0; } .md p, .md ul, .md ol, .md table, .md pre, .md blockquote { margin: .55em 0; } .md ul, .md ol { padding-left: 1.5em; }
+  .md code { font: .92em ui-monospace, Menlo, Consolas, monospace; background: #ffffff12; padding: .1em .35em; border-radius: 4px; }
+  .md pre { background: #0d0d1a; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; overflow: auto; } .md pre code { background: none; padding: 0; }
+  .md blockquote { border-left: 3px solid #4a6fd0; padding-left: 10px; color: #aab2dd; } .md hr { border: 0; border-top: 1px solid var(--line); }
+  .md table { border-collapse: collapse; } .md th, .md td { border: 1px solid var(--line); padding: 3px 8px; } .md th { background: #ffffff0a; }
+  .md img { max-width: 100%; } .md a { color: var(--accent); cursor: pointer; text-decoration: none; } .md a:hover { text-decoration: underline; } .md .md-more { color: var(--muted); font-size: 12px; }
+  #fp-form .fm-row { display: grid; grid-template-columns: minmax(70px, 30%) 1fr auto; gap: 8px; align-items: center; min-height: 26px; }
+  #fp-form .fm-row label { color: var(--text); cursor: help; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #fp-form .fm-ctl { display: flex; align-items: center; gap: 8px; min-width: 0; } #fp-form .fm-ctl input[type=range] { flex: 1; accent-color: var(--accent); } #fp-form .fm-ctl output { color: var(--muted); font-size: 12px; min-width: 40px; text-align: right; }
+  #fp-form .fm-ctl .seg { grid-column: auto; justify-self: start; } #fp-form .fm-text { flex: 1; min-width: 0; width: 100%; } #fp-form textarea.fm-text { font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; resize: vertical; }
+  #fp-form .fm-sub { padding-left: 10px; border-left: 1px solid var(--line); } #fp-form .fm-tag { color: #8a90b8; font-size: 11px; margin-left: 6px; }
+  #fp-form .fm-hctl { margin-left: auto; display: flex; align-items: center; gap: 4px; letter-spacing: 0; }
+  #fp-form .fm-rootadd { display: flex; align-items: center; gap: 6px; margin: 6px 0; } #fp-form .fm-rootadd .fm-add { font-size: 12px; } #fp-form.ro { opacity: .75; }
+  #fp-form .fm-addtype { font-size: 11px; background: #0b0b14; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 2px; }
+  #fp-form .sg-h .fm-addtype { opacity: 0; transition: opacity .12s; } #fp-form .sg-h:hover .fm-addtype, #fp-form .sg-h .fm-addtype:focus { opacity: 1; }
+  #fp-uni .chip { cursor: default; }
+  #lightbox { position: fixed; inset: 0; z-index: 30; background: #000000d8; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
+  #lightbox[hidden] { display: none; } #lightbox img { max-width: 94vw; max-height: 94vh; box-shadow: 0 0 60px #000; }
+  /* 预览的开关条、并排编辑、HTML 预览 */
+  .pv-bar { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; padding: 5px 10px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); flex: none; }
+  .pv-opt { cursor: pointer; user-select: none; display: inline-flex; gap: 3px; align-items: center; color: var(--muted); text-decoration: none; }
+  .pv-opt:hover { color: var(--text); } .pv-opt.on { color: #fff; } .pv-opt i { font-style: normal; }
+  .pv-opt.act { border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; } .pv-out { margin-left: auto; }
+  .pv-conn { display: inline-flex; gap: 5px; align-items: center; } .pv-conn .seg span { padding: 0 6px; }
+  #fp-body.split { flex-direction: column; }
+  .sp-edit { flex: 1 1 42%; display: flex; min-height: 90px; border-bottom: 2px solid var(--line); overflow: hidden; }
+  .sp-view { flex: 1 1 58%; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+  .sp-view #fp-md { flex: 1; }
+  #fp-html { flex: 1; border: 0; width: 100%; background: #fff; }
 </style>
 </head>
 <body>
@@ -288,13 +326,14 @@
 <div class="panel" id="tagbar" hidden></div>
 <div class="panel" id="side"><div id="side-grip" title="拖动调整宽度 · 双击恢复默认"></div><div id="side-info"></div>
   <div id="side-file">
-    <div id="fp-head"><span id="fp-state"></span><span class="btn pri" id="fp-save" data-cmd="save" title="Ctrl/⌘ + S;切走时也会自动保存">保存</span><a class="btn" id="fp-code" title="用本机的 VS Code 打开(查看器和文件在同一台机器上时)" style="text-decoration:none">VS Code ↗</a></div>
+    <div id="fp-head"><span class="mini" id="fp-pin" data-cmd="pin toggle" title="固定:单击选中别的节点时侧栏不换(双击 / open 照样打开别的文件)">📌</span><span id="fp-state"></span><span class="seg" id="fp-with" title="打开方式"></span><span class="mini" id="fp-remember" hidden>记住</span><span class="btn pri" id="fp-save" data-cmd="save" title="Ctrl/⌘ + S;切走时也会自动保存">保存</span><a class="btn" id="fp-code" title="用本机的 VS Code 打开(查看器和文件在同一台机器上时)" style="text-decoration:none">VS Code ↗</a></div>
     <div id="fp-bar" hidden></div>
     <div id="fp-body"></div>
     <div id="fp-more" hidden></div>
   </div>
 </div>
 <div id="toast" hidden></div>
+<div id="lightbox" hidden title="点一下关闭(Esc)"><img alt=""></div>
 </div>
 <div class="panel" id="console" hidden><div id="con-out"></div><div id="con-sug"></div><div id="con-row"><span>›</span><input id="con-in" autocomplete="off" spellcheck="false" placeholder="输入命令 · Tab 补全 · ↑↓ 历史 · help 看全部 · Esc 关闭"></div></div>
 <div id="palette" hidden><div class="panel" id="pal-box"><input id="pal-in" autocomplete="off" spellcheck="false" placeholder="搜索命令…(视图、面板、参数、时间线、写入宇宙……)"><div id="pal-list"></div></div></div>
@@ -306,9 +345,15 @@
 import { compileView, listViews, validateSpec } from '/core/view.js';
 import { edgeKey } from '/core/model.js';
 import { apply } from '/core/ops.js';
-import { trackProposals } from '/core/proposals.js';
+import { nodeProposalKey, trackProposals } from '/core/proposals.js';
 import { filterNodes, neighborhood, shortestPath } from '/core/query.js';
 import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '/core/llf.js';
+import { jsoncDelete, jsoncInsert, jsoncParse, jsoncSet } from '/core/jsonc.js';
+import { tomlDelete, tomlInsert, tomlParse, tomlSet } from '/core/toml.js';
+import { parse } from '/core/format.js';
+import { textDiff, textHash, textNormEol, textPatch } from '/core/textsync.js';
+import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } from '/core/bridge.js';
+import { cmdLine, cmdQuote, cmdTokenize } from '/core/cmdline.js';
 (() => {
   const TAU = Math.PI * 2;
   const canvas = document.getElementById('c');
@@ -318,6 +363,9 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
 
   let data = { nodes: [], edges: [], issues: [], log: [] };
   let uni = null;                    // 内核里的 Universe(Map 结构)
+  const bridges = new Map();         // 页面桥:暗号 → { nonce, frame, path, level, subs, kind: page | script, author }(见「页面桥」一节)
+  let bridge = null;                 // 其中侧栏里的那个页面
+  const scripts = new Map();         // 查看器里跑着的脚本:路径 → { path, frame, b, started, state, finished }(见「脚本」一节)
   let specs = {}, viewErrors = [], viewNames = [];
   let scene = { look: 'galaxy', nodes: [], edges: [], expand: { relation: 'contains' } };
   const manual = new Map();          // id -> true/false:用户手动展开/收起,优先级最高
@@ -351,6 +399,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
   let hist = null;                 // git 提交图
   let lastUserZoom = -1e9;         // 语义缩放只响应用户自己的缩放/平移,不响应自动适应窗口
   let fresh = true;                 // 第一次收到某个视图的数据:不播放出生动画,并自动适应窗口
+  let placeTimer = null;            // 记住所在的空间与展开状态(见 savePlace)
   let issueByNode = new Map();
   let edgeColors = new Map();
 
@@ -420,7 +469,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
   // 个人文件:{ text, mtime }。live = 有服务端(写回 ~/.config/stars);静态导出存在浏览器里
   const CFG_LIVE = !!CFG.user && !window.__STARS_STATIC__;
   const userCfg = {};
-  for (const name of ['settings', 'keys']) {
+  for (const name of ['settings', 'keys', 'grants']) {
     let text = CFG_LIVE ? CFG.user[name] && CFG.user[name].content : null;
     if (!CFG_LIVE) { try { text = localStorage.getItem('stars.cfg.' + name); } catch { /* 隐私模式 */ } }
     userCfg[name] = { text: text ?? (CFG.header[name] || '--LLF-END\n'), mtime: CFG_LIVE && CFG.user[name] ? CFG.user[name].mtime : null, exists: text != null,
@@ -584,6 +633,12 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     es.onerror = () => { $('status').textContent = '连接断开,重连中…'; };
     // 个人设置 / 快捷键在别处改了(编辑器、别的标签页、stars ui):立即生效
     es.addEventListener('config', (ev) => { const m = JSON.parse(ev.data); adoptCfg(m.name, m); });
+    // 看着的项目被关掉了(别的标签页、project --close):回到主项目
+    es.addEventListener('closed', () => {
+      if (!projectId) return;   // 自己关的、已经切回主项目了
+      toast(`项目 ${esc(project ? project.name : '')} 已关闭,回到主项目`);
+      api('/api/projects').then((r) => switchProject(r.open.find((x) => x.primary))).catch(() => { projectId = null; setHash(); connect(); });
+    });
     // 遥控:stars ui <命令> → 在这里执行 → 把输出回报给服务端,由它交回 CLI
     es.addEventListener('ui', (ev) => {
       const m = JSON.parse(ev.data);
@@ -593,6 +648,10 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
 
   // ---------- 增量协议:snapshot 一次,之后只收新增的日志条目(ops)与实时信号(signals) ----------
   let lastN = 0, staleLive = false, recomputeTimer = null, lastCompile = 100;
+  // 等日志推回来:写命令在查看器里应用了这一条才算完成,这样脚本 / 页面写完马上读(graph、show)就能看到自己写的
+  const appliedWaiters = [];
+  const waitApplied = (n) => (lastN >= n ? Promise.resolve() : new Promise((ok) => { const w = { n, ok }; appliedWaiters.push(w); setTimeout(() => { const i = appliedWaiters.indexOf(w); if (i >= 0) appliedWaiters.splice(i, 1); ok(); }, 3000); }));
+  function wakeApplied() { for (let i = appliedWaiters.length - 1; i >= 0; i--) if (appliedWaiters[i].n <= lastN) appliedWaiters.splice(i, 1)[0].ok(); }
   function handle(m) {
     if (m.type === 'ops' || m.type === 'signals' || m.type === 'issues') {
       if (replay) { staleLive = true; return; } // 回放中:实时更新先不动画面,退出回放时重新同步
@@ -610,11 +669,12 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     recomputeTimer = setTimeout(() => { recomputeTimer = null; recompute(true); }, Math.max(120, lastCompile * 3));
   }
   function applyOps(entries) {
+    const done = [];
     for (const e of entries) {
       if (e.n <= lastN) continue;                       // 重复(快照已包含)
       if (e.n !== lastN + 1) { resync(); return; }      // 缺口
       try { apply(uni, e.op); } catch { resync(); return; }
-      lastN = e.n;
+      lastN = e.n; done.push(e);
       data.log.push(e); if (data.log.length > 60) data.log.shift();
       data.proposals = data.proposals || {};
       trackProposals(data.proposals, e);
@@ -626,8 +686,11 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     scheduleRecompute();
     renderReview();
     renderStatus();
+    if (done.length) bridgeEmit('change', { n: lastN, ops: done.map((e) => ({ n: e.n, author: e.author, t: e.t, op: e.op })) });
+    wakeApplied();
   }
   function applySignals(m) {
+    if (fp && fp.handler === 'html' && m.changed && Object.keys(m.changed).some((id) => id !== fp.id || !fp.opts.live)) htmlRefreshSoon();   // 页面引用的 css / js 改了
     if (fp && ((m.changed && m.changed[fp.id] !== undefined) || (m.size && m.size[fp.id] !== undefined) || m.replace)) checkDisk();
     const sg = (data.signals = data.signals || {});
     if (m.replace) { sg.fileChanged = m.fileChanged; sg.touched = m.touched; if (m.size) sg.size = m.size; }
@@ -657,6 +720,8 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     lastN = snap.n || 0; staleLive = false;
     if (replay) return;
     applyData(snap);
+    bridgeEmit('change', { n: lastN, reset: true });   // 整份重新载入(重连、切项目……)
+    wakeApplied();
     if (!$('editor').hidden && !editorDirty) loadEditor(false);
   }
 
@@ -674,6 +739,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
       const cur = issueByNode.get(id);
       if (!cur || i.severity === 'error' || (i.severity === 'warn' && cur !== 'error')) issueByNode.set(id, i.severity);
     }
+    if (fresh && !replay) restorePlace();
     recompute();
     known = new Set(snap.nodes.map((n) => n.id));
     if (fresh) { fresh = false; userMoved = false; setTimeout(fit, 900); setTimeout(() => { if (!userMoved) fit(); }, 3600); }
@@ -827,6 +893,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     if (!v || v === currentView) return;
     currentView = v; setHash(); fresh = true; selected = null; hiddenTypes.clear(); manual.clear(); auto.clear();
     curSpaceId = null; expandedSet.clear(); fade = null; spaces.clear(); activeTags.clear(); zoomFocusId = null;
+    restorePlace();   // 每个视图记着自己的位置
     for (const n of sim.values()) n.born = 0;
     recompute();
     fresh = false; userMoved = false; setTimeout(fit, 900); setTimeout(() => { if (!userMoved) fit(); }, 3600);
@@ -906,9 +973,10 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     const edgeRow = (e, other, arrow) => `<div class="row link" data-id="${esc(other)}"><span class="tag">${arrow}</span>`
       + `<span style="color:${edgeColors.get(`${e.from}|${e.type}|${e.to}`) || '#8a8aa8'}">${esc(e.type)}</span><span>${esc(raw.get(other)?.label || other)}</span>`
       + (e.attrs.status === 'proposed' ? `<span class="sev-warn">待确认</span><span class="mini ok" data-act="accept" data-from="${esc(e.from)}" data-type="${esc(e.type)}" data-to="${esc(e.to)}">✓</span><span class="mini no" data-act="reject" data-from="${esc(e.from)}" data-type="${esc(e.type)}" data-to="${esc(e.to)}">✗</span>` : (e.attrs.status ? `<span class="sev-warn">${esc(e.attrs.status)}</span>` : '')) + '</div>';
-    const myIssues = data.issues.filter((i) => i.nodes.includes(n.id));
+    const myIssues = data.issues.filter((i) => i.nodes.includes(n.id) && i.rule !== 'proposed');   // 待确认的上面已经有 ✓ ✗ 了(体检结果要等 1.5 秒才推,不用它)
     el.innerHTML = `<h3 style="color:${sn ? sn.color : '#fff'}">${esc(n.label)}</h3>
       <div class="sub">${esc(n.id)}${n.attrs.type ? ' · ' + esc(n.attrs.type) : ''}${sn && sn.value !== undefined ? ' · 视图值 ' + esc(sn.value) : ''}</div>
+      ${n.attrs.status === 'proposed' ? (() => { const who = (data.proposals || {})[nodeProposalKey(n.id)]; return `<div class="sec"><div class="row"><span class="sev-warn">待确认的节点</span><span>${who ? esc(who.author) + ' · ' + ago(who.t) : '来源未知'}</span><span class="mini ok" data-act="accept" data-id="${esc(n.id)}" title="接受">✓</span><span class="mini no" data-act="reject" data-id="${esc(n.id)}" title="拒绝(删除这个节点和它的边)">✗</span></div></div>`; })() : ''}
       ${n.attrs.summary ? `<p>${esc(n.attrs.summary)}</p>` : ''}
       ${sn && sn.container ? (isSpaces()
         ? `<div class="sec"><div class="row"><span class="tag">空间</span><span>${sn.children} 个直接子项 · ${sn.descendants} 个后代${expandedSet.has(sn.id) ? ' · 已就地展开' : ''}${curSpaceId === sn.id ? ' · 你在这里' : ''}</span></div>`
@@ -946,6 +1014,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
   }
 
   function select(id, center) {
+    if (id !== selected) bridgeEmit('select', id || null);
     selected = id;
     if (isSpaces()) {
       // 跟随时不自己抢镜头:只保证它在画面里,居中交给(带延迟的)跟随,免得两段动画打架
@@ -1100,12 +1169,10 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
   // 点击统一入口(选中 + 原地双击)。canvas 的 click 只在"没有真正拖动"时触发,所以拖动不会被误当成点击。
   let lastTap = null;                        // 第一次点击:{ id, x, y, t }
   const TAP_MS = 500, TAP_PX = 10;           // 原地双击:同一屏幕位置,500ms 以内(和系统双击阈值一致)
-  function performDouble(id) {   // 双击动作(容器就地展开/收起,叶子选中并进编辑)
+  function performDouble(id) {   // 双击 = 执行这类节点的双击命令(设置 → 快捷键 → 双击,keys.llf 的 dblclick)
     if (id == null) return;
-    if (isSpaces()) { const n = compiled.node(id); if (n && n.container) { did('expand ' + quoteArg(id), 'mouse'); toggleExpandSpace(id); return; } }
-    else { const n = sim.get(id); if (n && n.container) { did('expand ' + quoteArg(id), 'mouse'); toggleExpand(id); return; } }
-    if (fileOf(raw.get(id))) did('enter ' + quoteArg(id), 'mouse');
-    select(id, false); focusEditor();
+    const line = dblLine(id);
+    if (line) exec(line, 'mouse');
   }
   function handleTap(px, py, hit) {
     const now = performance.now();
@@ -1151,6 +1218,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
 
   // ---------- 与服务端的接口(写入需要页面内嵌的 token)----------
   const token = (document.querySelector('meta[name=stars-token]') || {}).content || '';
+  const pvToken = (document.querySelector('meta[name=stars-preview]') || {}).content || '';   // 只用于 /preview(预览页能读到它,所以它什么也写不了)
   function withP(path) { return projectId ? path + (path.includes('?') ? '&' : '?') + 'p=' + projectId : path; }
   async function api(path, body) {
     if (window.__STARS_STATIC__) throw new Error('这是静态导出,只读;请连接实时查看器来保存');
@@ -1224,16 +1292,20 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     try { await api('/api/op', { op: { op: 'removeNode', id: '~view/' + currentView }, author: 'viewer' }); msg.innerHTML = '<span class="ok">已删除</span>'; } catch (e) { msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
   });
 
-    // ---------- 审阅:接受/拒绝 AI(或别人)提议的边;把汇总出来的边提升为真边 ----------
+    // ---------- 审阅:接受/拒绝 AI(或别人、或页面)提议的节点和边;把汇总出来的边提升为真边 ----------
   const edgeKeyOf = (e) => `${e.from}|${e.type}|${e.to}`;
-  const proposed = () => data.edges.filter((e) => e.attrs.status === 'proposed');
+  /** 待确认的:先节点后边(节点在 id 上区分:边没有 id) */
+  const proposed = () => [...data.nodes.filter((n) => n.attrs.status === 'proposed'), ...data.edges.filter((e) => e.attrs.status === 'proposed')];
+  const propKeyOf = (x) => (x.id !== undefined ? nodeProposalKey(x.id) : edgeKeyOf(x));
+  /** 一批接受 / 拒绝:拒绝时先删边再删节点(删节点会连带它的边,反过来做就会删两次) */
+  const batchOps = (list, fn) => ({ op: 'batch', ops: [...list.filter((x) => x.id === undefined), ...list.filter((x) => x.id !== undefined)].map(fn) });
   const rvMsg = (t, bad) => { $('rv-msg').style.color = bad ? 'var(--warn)' : 'var(--muted)'; $('rv-msg').textContent = t; };
-  async function write(op, okText) {
-    try { const r = await api('/api/op', { op, author: 'viewer' }); rvMsg(`${okText}(操作 #${r.n},可撤销)`); }
+  async function write(op, okText, author = 'viewer') {
+    try { const r = await api('/api/op', { op, author }); rvMsg(`${okText}(操作 #${r.n},可撤销)`); }
     catch (e) { rvMsg('写入失败:' + e.message, true); }
   }
-  const acceptOp = (e) => ({ op: 'setEdge', from: e.from, type: e.type, to: e.to, unset: ['status'] });
-  const rejectOp = (e) => ({ op: 'removeEdge', from: e.from, type: e.type, to: e.to });
+  const acceptOp = (e) => (e.id !== undefined ? { op: 'setNode', id: e.id, unset: ['status'] } : { op: 'setEdge', from: e.from, type: e.type, to: e.to, unset: ['status'] });
+  const rejectOp = (e) => (e.id !== undefined ? { op: 'removeNode', id: e.id } : { op: 'removeEdge', from: e.from, type: e.type, to: e.to });
   function renderReview() {
     const list = proposed(), props = data.proposals || {};
     $('rv-badge').hidden = list.length === 0; $('rv-badge').textContent = list.length;
@@ -1241,10 +1313,13 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     if ($('review').hidden) return;
     $('rv-sub').textContent = list.length ? `${list.length} 条等待确认` : '没有待确认的了';
     $('rv-list').innerHTML = list.map((e, i) => {
-      const who = props[edgeKeyOf(e)];
-      return `<div class="rv-row"><div class="t" data-i="${i}"><span style="color:#dfe3ff">${esc(raw.get(e.from)?.label || e.from)}</span> <span style="color:${edgeColors.get(edgeKeyOf(e)) || '#ffd24a'}">—${esc(e.type)}→</span> <span style="color:#dfe3ff">${esc(raw.get(e.to)?.label || e.to)}</span>`
+      const who = props[propKeyOf(e)];
+      const what = e.id !== undefined
+        ? `<span style="color:#ffd24a">＋</span> <span style="color:#dfe3ff">${esc(e.label)}</span> <span class="tag">${esc(e.id)}${e.attrs.type ? ' · ' + esc(e.attrs.type) : ''}</span>`
+        : `<span style="color:#dfe3ff">${esc(raw.get(e.from)?.label || e.from)}</span> <span style="color:${edgeColors.get(edgeKeyOf(e)) || '#ffd24a'}">—${esc(e.type)}→</span> <span style="color:#dfe3ff">${esc(raw.get(e.to)?.label || e.to)}</span>`;
+      return `<div class="rv-row"><div class="t" data-i="${i}">${what}`
         + `<div class="who">${who ? esc(who.author) + ' · ' + ago(who.t) : '来源未知'}</div></div>`
-        + `<div class="acts"><span class="mini ok" data-ok="${i}" title="接受">✓</span><span class="mini no" data-no="${i}" title="拒绝(删除这条边)">✗</span></div></div>`;
+        + `<div class="acts"><span class="mini ok" data-ok="${i}" title="接受">✓</span><span class="mini no" data-no="${i}" title="${e.id !== undefined ? '拒绝(删除这个节点和它的边)' : '拒绝(删除这条边)'}">✗</span></div></div>`;
     }).join('') || '<div class="tag" style="padding:8px">🎉 都处理完了</div>';
     $('rv-all').style.opacity = $('rv-none').style.opacity = list.length ? 1 : 0.4;
   }
@@ -1257,13 +1332,13 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     const list = proposed(); const t = ev.target.closest('[data-i],[data-ok],[data-no]'); if (!t) return;
     if (t.dataset.ok !== undefined) write(acceptOp(list[+t.dataset.ok]), '已接受');
     else if (t.dataset.no !== undefined) write(rejectOp(list[+t.dataset.no]), '已拒绝并删除');
-    else { const e = list[+t.dataset.i]; select(e.from, true); }
+    else { const e = list[+t.dataset.i]; select(e.id ?? e.from, true); }
   });
   // 面板里单条边的操作(节点详情里的 proposed 边;收起容器里的汇总边)
   $('side').addEventListener('click', (ev) => {
     const b = ev.target.closest('[data-act]'); if (!b) return;
     ev.stopPropagation();
-    const e = { from: b.dataset.from, type: b.dataset.type, to: b.dataset.to };
+    const e = b.dataset.from === undefined && b.dataset.id !== undefined ? { id: b.dataset.id } : { from: b.dataset.from, type: b.dataset.type, to: b.dataset.to };
     if (b.dataset.act === 'enter' || b.dataset.act === 'inplace') { if (b.dataset.act === 'enter') { if (!enterSpace(b.dataset.id, true)) jumpTo(b.dataset.id); } else toggleExpandSpace(b.dataset.id); return; }
     if (b.dataset.act === 'accept') write(acceptOp(e), '已接受');
     else if (b.dataset.act === 'reject') write(rejectOp(e), '已拒绝');
@@ -1299,6 +1374,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     toggleProjects(false);
     if (project && info.id === project.id) return;
     if (fp) releaseFile();   // 有修改会先自动保存
+    for (const s of [...scripts.values()]) stopScript(s, '切换了项目');
     stopPlay(); replay = null; liveSnap = null; staleLive = false; hist = null; histLimit = 300; histScope = 'auto'; renderReplayBar();
     $('timeline').hidden = true; $('btn-time').classList.remove('on');
     draftSpec = null; editorDirty = false; toggleEditor(false);
@@ -1333,7 +1409,8 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     try { r = await api('/api/projects'); } catch (e) { pjMsg(e.message, true); return; }
     openList = r.open;
     $('pj-open').innerHTML = r.open.map((p) => `<div class="pj-row ${project && p.id === project.id ? 'cur' : ''}" data-pid="${p.id}"><b>${esc(p.name)}</b><span class="d">${esc(p.dir)}</span>`
-      + `${p.watching ? '<span class="git" style="color:#7be0a0" title="实时同步中">●</span>' : ''}</div>`).join('');
+      + `${p.watching ? '<span class="git" style="color:#7be0a0" title="实时同步中">●</span>' : ''}`
+      + `${p.primary ? '' : `<span class="mini no" data-close="${p.id}" title="关闭这个项目(不删除任何文件;以后还能从「最近」里再打开)">✕</span>`}</div>`).join('');
     $('pj-recent-wrap').hidden = !r.recent.length;
     $('pj-recent').innerHTML = r.recent.map((d) => `<div class="pj-row" data-dir="${esc(d.dir)}" data-has="${d.hasUniverse ? 1 : ''}"><b>${d.hasUniverse ? '<span class="mark">★</span> ' : ''}${esc(d.name)}</b><span class="d">${esc(d.dir)}</span></div>`).join('');
   }
@@ -1354,9 +1431,18 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     pjMsg(create ? '正在扫描并建立宇宙…' : '正在打开…');
     try { switchProject(await api('/api/open', { dir, create })); pjMsg(''); } catch (e) { pjMsg(e.message, true); }
   }
+  /** 关掉一个打开着的项目;正看着它就回到主项目 */
+  async function closeProject(id) {
+    const p = openList.find((x) => x.id === id);
+    await api('/api/close', { id });
+    if (project && project.id === id) switchProject(openList.find((x) => x.primary));
+    if (!$('projects').hidden) await renderProjects();
+    return p ? `已关闭 ${p.name}` : '已关闭';
+  }
   $('projects').addEventListener('click', (ev) => {
-    const t = ev.target.closest('[data-go],[data-pid],[data-dir],[data-ls]'); if (!t) return;
-    if (t.dataset.go) openDir(t.dataset.go);
+    const t = ev.target.closest('[data-close],[data-go],[data-pid],[data-dir],[data-ls]'); if (!t) return;
+    if (t.dataset.close) closeProject(t.dataset.close).then(pjMsg, (e) => pjMsg(e.message, true));
+    else if (t.dataset.go) openDir(t.dataset.go);
     else if (t.dataset.pid) switchProject(openList.find((p) => p.id === t.dataset.pid));
     else if (t.dataset.dir) { if (t.dataset.has) openDir(t.dataset.dir); else ls(t.dataset.dir); }
     else if (t.dataset.ls) ls(t.dataset.ls);
@@ -1365,13 +1451,75 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
   $('pj-path').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') ls($('pj-path').value.trim()); });
   $('pj-here').addEventListener('click', () => { if (lsCur) openDir(lsCur.dir, !lsCur.hasUniverse); });
 
+  // ---------- 脚本:run tools/x.js —— 在隐藏的沙箱 iframe 里跑一个 JS 模块,接上页面桥(级别、提议、日志作者都和页面一样)----------
+  // 脚本拿到的 stars 和页面里的一样(exec / cmd / graph / on / store / print / exit),全局还有 args。可以 export default async (stars, args) => {…},
+  // 也可以直接写顶层代码;console.log 转到控制台。跑完了:没订阅事件就关掉;订阅了就一直听着,直到 stop 或 stars.exit()。
+  // 写入的作者是 script:<路径>;没单独授权的脚本用设置里的默认级别(默认「读」),要写就 connect propose <路径>。
+  const scriptRunner = (nonce, url, args) => `
+globalThis.args = ${JSON.stringify(args).replace(/</g, '\\u003c')};
+const fmt = (x) => typeof x === 'string' ? x : x instanceof Error ? (x.stack || String(x)) : (() => { try { return JSON.stringify(x); } catch (e) { return String(x); } })();
+for (const k of ['log', 'info', 'warn', 'error']) { const o = console[k].bind(console); console[k] = (...a) => { o(...a); stars.print((k === 'error' ? '✗ ' : k === 'warn' ? '⚠ ' : '') + a.map(fmt).join(' ')); }; }
+const done = (ok, value) => parent.postMessage({ stars: ${JSON.stringify(nonce)}, kind: 'done', ok, value }, '*');
+addEventListener('error', (e) => console.error(e.error || e.message));
+addEventListener('unhandledrejection', (e) => console.error('未处理的异常:', e.reason));
+try {
+  const m = await import(${JSON.stringify(url)});
+  let v = typeof m.default === 'function' ? await m.default(stars, globalThis.args) : undefined;
+  v = v === undefined ? null : v;
+  try { structuredClone(v); } catch (e) { v = fmt(v); }
+  done(true, v);
+} catch (e) { done(false, fmt(e)); }
+`;
+  function runScript(path, args) {
+    if (window.__STARS_STATIC__) throw new Error('静态导出不能跑脚本');
+    if (!/\.m?js$/i.test(path)) throw new Error('查看器里只能跑 .js / .mjs(.ts 用 stars run 在 Node 里跑)');
+    const level = levelOf(path);
+    if (level === 'off') throw new Error(`${path} 的连接级别是「关」:先 connect read ${quoteArg(path)}(或更高)`);
+    const old = scripts.get(path);
+    if (old) stopScript(old, '重新运行');
+    const nonce = bridgeNonce(), f = document.createElement('iframe');
+    f.hidden = true; f.title = '脚本 ' + path; f.setAttribute('sandbox', 'allow-scripts');
+    const dir = path.includes('/') ? path.replace(/[^/]*$/, '') : '';
+    f.srcdoc = `<!doctype html><meta charset="utf-8"><base href="${esc(location.origin + previewUrl(dir))}">${bridgeShim(nonce)}`
+      + `<script type="module">${scriptRunner(nonce, location.origin + previewUrl(path) + '?v=' + Date.now(), args)}<\/script>`;
+    const b = { nonce, frame: f, path, level, subs: new Set(), kind: 'script', author: 'script:' + path };
+    const s = { path, frame: f, b, started: Date.now(), state: '运行中', finished: false };
+    const p = new Promise((ok, no) => { s.resolve = ok; s.reject = no; });
+    scripts.set(path, s); bridges.set(nonce, b);
+    document.body.appendChild(f);
+    return p;
+  }
+  /** 脚本结束:ok = true / false / 'exit'(stars.exit()) */
+  function scriptDone(s, ok, value) {
+    if (ok === 'exit') { if (!s.finished) { s.finished = true; s.resolve({ out: `■ ${s.path} 退出了` }); } stopScript(s, null); return; }
+    if (s.finished) return;
+    s.finished = true;
+    if (ok !== true) { stopScript(s, null); s.reject(new Error(`${s.path} 出错了:${value}`)); return; }
+    const listening = [...s.b.subs];
+    if (listening.length) s.state = '监听中 ' + listening.join(' / '); else stopScript(s, null);
+    const v = value === null ? '' : ':' + (typeof value === 'string' ? value : JSON.stringify(value));
+    s.resolve({ out: `✓ ${s.path} 跑完了${v}${listening.length ? `(还在监听 ${listening.join(' / ')};stop ${quoteArg(s.path)} 停掉)` : ''}`, data: value });
+  }
+  function stopScript(s, why) {
+    s.frame.remove(); bridges.delete(s.b.nonce);
+    if (scripts.get(s.path) === s) scripts.delete(s.path);
+    if (!s.finished) { s.finished = true; s.reject(new Error(`${s.path} 被停止${why ? ':' + why : ''}`)); }
+    else if (why) conLog(`■ ${s.path} 停了:${why}`, 'dim');
+  }
+
   // ---------- 文件:选中文件节点,侧栏下半就是它的内容(不依赖 VS Code,像原版星罗)----------
   // 点一下就打开,所以要轻:先只要开头 24 KB(只读预览),点进编辑框或滚到底才载入全文、变成可编辑。
   // 切走(点别处 / 选别的节点)时有未保存的修改就自动保存;保存被拒(别处改过)就留着修改,提示你回去处理。
   // 磁盘上变了(实时信号 / 每 3 秒查一次修改时间):没改过就直接载入,改过就提示冲突。
   const fileOf = (n) => (n && typeof n.attrs.file === 'string' && n.attrs.type !== 'dir' && !n.attrs.file.endsWith('/') ? n.attrs.file : null);
   const HEAD = 24 << 10;
-  let fp = null;          // { id, path, info, dirty, full, indent }
+  let fp = null;          // { id, path, info, text, base, full, indent, handler, want }
+  // 脏不是一个标志位,而是算出来的:当前文本 ≠ 基线(打开 / 上次保存 / 载入磁盘版本时的内容)。改了再改回来就是干净的,
+  // 不会白白保存、也不会在关页面时拦你。两边都按"换行折成 LF"比(<textarea> 本来就会这样折;CRLF 文件保存时服务端再还原)。
+  const normEol = textNormEol;
+  // 保存只传改动的一段 + 基线的哈希(服务端按内容核对基线,对不上就是别处改过了);「用我的覆盖」才传整份
+  const saveBody = (cur, content, force) => (force ? { path: cur.path, content, mtime: null } : { path: cur.path, patch: textDiff(cur.base, content), baseHash: textHash(cur.base) });
+  const fpDirty = (f = fp) => !!(f && f.full && f.info && f.info.kind === 'text' && f.text !== f.base);
   let fpPoll = null, fpOrphan = null;
   let barSeq = 0;          // 每条提示一个序号:定时消失只清掉自己,不清后来的提示
   const fpBar = (html, kind) => { barSeq++; const b = $('fp-bar'); b.hidden = !html; b.className = kind || ''; b.innerHTML = html || ''; };
@@ -1384,15 +1532,52 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
   $('toast').addEventListener('click', (ev) => { const b = ev.target.closest('[data-sel]'); if (b) { $('toast').hidden = true; select(b.dataset.sel, true); } });
   const enc = encodeURIComponent;
 
+  // ---------- 文件类型处理器:每类文件有自己的侧栏视图;文本文件的「原文」视图始终可用 ----------
+  // 处理器自己判断能不能接这个文件:{ role: 'default' | 'available', priority } 或 false。
+  // 选哪个:这次指定的(打开方式 / open --with)> 记住的(按扩展名,open --remember)> 优先级最高的默认 > 原文。
+  // 所有视图共用同一份文本缓冲 fp.text:在表单里改、切到原文看,改动都在;保存、冲突检测、切走自动保存都按它来。
+  const extOf = (p) => ((/\.([^./]+)$/.exec(p) || [])[1] || '').toLowerCase();
+  const IMG_EXT = /^(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/, MD_EXT = /^(md|markdown|mdown|mkd)$/;
+  /** 表单能编辑的格式:llf / json(含 .jsonc)/ toml */
+  const formFormatOf = (path) => { const e = extOf(path); return e === 'llf' || e === 'toml' ? e : e === 'json' || e === 'jsonc' ? 'json' : null; };
+  /** 不读文件就能判断的种类(双击、选默认视图用):image / markdown / form / universe / file */
+  const fileTypeOf = (path) => { const e = extOf(path); return IMG_EXT.test(e) ? 'image' : MD_EXT.test(e) ? 'markdown' : /^(html?|xhtml)$/.test(e) ? 'html' : formFormatOf(path) ? 'form' : e === 'stars' ? 'universe' : 'file'; };
+  const FILE_HANDLERS = [
+    { id: 'text', label: '原文', match: (d) => (d.kind === 'text' ? { role: 'available' } : false), mount: mountText },
+    { id: 'image', label: '图片', match: (d) => (d.kind === 'image' ? { role: 'default', priority: 10 } : false), mount: mountImage },
+    { id: 'markdown', label: '预览', match: (d) => (d.kind === 'text' && MD_EXT.test(d.ext) ? { role: 'default', priority: 10 } : false), mount: mountMarkdown },
+    { id: 'html', label: '预览', match: (d) => (d.kind === 'text' && /^(html?|xhtml)$/.test(d.ext) ? { role: 'default', priority: 10 } : false), mount: mountHtml },
+    // JSON 太大(比如 package-lock.json)时表单不当默认:几千行的表单又慢又没用
+    { id: 'form', label: '表单', match: (d) => (d.kind === 'text' && formFormatOf(d.path) ? { role: d.ext === 'llf' || d.size <= 256 << 10 ? 'default' : 'available', priority: 10 } : false), mount: mountForm },
+    { id: 'universe', label: '宇宙', match: (d) => (d.kind === 'text' && d.ext === 'stars' ? { role: 'default', priority: 10 } : false), mount: mountUniverse },
+    { id: 'info', label: '信息', match: (d) => (d.kind === 'binary' || d.kind === 'large' ? { role: 'default' } : false), mount: mountInfo },
+  ];
+  let openWith = {};
+  try { openWith = JSON.parse(localStorage.getItem('stars.openWith') || '{}'); } catch { /* 隐私模式 */ }
+  const saveOpenWith = () => { try { localStorage.setItem('stars.openWith', JSON.stringify(openWith)); } catch { /* 隐私模式 */ } };
+  const fpDesc = () => ({ path: fp.path, ext: extOf(fp.path), kind: fp.info.kind, size: fp.info.size });
+  function handlersFor(d) {
+    return FILE_HANDLERS.map((h) => ({ h, m: h.match(d) })).filter((x) => x.m)
+      .sort((a, b) => ((b.m.role === 'default') - (a.m.role === 'default')) || ((b.m.priority || 0) - (a.m.priority || 0)));
+  }
+  function pickHandler(d, want) {
+    const list = handlersFor(d), has = (id) => list.some((x) => x.h.id === id);
+    if (want && has(want)) return want;
+    if (openWith[d.ext] && has(openWith[d.ext])) return openWith[d.ext];
+    return list.length ? list[0].h.id : null;
+  }
+
   function fpState() {
-    if (!fp || !fp.info) return;
+    if (!fp) return;
+    $('fp-pin').classList.toggle('on', !!fp.pinned);
+    if (!fp.info) return;
     const i = fp.info;
-    $('fp-state').innerHTML = (fp.dirty ? '<span class="dirty">● 未保存</span> · ' : '') + `${fmtBytes(i.size)} · 改于 ${ago(i.mtime)}`
+    $('fp-state').innerHTML = (fpDirty() ? '<span class="dirty">● 未保存</span> · ' : '') + `${fmtBytes(i.size)} · 改于 ${ago(i.mtime)}`
       + (i.readonly ? ' · 只读' : i.kind === 'text' && !i.editable ? ' · 超过 2 MB,只读' : '');
-    $('fp-save').style.display = fp.full && i.editable ? '' : 'none';
+    $('fp-save').style.display = fp.full && i.editable && (fpDirty() || fp.handler === 'text') ? '' : 'none';
     const more = $('fp-more');
     more.hidden = !(i.kind === 'text' && !fp.full);
-    if (!more.hidden) more.textContent = `只显示了开头 ${fmtBytes(new Blob([i.content || '']).size)} / ${fmtBytes(i.size)}` + (i.editable ? ' · 点进编辑框或滚到底载入全部' : '');
+    if (!more.hidden) more.textContent = `只显示了开头 ${fmtBytes(new Blob([fp.text || '']).size)} / ${fmtBytes(i.size)}` + (i.editable ? ' · 点进编辑框或滚到底载入全部' : '');
   }
   function gutter() {
     const t = $('fp-text'); if (!t || !fp) return;
@@ -1401,56 +1586,568 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     $('fp-gutter').scrollTop = t.scrollTop;
   }
   const gutterSoon = debounce(gutter, 120);
+  const markDirty = debounce(() => { if (fp) fpState(); }, 120);   // 状态栏跟着重算(脏是比出来的)
+
+  /** 按当前文件挑视图并挂上去;「打开方式」不止一个时显示成分段按钮,旁边的「记住」= 以后这类扩展名都用它 */
   function renderFileBody() {
-    const i = fp.info, body = $('fp-body');
-    if (i.kind === 'text') {
-      body.innerHTML = '<pre id="fp-gutter"></pre><textarea id="fp-text" spellcheck="false" autocomplete="off"></textarea>';
-      const t = $('fp-text');
-      t.value = i.content; t.readOnly = !fp.full || !i.editable; fp.lines = 0; gutter();
-      t.addEventListener('focus', () => loadFull());
-      t.addEventListener('scroll', () => { $('fp-gutter').scrollTop = t.scrollTop; if (!fp.full && t.scrollTop + t.clientHeight > t.scrollHeight - 120) loadFull(); });
-      t.addEventListener('input', () => { if (!fp.dirty) { fp.dirty = true; fpState(); } gutterSoon(); });
-      t.addEventListener('keydown', (ev) => {
-        if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') { ev.preventDefault(); saveFile(false); }
-        else if (ev.key === 'Tab' && !ev.shiftKey && !t.readOnly) { ev.preventDefault(); document.execCommand('insertText', false, fp.indent); }
-      });
-    } else if (i.kind === 'image') {
-      body.innerHTML = `<div id="fp-media"><img alt="${esc(i.path)}" src="${withP('/api/raw?path=' + enc(i.path) + '&t=' + token)}&v=${i.mtime}"></div>`;
+    const d = fpDesc(), list = handlersFor(d);
+    fp.handler = pickHandler(d, fp.want);
+    const id = esc(quoteArg(fp.id)), remembered = openWith[d.ext] === fp.handler;
+    $('fp-with').innerHTML = list.length > 1 ? list.map(({ h }) => `<span class="${h.id === fp.handler ? 'on' : ''}" data-cmd="open ${id} --with ${h.id}" title="用「${esc(h.label)}」看">${esc(h.label)}</span>`).join('') : '';
+    $('fp-remember').hidden = list.length < 2 || !d.ext;
+    $('fp-remember').classList.toggle('on', remembered);
+    $('fp-remember').dataset.cmd = `open ${quoteArg(fp.id)} --with ${fp.handler} ${remembered ? '--forget' : '--remember'}`;
+    $('fp-remember').title = remembered ? `已记住:.${d.ext} 文件用「${FILE_HANDLERS.find((h) => h.id === fp.handler).label}」打开(再点取消)` : `以后 .${d.ext} 文件都用「${(FILE_HANDLERS.find((h) => h.id === fp.handler) || {}).label}」打开`;
+    const body = $('fp-body');
+    body.className = 'h-' + (fp.handler || 'none'); body.innerHTML = '';
+    fp.renderView = null; fp.onEditRender = false; setPageBridge(null);
+    const h = FILE_HANDLERS.find((x) => x.id === fp.handler);
+    if (h) h.mount(body); else body.innerHTML = '<div id="fp-media">没有能打开它的视图</div>';
+    fpState();
+  }
+  /** 内容变了(载入全文 / 磁盘上的新版本):原文视图就地更新(保留光标与滚动),别的视图重画 */
+  function refreshBody() {
+    const t = $('fp-text');
+    if (t && (fp.handler === 'text' || fp.opts.split)) {   // 原文(或并排时上面的编辑器)就地更新,预览跟着重画
+      const focused = document.activeElement === t, keep = [t.selectionStart, t.selectionEnd, t.scrollTop];
+      t.value = fp.text; t.readOnly = !fp.full || !fp.info.editable; gutter();
+      [t.selectionStart, t.selectionEnd, t.scrollTop] = keep; if (focused) t.focus();
+      if (fp.renderView) fp.renderView();
+      fpState();
     } else {
-      body.innerHTML = `<div id="fp-media">${i.kind === 'large' ? `文件太大(${fmtBytes(i.size)})` : '二进制文件,无法以文本显示'}</div>`;
+      const sc = $('fp-body').firstElementChild ? $('fp-body').firstElementChild.scrollTop : 0;
+      renderFileBody();
+      if ($('fp-body').firstElementChild) $('fp-body').firstElementChild.scrollTop = sc;
     }
   }
-  /** 侧栏跟着选中走:选中的是文件就显示它,不是就收起(有修改先自动保存) */
+  /** 打开后把光标放到该放的地方:原文 → 编辑框;表单 → 第一个输入 */
+  function focusPrimary() {
+    if (!fp) return;
+    if (fp.handler === 'text') { focusEditor(); return; }
+    const el = $('fp-body').querySelector('input:not([type=range]):not([disabled]), textarea:not([disabled])');
+    if (el) el.focus();
+  }
+
+  // ---- 原文 ----
+  function mountText(body) {
+    body.innerHTML = '<pre id="fp-gutter"></pre><textarea id="fp-text" spellcheck="false" autocomplete="off"></textarea>';
+    const t = $('fp-text');
+    t.value = fp.text; t.readOnly = !fp.full || !fp.info.editable; fp.lines = 0; gutter();
+    t.addEventListener('focus', () => loadFull());
+    t.addEventListener('scroll', () => { $('fp-gutter').scrollTop = t.scrollTop; if (!fp.full && t.scrollTop + t.clientHeight > t.scrollHeight - 120) loadFull(); });
+    t.addEventListener('input', () => { fp.text = t.value; markDirty(); gutterSoon(); if (fp.onEditRender) pvRenderSoon(); });
+    t.addEventListener('keydown', (ev) => {
+      if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') { ev.preventDefault(); saveFile(false); }
+      else if (ev.key === 'Tab' && !ev.shiftKey && !t.readOnly) { ev.preventDefault(); document.execCommand('insertText', false, fp.indent); }
+    });
+  }
+  // ---- 图片(点一下全屏看)----
+  const rawUrl = (path, v) => withP('/api/raw?path=' + enc(path) + '&t=' + token) + (v ? '&v=' + v : '');
+  function mountImage(body) {
+    body.innerHTML = `<div id="fp-media"><img alt="${esc(fp.path)}" title="点一下全屏看" style="cursor:zoom-in" src="${rawUrl(fp.path, fp.info.mtime)}" data-cmd="open ${esc(quoteArg(fp.id))} --full"></div>`;
+  }
+  function showLightbox(path) {
+    const lb = $('lightbox');
+    lb.querySelector('img').src = rawUrl(path, Date.now()); lb.hidden = false;
+  }
+  $('lightbox').addEventListener('click', () => { $('lightbox').hidden = true; });
+  // ---- 二进制 / 太大 ----
+  function mountInfo(body) {
+    body.innerHTML = `<div id="fp-media">${fp.info.kind === 'large' ? `文件太大(${fmtBytes(fp.info.size)}),不在这里显示` : `二进制文件(${fmtBytes(fp.info.size)}),无法以文本显示`}<br><span class="tag">可以用右上角的 VS Code 打开</span></div>`;
+  }
+
+  // ---- 预览的公共部分:每个预览自己的开关(这个文件开着时有效;新预览的默认值在设置 → 文件预览里)、并排编辑 ----
+  // 并排编辑:上面是原文编辑器,下面是预览,打字时预览跟着走(Markdown 总是跟着;HTML 在「实时」打开时跟着)。
+  function previewBar(items) {
+    return '<div class="pv-bar">' + items.map(([cmd, label, on, title]) =>
+      `<span class="pv-opt ${on === undefined ? 'act' : on ? 'on' : ''}" data-cmd="${esc(cmd)}" title="${esc(title || '')}">${on === undefined ? '' : `<i>${on ? '☑' : '☐'}</i>`}${esc(label)}</span>`).join('') + '</div>';
+  }
+  /** 预览类视图的骨架:并排时上面挂原文编辑器;renderView(paneEl) 画预览,打字时被再次调用 */
+  function mountPreview(body, renderView) {
+    if (fp.opts.split && fp.info.kind === 'text') {
+      body.classList.add('split');
+      body.innerHTML = '<div class="sp-edit"></div><div class="sp-view"></div>';
+      mountText(body.querySelector('.sp-edit'));
+      if (!fp.full) loadFull();
+    } else body.innerHTML = '<div class="sp-view"></div>';
+    const pane = body.querySelector('.sp-view');
+    fp.renderView = () => renderView(pane);
+    fp.renderView();
+  }
+  const pvRenderSoon = debounce(() => { if (fp && fp.renderView && fp.onEditRender) fp.renderView(); }, 250);
+
+  // ---- Markdown 预览:零依赖的小渲染器;项目里的相对链接点了就在星图里打开那个文件 ----
+  // 「渲染 HTML」关着:原始 HTML 原样显示成文字;开着:照样渲染,但先清理(只留排版用的标签和属性,去掉脚本、iframe、表单、
+  // 事件属性、javascript: 链接;id 加前缀,免得和查看器自己的元素撞名)。
+  function mountMarkdown(body) {
+    fp.onEditRender = true;
+    mountPreview(body, (pane) => {
+      const sc = pane.querySelector('#fp-md') ? pane.querySelector('#fp-md').scrollTop : 0;
+      const html = fp.opts.html, out = renderMarkdown(fp.text, fp.path, html);
+      pane.innerHTML = previewBar([[`preview html toggle`, '渲染 HTML', html, '把 Markdown 里的原始 HTML 也渲染出来(先清理掉脚本等);新预览的默认在设置 → 文件预览'],
+        [`preview split toggle`, '并排编辑', fp.opts.split, '上面编辑原文,下面实时看预览']])
+        + `<div id="fp-md" class="md">${html ? sanitizeHtml(out, fp.path) : out}${fp.full ? '' : '<p class="md-more">…(只载入了开头,滚到底载入全部)</p>'}</div>`;
+      const md = pane.querySelector('#fp-md');
+      md.scrollTop = sc;
+      md.addEventListener('scroll', () => { if (!fp.full && md.scrollTop + md.clientHeight > md.scrollHeight - 80) loadFull(); });
+    });
+  }
+  function mdResolve(base, rel) {   // 相对 base 文件所在目录解析成项目里的路径
+    const parts = (rel.startsWith('/') ? [] : base.split('/').slice(0, -1));
+    for (const seg of rel.replace(/^\//, '').split('/')) { if (seg === '..') parts.pop(); else if (seg && seg !== '.') parts.push(seg); }
+    return parts.join('/');
+  }
+  const mdSlug = (t) => t.toLowerCase().replace(/<[^>]*>/g, '').replace(/[^\p{L}\p{N}\s-]/gu, '').trim().replace(/\s+/g, '-');
+  function mdHref(href, base, img) {
+    const u = href.replace(/&amp;/g, '&').trim();
+    if (/^(javascript|data|vbscript|file):/i.test(u)) return null;
+    if (/^(https?:|mailto:)/i.test(u) || u.startsWith('//')) return { ext: u };
+    if (u.startsWith('#')) return { anchor: mdSlug(decodeURIComponent(u.slice(1))) };
+    let path;
+    try { path = mdResolve(base, decodeURIComponent(u.split(/[?#]/)[0])); } catch { return null; }
+    return img ? { ext: rawUrl(path) } : { open: path };
+  }
+  /** 引用式链接的定义([标签]: 地址),整篇文档共用;renderMarkdown 进来时收集 */
+  let mdRefs = new Map();
+  const mdRefKey = (l) => l.replace(/&(amp|lt|gt|quot);/g, (_, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"' }[e])).trim().replace(/\s+/g, ' ').toLowerCase();
+  function mdImg(alt, src, base) { const h = mdHref(src, base, true); return h && h.ext ? `<img alt="${alt}" src="${esc(h.ext)}">` : null; }
+  function mdLink(t, href, base) {
+    const h = mdHref(href, base, false);
+    if (!h) return t;
+    if (h.ext) return `<a href="${esc(h.ext)}" target="_blank" rel="noopener noreferrer">${t}</a>`;
+    if (h.anchor !== undefined) return `<a data-anchor="${esc(h.anchor)}">${t}</a>`;
+    return `<a data-open="${esc(h.open)}" title="${esc(h.open)}">${t}</a>`;
+  }
+  function mdInline(s, base) {   // s 已转义(或只含占位符和转义过的文字)
+    const codes = [];
+    s = s.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
+    s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^)]*&quot;)?\)/g, (all, alt, src) => mdImg(alt, src, base) ?? all);
+    // 引用式:![替代文字][标签]、[文字][标签]、[文字][](标签 = 文字)、[文字](只在有这个定义时)—— README 的徽章多是这么写的
+    s = s.replace(/!\[([^\]]*)\]\[([^\]]*)\]/g, (all, alt, ref) => { const u = mdRefs.get(mdRefKey(ref || alt)); return (u && mdImg(alt, u, base)) ?? all; });
+    s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+&quot;[^)]*&quot;)?\)/g, (all, t, href) => mdLink(t, href, base));
+    s = s.replace(/\[([^\]]+)\]\[([^\]]*)\]/g, (all, t, ref) => { const u = mdRefs.get(mdRefKey(ref || t)); return u ? mdLink(t, u, base) : all; });
+    s = s.replace(/\[([^\]]+)\](?![(\[:])/g, (all, t) => { const u = mdRefs.size && !/^[ xX]$/.test(t) ? mdRefs.get(mdRefKey(t)) : null; return u ? mdLink(t, u, base) : all; });
+    s = s.replace(/&lt;(https?:\/\/[^\s&]+)&gt;/g, (_, u) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`);
+    s = s.replace(/\*\*(.+?)\*\*|__(.+?)__/g, (_, a, b) => `<strong>${a ?? b}</strong>`);
+    s = s.replace(/(^|[^*\w])\*(?!\s)(.+?)\*(?!\w)/g, '$1<em>$2</em>').replace(/(^|[^_\w])_(?!\s)(.+?)_(?!\w)/g, '$1<em>$2</em>');
+    s = s.replace(/~~(.+?)~~/g, '<del>$1</del>');
+    return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[+i]}</code>`);
+  }
+  /** 一段行内原文 → HTML。html 开着时原始标签原样保留(之后统一清理),只转义标签之外的文字;代码里的标签永远是文字 */
+  const MD_TAG = /(<\/?[A-Za-z][\w-]*(?:\s(?:[^<>"']|"[^"]*"|'[^']*')*)?\/?>|<!--[\s\S]*?-->)/;
+  function mdText(raw, base, html) {
+    if (!html) return mdInline(esc(raw), base);
+    const keep = [], hold = (x) => { keep.push(x); return `\u0001${keep.length - 1}\u0001`; };
+    let s = raw.replace(/`([^`]+)`/g, (_, c) => hold(`<code>${esc(c)}</code>`));
+    s = s.split(MD_TAG).map((part, i) => (i % 2 ? hold(part) : esc(part))).join('');
+    return mdInline(s, base).replace(/\u0001(\d+)\u0001/g, (_, i) => keep[+i]);
+  }
+  const MD_ITEM = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+  const MD_HTML_BLOCK = /^\s{0,3}(<\/?[A-Za-z][\w-]*(\s|\/?>|$)|<!--)/;
+  /** 整篇:先收走引用式链接的定义行(代码块里的不算),再逐块渲染 */
+  function renderMarkdown(src, base, html) {
+    const refs = new Map(), keep = [];
+    let fence = null;
+    for (const l of src.replace(/\r\n?/g, '\n').split('\n')) {
+      const f = /^\s*(```+|~~~+)/.exec(l);
+      if (f && (!fence || f[1].startsWith(fence))) fence = fence ? null : f[1];
+      const m = !fence && !f && /^ {0,3}\[([^\]]+)\]:\s*<?([^\s>]+)>?(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*$/.exec(l);
+      if (m) { const k = mdRefKey(esc(m[1])); if (!refs.has(k)) refs.set(k, m[2]); } else keep.push(l);
+    }
+    mdRefs = refs;
+    return mdBlocks(keep.join('\n'), base, html);
+  }
+  function mdBlocks(src, base, html) {
+    const lines = src.split('\n'), para = [];
+    let out = '', i = 0;
+    const flush = () => { if (para.length) { out += `<p>${mdText(para.join('\n'), base, html).replace(/ {2,}\n/g, '<br>').replace(/\n/g, ' ')}</p>`; para.length = 0; } };
+    const cells = (l) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+    while (i < lines.length) {
+      const l = lines[i];
+      let m;
+      if ((m = /^\s*(```+|~~~+)\s*([\w+#.-]*)/.exec(l))) {
+        flush(); const fence = m[1], buf = []; i++;
+        while (i < lines.length && !lines[i].trimStart().startsWith(fence)) buf.push(lines[i++]);
+        i++; out += `<pre><code${m[2] ? ` class="lang-${esc(m[2])}"` : ''}>${esc(buf.join('\n'))}</code></pre>`; continue;
+      }
+      if (html && !para.length && MD_HTML_BLOCK.test(l)) {   // HTML 块:到空行为止原样保留(之后统一清理)
+        const buf = [];
+        while (i < lines.length && lines[i].trim()) buf.push(lines[i++]);
+        out += buf.join('\n') + '\n'; continue;
+      }
+      if ((m = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(l))) { flush(); out += `<h${m[1].length} id="md-${esc(mdSlug(m[2]))}">${mdText(m[2], base, html)}</h${m[1].length}>`; i++; continue; }
+      if (/^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(l)) { flush(); out += '<hr>'; i++; continue; }
+      if (/^\s*>/.test(l)) {
+        flush(); const buf = [];
+        while (i < lines.length && /^\s*>/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, ''));
+        out += `<blockquote>${mdBlocks(buf.join('\n'), base, html)}</blockquote>`; continue;
+      }
+      if (/\|/.test(l) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(lines[i + 1])) {
+        flush();
+        const head = cells(l), al = cells(lines[i + 1]).map((c) => (c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : ''));
+        i += 2; const rows = [];
+        while (i < lines.length && /\|/.test(lines[i]) && lines[i].trim()) rows.push(cells(lines[i++]));
+        const td = (tag, c, k) => `<${tag}${al[k] ? ` style="text-align:${al[k]}"` : ''}>${mdText(c, base, html)}</${tag}>`;
+        out += `<table><thead><tr>${head.map((c, k) => td('th', c, k)).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c, k) => td('td', c, k)).join('')}</tr>`).join('')}</tbody></table>`;
+        continue;
+      }
+      if (MD_ITEM.test(l)) {   // 列表:连续的项、比项缩进更深的续行、夹在中间的空行;同一层换了列表种类(- → 1.)另起一个
+        flush(); const start = i, base0 = MD_ITEM.exec(l)[1].length, ord = /\d/.test(MD_ITEM.exec(l)[2]);
+        i++;
+        while (i < lines.length) {
+          const x = lines[i], ind = /^\s*/.exec(x)[0].length, mi = MD_ITEM.exec(x);
+          if (mi && ind <= base0 + 1 && /\d/.test(mi[2]) !== ord) break;
+          if (mi && ind >= base0) { i++; continue; }
+          if (x.trim() && ind > base0) { i++; continue; }
+          if (!x.trim() && i + 1 < lines.length && (MD_ITEM.test(lines[i + 1]) || /^\s*/.exec(lines[i + 1])[0].length > base0) && /^\s*/.exec(lines[i + 1])[0].length >= base0 && lines[i + 1].trim()) { i++; continue; }
+          break;
+        }
+        out += mdList(lines.slice(start, i), base0, base, html); continue;
+      }
+      if (!l.trim()) { flush(); i++; continue; }
+      para.push(l.trim()); i++;
+    }
+    flush();
+    return out;
+  }
+  function mdList(lines, base0, base, html) {
+    const items = [];
+    for (const l of lines) {
+      const m = MD_ITEM.exec(l);
+      if (m && m[1].length <= base0 + 1) items.push({ head: m[3], rest: [], ordered: /\d/.test(m[2]) });
+      else if (items.length) items[items.length - 1].rest.push(l.slice(Math.min(/^\s*/.exec(l)[0].length, base0 + 2)));
+    }
+    const tag = items[0] && items[0].ordered ? 'ol' : 'ul';
+    return `<${tag}>` + items.map((it) => {
+      const task = /^\[([ xX])\]\s+/.exec(it.head);
+      const head = (task ? `<input type="checkbox" disabled${task[1] !== ' ' ? ' checked' : ''}> ` : '') + mdText(task ? it.head.slice(task[0].length) : it.head, base, html);
+      return `<li>${head}${it.rest.join('\n').trim() ? mdBlocks(it.rest.join('\n'), base, html) : ''}</li>`;
+    }).join('') + `</${tag}>`;
+  }
+  // 清理:白名单里的标签和属性才留下;整段丢掉脚本、样式表、iframe、表单等;链接和图片按项目路径改写
+  const SAFE_TAGS = new Set(('a abbr b bdi bdo blockquote br caption center cite code col colgroup dd del details dfn div dl dt em figcaption figure font '
+    + 'h1 h2 h3 h4 h5 h6 hr i img input ins kbd li mark ol p picture pre q rp rt ruby s samp small source span strike strong sub summary sup '
+    + 'table tbody td tfoot th thead time tr tt u ul var wbr audio video').split(' '));
+  const DROP_TAGS = new Set('script style iframe frame frameset object embed applet link meta base noscript template form textarea select button svg math'.split(' '));
+  const SAFE_ATTRS = new Set('href src alt title width height align valign colspan rowspan open id name start reversed type checked disabled class lang dir datetime cite color face size style controls loop muted poster data-open data-anchor'.split(' '));
+  function sanitizeHtml(html, base) {
+    const tpl = document.createElement('template');
+    tpl.innerHTML = html;   // template 里的内容是惰性的:脚本不跑、图片不加载
+    const walk = (parent) => {
+      for (const el of [...parent.children]) {
+        const tag = el.tagName.toLowerCase();
+        if (DROP_TAGS.has(tag)) { el.remove(); continue; }
+        walk(el);
+        if (!SAFE_TAGS.has(tag)) { el.replaceWith(...el.childNodes); continue; }   // 不认识的标签:去壳留内容
+        for (const a of [...el.attributes]) if (!SAFE_ATTRS.has(a.name.toLowerCase())) el.removeAttribute(a.name);
+        if (tag === 'input') { if (el.getAttribute('type') !== 'checkbox') { el.remove(); continue; } el.setAttribute('disabled', ''); }
+        if (el.hasAttribute('style')) el.setAttribute('style', el.getAttribute('style').replace(/position\s*:\s*(fixed|sticky)/gi, '').replace(/url\s*\(/gi, ''));
+        if (el.id && !el.id.startsWith('md-')) el.id = 'md-' + el.id;
+        if (el.hasAttribute('href')) {
+          const h = mdHref(el.getAttribute('href'), base, false);
+          el.removeAttribute('href');
+          if (h && h.ext) { el.setAttribute('href', h.ext); el.setAttribute('target', '_blank'); el.setAttribute('rel', 'noopener noreferrer'); }
+          else if (h && h.anchor !== undefined) el.dataset.anchor = h.anchor;
+          else if (h && h.open) { el.dataset.open = h.open; el.title = el.title || h.open; }
+        }
+        if (el.hasAttribute('src')) { const h = mdHref(el.getAttribute('src'), base, true); if (h && h.ext) el.setAttribute('src', h.ext); else el.removeAttribute('src'); }
+      }
+    };
+    walk(tpl.content);
+    return tpl.innerHTML;
+  }
+  $('fp-body').addEventListener('click', (ev) => {   // 预览里的链接:项目里的文件 → 在星图里打开;#锚点 → 滚过去
+    const a = ev.target.closest('#fp-md a[data-open], #fp-md a[data-anchor]'); if (!a) return;
+    ev.preventDefault();
+    if (a.dataset.anchor !== undefined) { const h = $('fp-md').querySelector(`[id="md-${CSS.escape(a.dataset.anchor)}"]`); if (h) h.scrollIntoView({ behavior: 'smooth' }); return; }
+    exec('open ' + quoteArg(a.dataset.open), 'ui');
+  });
+
+  // ---- HTML 预览:沙箱 iframe(不同源,碰不到查看器和 token)。脚本:每个预览可开关;实时:跟着编辑器里没保存的改动走,
+  // 关掉则显示保存了的版本。项目里其它文件变了(serve --watch 的实时信号)也刷新 —— 像 VS Code 的 Live Preview。
+  // 相对路径的 css / js / 图片从 /preview/<token>/<项目>/… 取,所以页面引用的资源都能加载。
+  const previewUrl = (path) => `/preview/${pvToken}/${(project && project.id) || '_'}/` + path.split('/').map(encodeURIComponent).join('/');
+  function mountHtml(body) {
+    fp.onEditRender = !!fp.opts.live;
+    mountPreview(body, (pane) => {
+      const o = fp.opts, level = o.scripts ? levelOf(fp.path) : 'off';
+      fp.onEditRender = !!o.live;
+      if (!pane.querySelector('iframe')) pane.innerHTML = '<div class="pv-bar"></div><iframe id="fp-html" referrerpolicy="no-referrer" title="HTML 预览"></iframe>';
+      htmlBar(pane);
+      const old = pane.querySelector('iframe'), f = document.createElement('iframe');   // 换一个新的 iframe = 干净地重新加载
+      f.id = 'fp-html'; f.title = 'HTML 预览'; f.referrerPolicy = 'no-referrer';
+      f.setAttribute('sandbox', o.scripts ? 'allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox' : '');
+      const nonce = level === 'off' ? null : bridgeNonce();   // 页面桥:每次载入换一个暗号,旧页面发来的消息不再认
+      if (o.live) {
+        const dir = fp.path.includes('/') ? fp.path.replace(/[^/]*$/, '') : '';
+        f.srcdoc = bridgeInject(fp.text, `<base href="${esc(location.origin + previewUrl(dir))}">` + (nonce ? bridgeShim(nonce) : ''));
+      } else f.src = previewUrl(fp.path) + '?v=' + Math.round(fp.info.mtime) + (nonce ? '&bridge=' + nonce : '');
+      old.replaceWith(f);
+      setPageBridge(nonce ? { nonce, frame: f, path: fp.path, level, subs: new Set(), kind: 'page', author: 'page:' + fp.path } : null);
+      // 第二次 load = 页面里点了链接、换成了别的文档:断开(事件不再发过去;要连就 ↻ 重新加载,或在星图里打开那个文件)
+      let loads = 0;
+      if (nonce) f.addEventListener('load', () => { if (++loads > 1 && bridge && bridge.frame === f) setPageBridge(null); });
+    });
+  }
+  /** HTML 预览的工具条:脚本 / 实时 / 并排 / 重新加载;开了脚本时还有「连接」(页面桥的级别);最右是新标签页 */
+  function htmlBar(pane) {
+    const o = fp.opts, lv = levelOf(fp.path), own = grantOf(fp.path) !== null;
+    const conn = o.scripts ? `<span class="pv-conn" title="这个页面能通过 window.stars 调哪些命令:读(查询、快照、订阅变化)/ 界面(再加选中、镜头、视图)/ 提议(再加写,但新增的都要你在审阅里确认)/ 写。按页面记在 ~/.config/stars/grants.llf(单独选过、不是「关」的页面,打开时自动运行脚本)${own ? '' : ';现在用的是设置里的默认'}">连接 <span class="seg">`
+      + BRIDGE_LEVELS.map((l) => `<span class="${l === lv ? 'on' : ''}" data-cmd="connect ${l}">${LEVEL_NAMES[l]}</span>`).join('') + `</span>${own ? '' : '<span class="tag">默认</span>'}</span>` : '';
+    pane.querySelector('.pv-bar').outerHTML = previewBar([
+      ['preview scripts toggle', '脚本', o.scripts, '允许这个预览运行 JavaScript(在沙箱里);新预览的默认在设置 → 文件预览'],
+      ['preview live toggle', '实时', o.live, '跟着编辑器里还没保存的改动走;关掉则只显示保存了的版本(保存后刷新)'],
+      ['preview split toggle', '并排编辑', o.split, '上面编辑原文,下面看预览'],
+      ['preview reload', '↻ 重新加载'],
+    ]).slice(0, -'</div>'.length) + conn
+      + `<a class="pv-opt act pv-out" href="${esc(previewUrl(fp.path))}" target="_blank" rel="noopener" title="在新标签页里打开(同样在沙箱里;那里没有页面桥)">新标签页 ↗</a></div>`;
+  }
+
+  // ---------- 页面桥(见 core/src/bridge.ts):侧栏 HTML 预览里的页面通过 postMessage 调命令 ----------
+  // 页面拿不到 token。查看器只认当前挂着的那个 iframe 发来的、带着这次暗号的消息;命令照常走 exec(src = page),
+  // 执行前按命令的 effect 和页面的级别检查。级别按「项目目录 + 页面路径」记在 ~/.config/stars/grants.llf,没记的用设置里的默认。
+  const LEVEL_NAMES = { off: '关', read: '读', ui: '界面', propose: '提议', write: '写' };
+  const bridgeNonce = () => [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  const projDir = () => (project && project.dir) || '_';
+  function grantOf(path) {
+    try { const n = llfFind(llfParseDoc(userCfg.grants.text, CFG_OPTS), ['pages', projDir(), path]); if (n && n.kind === 'str' && bridgeIsLevel(n.value.trim())) return n.value.trim(); }
+    catch { /* 坏文件:按默认 */ }
+    return null;
+  }
+  const levelOf = (path) => grantOf(path) || (bridgeIsLevel(P.pageBridge) ? P.pageBridge : 'read');
+  function setGrant(path, level) { cfgEdit('grants', { path: ['pages', projDir(), path], value: level === null ? undefined : level }); grantsChanged(); }
+  /** 授权或默认值变了:要加上 / 去掉 window.stars 就重新载入页面;只是级别变了就就地改(页面会收到 level 事件) */
+  function grantsChanged() {
+    for (const s of [...scripts.values()]) {   // 跑着的脚本:关了就停,别的级别就地改
+      const lv = levelOf(s.path);
+      if (lv === 'off') stopScript(s, '连接被关掉了');
+      else if (lv !== s.b.level) { s.b.level = lv; bridgePost(s.b, 'level', lv); }
+    }
+    if (!fp || fp.handler !== 'html' || !fp.renderView || !fp.info) return;
+    const lv = fp.opts.scripts ? levelOf(fp.path) : 'off', cur = bridge && bridge.path === fp.path ? bridge.level : 'off';
+    if ((lv === 'off') !== (cur === 'off')) { fp.renderView(); return; }
+    if (bridge && lv !== bridge.level) { bridge.level = lv; bridgePost(bridge, 'level', lv); }
+    const pane = $('fp-body').querySelector('.sp-view');
+    if (pane && pane.querySelector('.pv-bar')) htmlBar(pane);
+  }
+  function setPageBridge(b) { if (bridge) bridges.delete(bridge.nonce); bridge = b; if (b) bridges.set(b.nonce, b); }
+  function bridgePost(b, event, value) {
+    if (!b.subs.has(event) || !b.frame.isConnected || !b.frame.contentWindow) return;
+    try { b.frame.contentWindow.postMessage({ stars: b.nonce, event, value }, '*'); } catch { /* 克隆不了的值:这次不发 */ }
+  }
+  function bridgeEmit(event, value) { for (const b of bridges.values()) bridgePost(b, event, value); }
+  /** 按页面存的小数据(沙箱里的页面没有 localStorage):存在查看器这边,按项目目录 + 页面路径分开 */
+  function bridgeStore(b, m) {
+    const k = 'stars.page:' + projDir() + ':' + b.path;
+    let obj = {};
+    try { obj = JSON.parse(localStorage.getItem(k) || '{}') || {}; } catch { /* 隐私模式 / 坏数据 */ }
+    if (m.op === 'get') return Object.prototype.hasOwnProperty.call(obj, m.key) ? obj[m.key] : null;
+    if (m.op === 'keys') return Object.keys(obj);
+    if (m.key === '__proto__') throw new Error('不能用这个键');
+    if (m.op === 'set') obj[m.key] = m.value === undefined ? null : JSON.parse(JSON.stringify(m.value));
+    else if (m.op === 'del') delete obj[m.key];
+    else throw new Error('store 只有 get / set / del / keys');
+    localStorage.setItem(k, JSON.stringify(obj));
+    return true;
+  }
+  window.addEventListener('message', (ev) => {
+    const m = ev.data, b = m && typeof m === 'object' ? bridges.get(m.stars) : null;
+    if (!b || !b.frame.isConnected || ev.source !== b.frame.contentWindow) return;
+    const reply = (ok, v) => {
+      if (m.id === undefined) return;
+      try { ev.source.postMessage(ok ? { stars: b.nonce, re: m.id, ok: true, value: v } : { stars: b.nonce, re: m.id, ok: false, error: String(v) }, '*'); }
+      catch (e) { ev.source.postMessage({ stars: b.nonce, re: m.id, ok: false, error: '结果传不回页面:' + e.message }, '*'); }
+    };
+    try {
+      if (m.kind === 'sub') { if (['change', 'select', 'level'].includes(m.event)) b.subs.add(m.event); return; }
+      if (m.kind === 'info') { reply(true, { runner: b.kind, path: b.path, project: project ? { id: project.id, name: project.name, dir: project.dir } : null, level: b.level, selected, view: currentView }); return; }
+      if (m.kind === 'graph') { reply(true, { nodes: data.nodes, edges: data.edges, proposals: data.proposals || {}, n: lastN }); return; }
+      if (m.kind === 'store') { reply(true, bridgeStore(b, m)); return; }
+      if (m.kind === 'print') { conLog(`[${b.path.replace(/^.*\//, '')}] ${String(m.text ?? '')}`, /^✗ /.test(m.text) ? 'err' : ''); return; }
+      if (m.kind === 'exit' || m.kind === 'done') { const s = scripts.get(b.path); if (s && s.b === b) scriptDone(s, m.kind === 'exit' ? 'exit' : m.ok, m.value); return; }
+      if (m.kind === 'exec' || m.kind === 'cmd') {
+        const line = m.kind === 'cmd' ? cmdLine(String(m.name), Array.isArray(m.args) ? m.args : []) : String(m.line || '');
+        const spec = CMDS.get(tokenize(line)[0] || '');
+        if (b.kind === 'page' && spec && spec.effect === 'ui' && bridgeAllows('ui', b.level) && fp && fp.path === b.path && !fp.pinned) { fp.pinned = true; fpState(); }   // 页面动界面(选中、跳转……):先把自己固定住,不然选中别的就把自己换掉了
+        exec(line, 'page', (r) => reply(r.ok, r.ok ? { out: r.out, data: r.data } : r.error), b.author, b.level);
+        return;
+      }
+      throw new Error('不认识的请求:' + m.kind);
+    } catch (e) { reply(false, (e && e.message) || e); }
+  });
+  const htmlRefreshSoon = debounce(() => { if (fp && fp.handler === 'html' && fp.renderView) fp.renderView(); }, 300);
+
+  // ---- 表单:LLF 文件里的类型标签就是 schema(和设置面板同一套控件);JSON / TOML 按值的类型挑控件,每一项都能删、每个对象 / 列表都能加。
+  // 三种格式都解析成同一种树(kind / key / entries / items / value / comments),改动都按路径只动那一段(注释、缩进、键序不变),
+  // 写回同一份缓冲,停手 0.6 秒自动保存 ----
+  const exprStr = (e) => e.name + (e.types.length ? `<${e.types.map(exprStr).join(',')}>` : '') + (e.args.length ? `(${e.args.join(',')})` : '');
+  const defaultFor = (w) => (w.kind === 'bool' ? 'false' : w.kind === 'range' ? String(w.min) : w.kind === 'choice' ? w.choices[0] || '' : w.kind === 'color' ? '#ffffff' : '');
+  const FORM_TYPE_NAMES = { string: '文本', number: '数字', integer: '整数', float: '小数', bool: '开关', null: '空', datetime: '日期时间', object: '对象', table: '表', array: '列表' };
+  const today = () => new Date().toISOString().slice(0, 10);
+  const FORM_FORMATS = {
+    llf: {
+      name: 'LLF', parse: (t) => llfParseDoc(t, CFG_OPTS).root, nullText: '_(空)',
+      set: (t, p, v) => llfSetString(t, p, v, CFG_OPTS), del: (t, p) => llfDelete(t, p, CFG_OPTS),
+      add: (t, p, key, _type, elem) => llfSetString(t, [...p, key ?? llfFind(llfParseDoc(t, CFG_OPTS), p).items.length], defaultFor(widgetOf(elem || null)), CFG_OPTS),
+      label: labelOf, hint: hintOf, typeName: (n, tag) => (tag ? '!' + tag : '字符串'),
+      /** 只有 !list<T> / !map<T> 能增删项,T 是每一项的标签 */
+      coll(node) {
+        let te = null;
+        try { te = node.tag ? llfParseTagExpr(node.tag) : null; } catch { /* 不认识的写法 */ }
+        return te && (te.name === 'list' || te.name === 'map') ? { elem: te.types[0] ? exprStr(te.types[0]) : null } : null;
+      },
+    },
+    json: {
+      name: 'JSON', parse: jsoncParse, nullText: 'null', set: jsoncSet, del: jsoncDelete,
+      add: (t, p, key, type) => jsoncInsert(t, p, key, { number: '0', bool: 'false', null: 'null', object: '{}', array: '[]' }[type] ?? '""'),
+      label: (n) => n.key, hint: (n) => (n.comments || []).join(' '), typeName: (n) => FORM_TYPE_NAMES[n.type] || n.type,
+      coll: () => ({ types: ['string', 'number', 'bool', 'null', 'object', 'array'] }),
+    },
+    toml: {
+      name: 'TOML', parse: tomlParse, nullText: '', set: tomlSet, del: tomlDelete,
+      add: (t, p, key, type) => tomlInsert(t, p, key, { integer: '0', float: '0.0', bool: 'false', datetime: today(), table: '{}', array: '[]' }[type] ?? '""'),
+      label: (n) => n.key, hint: (n) => (n.comments || []).join(' '), typeName: (n) => FORM_TYPE_NAMES[n.type] || n.type,
+      coll: (n) => (n.def === 'aotList' ? { aot: true } : { types: ['string', 'integer', 'float', 'bool', 'datetime', 'table', 'array'] }),
+    },
+  };
+  function mountForm(body) {
+    if (!fp.full && fp.info.editable) { body.innerHTML = '<div id="fp-media">载入全文…</div>'; loadFull().then(() => { if (fp && fp.handler === 'form' && fp.full) renderFileBody(); }); return; }
+    const F = FORM_FORMATS[fp.form = formFormatOf(fp.path)];
+    let root;
+    try { root = F.parse(fp.text); }
+    catch (e) { body.innerHTML = `<div id="fp-media">这还不是合法的 ${F.name}:${esc(e.message)}<br><span class="btn" data-cmd="open ${esc(quoteArg(fp.id))} --with text">到原文里改</span></div>`; return; }
+    const ro = !fp.full || !fp.info.editable;
+    const rows = root.kind === 'map' || root.kind === 'list' ? formNode(F, root, [], null, ro, false) : formNode(F, { ...root, key: '(整个文件)' }, [], null, ro, false);
+    body.innerHTML = `<div id="fp-form" class="${ro ? 'ro' : ''}">${rows || '<span class="tag">(空)</span>'}</div>`;
+  }
+  function formNode(F, node, path, elemTag, ro, removable) {
+    const P = esc(JSON.stringify(path)), del = removable && !ro ? `<span class="mini no fm-del" data-path="${P}" title="删掉这一项">✗</span>` : '';
+    const named = node.key !== undefined, label = named ? F.label(node) : `#${path[path.length - 1] ?? ''}`, hint = named || node.comments ? F.hint(node) : '';
+    if (node.kind === 'map' || node.kind === 'list') {
+      const coll = F.coll(node), childTag = coll && coll.elem;
+      const kids = node.kind === 'map' ? node.entries : node.items;
+      const rows = kids.map((k, i) => formNode(F, k, [...path, node.kind === 'map' ? k.key : i], childTag, ro, !!coll)).join('');
+      // 加一项:分组的「+」在标题行上(和 ✗ 挨着,嵌套很深时不会在底部堆成一串);整个文件的在最后。旁边选新的一项是什么类型,默认跟上一项一样
+      let add = '';
+      if (coll && !ro) {
+        const what = node.kind === 'map' ? '加一项(会问键名)' : '加一项';
+        if (coll.types) {
+          const last = kids[kids.length - 1], def = last && coll.types.includes(last.type) ? last.type : 'string';
+          add += `<select class="fm-addtype" title="新的一项是什么类型">${coll.types.map((t) => `<option value="${t}"${t === def ? ' selected' : ''}>${FORM_TYPE_NAMES[t] || t}</option>`).join('')}</select>`;
+        }
+        add += `<span class="${path.length ? 'mini ok' : 'btn'} fm-add" data-path="${P}" data-kind="${node.kind}" data-elem="${esc(childTag || '')}" title="${what}">${path.length ? '+' : '+ ' + what}</span>`;
+      }
+      if (!path.length) return rows + (add ? `<div class="fm-rootadd">${add}</div>` : '');
+      const tagNote = node.tag ? `<code class="fm-tag">!${esc(node.tag)}</code>` : '';
+      return `<div class="sg" data-sg="${P}"><div class="sg-h"><span title="${esc(hint)}">${esc(label)}</span>${tagNote}<span class="fm-hctl">${add}${del}</span></div><div class="sg-b fm-sub">${rows || '<span class="tag">(空)</span>'}</div></div>`;
+    }
+    const tag = node.tag || elemTag, w = widgetOf(tag), val = node.kind === 'null' ? null : node.value, dis = ro ? ' disabled' : '';
+    const lab = `<label title="${esc(hint || F.typeName(node, tag))}">${esc(label)}</label>`;
+    const v = parseSetting(w, val ?? '');
+    let ctl;
+    if (w.kind === 'bool') ctl = `<div class="st-tog fm-tog ${v ? 'on' : ''}" data-path="${P}" data-on="${v ? 1 : 0}"><span class="sw"></span></div>`;
+    else if (w.kind === 'range') { const x = v ?? w.min; ctl = `<input type="range" data-path="${P}" data-tag="${esc(tag)}" min="${w.min}" max="${w.max}" step="${w.step}" value="${x}"${dis}><output>${esc(w.zero !== undefined && x === w.min ? w.zero : Number(x).toFixed(decimals(w.step)))}</output>`; }
+    else if (w.kind === 'choice') ctl = `<span class="seg">${w.choices.map((c, i) => `<span class="${val === c ? 'on' : ''}" data-path="${P}" data-v="${esc(c)}">${esc(w.names[i])}</span>`).join('')}</span>`;
+    else if (w.kind === 'color') ctl = `<input type="color" data-path="${P}" value="${esc(/^#[0-9a-f]{6}$/i.test(val || '') ? val : '#000000')}"${dis}><code>${esc(val ?? '')}</code>`;
+    else if (node.block) ctl = `<textarea class="st-in fm-text" data-path="${P}" rows="${Math.min(8, (val || '').split('\n').length + 1)}" spellcheck="false"${dis}>${esc(val ?? '')}</textarea>`;
+    else ctl = `<input class="st-in fm-text" data-path="${P}" value="${esc(val ?? '')}" placeholder="${val === null ? F.nullText : ''}" spellcheck="false"${w.kind === 'number' ? ` type="number" min="${w.min}" max="${w.max}" step="${w.step}"` : ''}${dis}>`;
+    return `<div class="fm-row fm-${w.kind}">${lab}<span class="fm-ctl">${ctl}</span>${del}</div>`;
+  }
+  let formSaveTimer = null;
+  function formEdit(fn, rerender) {
+    if (!fp || !fp.full || !fp.info.editable) return;
+    try { fp.text = fn(fp.text); } catch (e) { fpBar('改不了:' + esc(e.message)); return; }
+    markDirty();
+    clearTimeout(formSaveTimer); formSaveTimer = setTimeout(() => { if (fpDirty()) saveFile(false); }, 600);
+    if (rerender) refreshBody();
+  }
+  const pathOf = (el) => JSON.parse(el.dataset.path);
+  $('fp-body').addEventListener('click', (ev) => {
+    if (!$('fp-form')) return;
+    const t = ev.target;
+    const F = FORM_FORMATS[fp.form];
+    const tog = t.closest('.fm-tog'); if (tog) { formEdit((s) => F.set(s, pathOf(tog), tog.dataset.on === '1' ? 'false' : 'true'), true); return; }
+    const seg = t.closest('.seg [data-v][data-path]'); if (seg) { formEdit((s) => F.set(s, pathOf(seg), seg.dataset.v), true); return; }
+    const del = t.closest('.fm-del'); if (del) { formEdit((s) => F.del(s, pathOf(del)), true); return; }
+    const add = t.closest('.fm-add');
+    if (add) {
+      const path = pathOf(add), sel = add.parentElement.querySelector(':scope > .fm-addtype');
+      let key;
+      if (add.dataset.kind === 'map') { key = prompt('新的键名'); if (!key) return; }
+      formEdit((s) => F.add(s, path, key, sel ? sel.value : null, add.dataset.elem || null), true);
+      return;
+    }
+    const h = t.closest('#fp-form .sg-h'); if (h && !t.closest('.fm-hctl')) h.parentElement.classList.toggle('fold');
+  });
+  $('fp-body').addEventListener('input', (ev) => {
+    const t = ev.target; if (!t.closest('#fp-form') || t.type !== 'range') return;
+    const w = widgetOf(t.dataset.tag);
+    t.nextElementSibling.textContent = w.zero !== undefined && Number(t.value) === w.min ? w.zero : Number(t.value).toFixed(decimals(w.step));
+  });
+  $('fp-body').addEventListener('change', (ev) => {
+    const t = ev.target; if (!t.closest('#fp-form') || !t.dataset.path) return;
+    const v = t.type === 'range' ? formatSetting(widgetOf(t.dataset.tag), Number(t.value)) : t.value;
+    formEdit((s) => FORM_FORMATS[fp.form].set(s, pathOf(t), v), t.type === 'color');
+  });
+
+  // ---- 宇宙文件(.stars):概况;是别处的 universe.stars 就可以作为项目打开 ----
+  function mountUniverse(body) {
+    if (!fp.full) {
+      if (fp.info.editable) { body.innerHTML = '<div id="fp-media">载入全文…</div>'; loadFull().then(() => { if (fp && fp.handler === 'universe' && fp.full) renderFileBody(); }); }
+      else body.innerHTML = '<div id="fp-media">文件太大,只能在「原文」里看开头</div>';
+      return;
+    }
+    let u;
+    try { u = parse(fp.text); }
+    catch (e) { body.innerHTML = `<div id="fp-media">解析失败:${esc(e.message)}<br><span class="btn" data-cmd="open ${esc(quoteArg(fp.id))} --with text">看原文</span></div>`; return; }
+    const count = (xs, f) => { const m = new Map(); for (const x of xs) { const k = f(x) || '(无)'; m.set(k, (m.get(k) || 0) + 1); } return [...m].sort((a, b) => b[1] - a[1]); };
+    const chips = (rows) => rows.map(([k, n]) => `<span class="chip on">${esc(k)} ${n}</span>`).join(' ');
+    const nodes = [...u.nodes.values()].filter((n) => !n.id.startsWith('~')), edges = [...u.edges.values()];
+    const dir = fp.info.abs.replace(/[\\/][^\\/]*$/, '');
+    const isUni = /(^|\/)universe\.stars$/.test(fp.path), here = project && dir === project.dir;
+    body.innerHTML = `<div id="fp-uni"><div class="row"><span class="tag">节点</span><b>${nodes.length}</b></div><div style="display:flex;flex-wrap:wrap;gap:5px;margin:4px 0 10px">${chips(count(nodes, (n) => n.attrs.type))}</div>`
+      + `<div class="row"><span class="tag">边</span><b>${edges.length}</b></div><div style="display:flex;flex-wrap:wrap;gap:5px;margin:4px 0 10px">${chips(count(edges, (e) => e.type))}</div>`
+      + (isUni ? (here ? '<div class="tag">这就是当前项目的宇宙</div>' : `<span class="btn pri" data-cmd="project ${esc(quoteArg(dir))}">作为项目打开 ↗</span>`) : '')
+      + '</div>';
+  }
+
+  // ---- 文件的载入、保存、冲突 ----
+  /** 侧栏跟着选中走:选中的是文件就显示它,不是就收起(有修改先自动保存)。固定(📌)了的文件不跟:选中别的,上面的详情换,下面的文件不换 */
   function syncFile(n) {
     const id = n && fileOf(n) && !window.__STARS_STATIC__ ? n.id : null;
     if (fp && fp.id === id) return;
+    if (fp && fp.pinned) return;
     if (fp) releaseFile();
     $('side').classList.toggle('file', !!id);
     if (id) loadFile(id);
   }
+  let fpNext = null;   // open 命令给下一次载入的要求:{ id, want, focus }
   async function loadFile(id) {
     const path = fileOf(raw.get(id));
-    const cur = fp = { id, path, info: null, dirty: false, full: false, indent: '  ' };
+    const req = fpNext && fpNext.id === id ? fpNext : null; fpNext = null;
+    const cur = fp = { id, path, info: null, text: '', base: '', full: false, indent: '  ', want: req && req.want, handler: null,
+      opts: { html: !!P.mdHtml, scripts: !!P.htmlScripts || ![null, 'off'].includes(grantOf(path)), live: !!P.htmlLive, split: false } };   // 这个预览自己的开关,默认来自设置 → 文件预览;单独授权过连接的页面打开就跑脚本
     $('fp-body').innerHTML = '<div id="fp-media">载入中…</div>'; $('fp-state').textContent = ''; $('fp-more').hidden = true; fpBar(null);
-    $('fp-save').style.display = 'none';
+    $('fp-save').style.display = 'none'; $('fp-with').innerHTML = ''; $('fp-remember').hidden = true;
     let info;
     try { info = await api('/api/file?head=' + HEAD + '&path=' + enc(path)); }
     catch (e) { if (fp === cur) $('fp-body').innerHTML = `<div id="fp-media">打不开:${esc(e.message)}</div>`; return; }
     if (fp !== cur) return;
-    cur.info = info; cur.full = info.kind === 'text' && !info.partial;
+    cur.info = info; cur.text = cur.base = normEol(info.content ?? ''); cur.full = info.kind === 'text' && !info.partial;
     cur.indent = info.content && /\n\t/.test(info.content) ? '\t' : '  ';
     $('fp-code').href = 'vscode://file/' + info.abs.replace(/\\/g, '/');
-    renderFileBody(); fpState();
+    renderFileBody();
     clearInterval(fpPoll); fpPoll = setInterval(checkDisk, 3000);
     const orphan = fpOrphan && fpOrphan.id === id ? fpOrphan : null;
     if (orphan) { // 上次切走时没能保存的修改:放回来,让你决定
       fpOrphan = null;
-      await loadFull(); if (fp !== cur || !$('fp-text')) return;
-      $('fp-text').value = orphan.content; cur.dirty = true; gutter(); fpState();
+      await loadFull(); if (fp !== cur) return;
+      cur.text = orphan.content; refreshBody();   // 基线是磁盘版本,所以它是脏的
       fpBar(`你上次切走时的修改没能保存:文件在你打开之后被别处改过了。<span class="btn" data-fp="load">载入磁盘版本(丢弃我的)</span><span class="btn" data-fp="force">用我的覆盖</span>`);
     }
+    if (req && req.focus) focusPrimary();
   }
-  /** 预览 → 全文(可编辑);保留光标与滚动位置 */
+  /** 开头 → 全文(可编辑);保留光标与滚动位置 */
   async function loadFull() {
     const cur = fp;
     if (!cur || cur.full || cur.loading || !cur.info || cur.info.kind !== 'text' || !cur.info.editable) return;
@@ -1459,49 +2156,75 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     try { info = await api('/api/file?path=' + enc(cur.path)); } catch (e) { cur.loading = false; fpBar('载入全文失败:' + esc(e.message)); return; }
     cur.loading = false;
     if (fp !== cur) return;
-    const t = $('fp-text'), focused = document.activeElement === t, keep = t ? [t.selectionStart, t.selectionEnd, t.scrollTop] : null;
-    cur.info = info; cur.full = true;
-    if (t) { t.value = info.content; t.readOnly = false; gutter(); [t.selectionStart, t.selectionEnd, t.scrollTop] = keep; if (focused) t.focus(); }
-    fpState();
+    cur.info = info; cur.full = true; cur.text = cur.base = normEol(info.content);
+    refreshBody();
   }
   /** 收起文件;有未保存的修改就在后台保存,失败了把修改留下来,提示你回去处理 */
   function releaseFile() {
-    const cur = fp; fp = null; clearInterval(fpPoll);
-    const t = $('fp-text'), content = t ? t.value : null;
+    const cur = fp; fp = null; clearInterval(fpPoll); clearTimeout(formSaveTimer);
     $('side').classList.remove('file'); $('fp-body').innerHTML = ''; fpBar(null);
-    if (!cur || !cur.dirty || content === null) return;
-    api('/api/file', { path: cur.path, content, mtime: cur.info.mtime })
+    if (!fpDirty(cur)) return;
+    const content = cur.text;
+    api('/api/file', saveBody(cur, content, false))
       .then(() => toast(`已保存 ${esc(cur.path)}`))
       .catch((e) => { fpOrphan = { id: cur.id, content }; toast(`${esc(cur.path)} 的修改没能保存:${esc(e.message)} <span class="btn" data-sel="${esc(cur.id)}">回去处理</span>`, true, 15000); });
   }
   function focusEditor() { const t = $('fp-text'); if (t) t.focus(); }
   /** 磁盘上的文件变了吗?没改过就静默载入(保留光标与滚动),改过就提示 */
   async function checkDisk() {
-    if (!fp || !fp.info || document.hidden) return;
+    if (!fp || !fp.info || document.hidden || fp.checking) return;   // 实时信号和定时检查撞在一起时只查一次
     const cur = fp;
+    cur.checking = true;
+    try { await checkDiskNow(cur); } finally { cur.checking = false; }
+  }
+  async function checkDiskNow(cur) {
     let st;
     try { st = await api('/api/file?stat=1&path=' + enc(cur.path)); } catch { return; }
     if (fp !== cur || Math.abs(st.mtime - cur.info.mtime) <= 1) return;
-    if (cur.dirty) { fpBar(`磁盘上的文件在 ${ago(st.mtime)} 被改过了,和你未保存的修改冲突。<span class="btn" data-fp="load">载入磁盘版本</span><span class="btn" data-fp="force">用我的覆盖</span>`); return; }
+    if (st.mtime === cur.conflictAt && fpDirty(cur)) return;   // 这一版的冲突已经提示过了:不再重复要
+    if (fpDirty(cur)) {
+      // 磁盘上的新版本恰好就是我改成的样子(别处存了同样的内容):不算冲突,基线跟上即可
+      let disk = null;
+      try { disk = await fetchDisk(cur); } catch { /* 下面按冲突提示 */ }
+      if (fp !== cur) return;
+      if (disk && disk.kind === 'text' && normEol(disk.content) === cur.text) { cur.info = disk; cur.base = cur.text; fpState(); return; }
+      cur.conflictAt = st.mtime;
+      fpBar(`磁盘上的文件在 ${ago(st.mtime)} 被改过了,和你未保存的修改冲突。<span class="btn" data-fp="load">载入磁盘版本</span><span class="btn" data-fp="force">用我的覆盖</span>`);
+      return;
+    }
     await reloadFile(`已载入磁盘上的新版本(${ago(st.mtime)})`);
+  }
+  /** 重新要一份磁盘上的版本。手上有全文就带着基线的哈希去要:服务端还记得那一版,就只回改动的一段,
+   *  这边拼回来、核对哈希(对不上 —— 比如请求期间刚保存过 —— 就再要整份)。没有全文的(只看了开头)照旧要开头 */
+  async function fetchDisk(cur) {
+    const q = '/api/file?' + (cur.full ? '' : 'head=' + HEAD + '&') + 'path=' + enc(cur.path);
+    if (!cur.full) return api(q);
+    const base = cur.base, info = await api(q + '&since=' + enc(textHash(base)));
+    if (!info.patch) return info;
+    let text = null;
+    try { text = textPatch(base, info.patch); } catch { /* 补丁对不上这份基线 */ }
+    if (text === null || textHash(text) !== info.hash) return api(q);
+    delete info.patch; info.content = text;
+    return info;
   }
   async function reloadFile(note) {
     const cur = fp; if (!cur) return;
     let info;
-    try { info = await api('/api/file?' + (cur.full ? '' : 'head=' + HEAD + '&') + 'path=' + enc(cur.path)); } catch (e) { fpBar('重新载入失败:' + esc(e.message)); return; }
+    try { info = await fetchDisk(cur); } catch (e) { fpBar('重新载入失败:' + esc(e.message)); return; }
     if (fp !== cur) return;
-    const t = $('fp-text'), keep = t ? [t.selectionStart, t.selectionEnd, t.scrollTop] : null;
-    cur.info = info; cur.dirty = false; cur.full = info.kind === 'text' && !info.partial;
-    if (t && info.kind === 'text') { t.value = info.content; t.readOnly = !cur.full || !info.editable; gutter(); [t.selectionStart, t.selectionEnd, t.scrollTop] = keep; }
-    else renderFileBody();
-    fpState(); if (note) fpFlash(esc(note)); else fpBar(null);
+    cur.info = info; cur.text = cur.base = normEol(info.content ?? ''); cur.full = info.kind === 'text' && !info.partial;
+    refreshBody();
+    if (note) fpFlash(esc(note)); else fpBar(null);
   }
   async function saveFile(force) {
     if (!fp || !fp.full || !fp.info.editable) return;
-    const cur = fp, content = $('fp-text').value;
+    const cur = fp, content = cur.text;
+    if (!force && !fpDirty(cur)) { fpFlash('没有改动,不用保存'); return; }   // 和基线一样:连请求都不发
     try {
-      const r = await api('/api/file', { path: cur.path, content, mtime: force ? null : cur.info.mtime });
-      cur.info = { ...cur.info, mtime: r.mtime, size: r.size, content }; cur.dirty = false;
+      const r = await api('/api/file', saveBody(cur, content, force));
+      cur.info = { ...cur.info, mtime: r.mtime, size: r.size, content };
+      cur.base = content;   // 新基线;保存期间又改了的话,当前文本 ≠ 基线,自然还是脏的
+      if (cur.handler === 'html' && !cur.opts.live) htmlRefreshSoon();   // 只看保存版本的 HTML 预览:存完刷新
       fpFlash('已保存');
     } catch (e) {
       if (/改过/.test(e.message)) fpBar(`保存被拒绝:文件在你打开之后被别处改过了。<span class="btn" data-fp="load">载入磁盘版本(丢弃我的)</span><span class="btn" data-fp="force">用我的覆盖</span>`);
@@ -1513,7 +2236,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     const b = ev.target.closest('[data-fp]'); if (!b) return;
     if (b.dataset.fp === 'load') reloadFile('已载入磁盘版本'); else saveFile(true);
   });
-  addEventListener('beforeunload', (ev) => { if (fp && fp.dirty) { ev.preventDefault(); ev.returnValue = ''; } });
+  addEventListener('beforeunload', (ev) => { if (fpDirty()) { ev.preventDefault(); ev.returnValue = ''; } });
 
   // ---------- 侧栏宽度:拖左边缘调整(看文件时和平时各记各的),双击恢复默认 ----------
   (() => {
@@ -1587,7 +2310,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
         try { const cur = await api('/api/config?name=' + name); adoptCfg(name, cur); } catch { /* 下面再试 */ }
         return cfgSave(name, retry + 1);
       }
-      toast(`保存${name === 'settings' ? '设置' : '快捷键'}失败:${esc(e.message)}`, true);
+      toast(`保存${{ settings: '设置', keys: '快捷键', grants: '页面授权' }[name] || name}失败:${esc(e.message)}`, true);
     }
   }
   /** 采用一个新版本(实时推来的,或冲突后重新读的):还没存上的操作重放上去,再按新内容生效 */
@@ -1611,7 +2334,8 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
         for (const k of changed) P[k] = r.out[k] ?? PHYS[k].def;
         afterParams(changed);
       }
-    } else rebuildKeys();
+    } else if (name === 'keys') rebuildKeys();
+    else if (name === 'grants') grantsChanged();
     if (!$('physics').hidden) renderPhysics(true);
   }
   /** 程序里设一个参数(param 命令、面板、B 键……):生效并写回个人文件(等于默认值就从文件里删掉) */
@@ -1629,6 +2353,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     if (keys.includes('follow')) scheduleFollow(selected); // 开:从当前镜头平滑锁到选中;关:就地解冻,不跳
     if (keys.includes('bg')) bgMode = Math.max(0, BG_MODES.indexOf(P.bg));
     if (keys.includes('bounds')) showBounds = !!P.bounds;
+    if (keys.includes('pageBridge')) grantsChanged();
     if (!$('physics').hidden && !(document.activeElement && document.activeElement.dataset && keys.includes(document.activeElement.dataset.k))) renderPhysics(true); // 正在拖的滑条不重绘
   }
 
@@ -1648,6 +2373,17 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     for (const e of (b && b.kind === 'map' ? b.entries : [])) out.set(normKey(e.key), e.kind === 'null' ? null : e.kind === 'str' ? e.value.trim() : undefined);
     return out;
   }
+  // 双击:节点的种类 → 命令(keys.llf 的 dblclick;$id / $path / $dir 换成被双击的那个)
+  const DBL_TYPES = { container: '容器', file: '文件', image: '图片', markdown: 'Markdown', html: 'HTML', form: 'LLF 配置', universe: '宇宙文件', node: '其它节点' };
+  function dblOf(text) {
+    const out = new Map();
+    let doc; try { doc = llfParseDoc(text, CFG_OPTS); } catch { return out; }
+    const b = llfFind(doc, ['dblclick']);
+    for (const e of (b && b.kind === 'map' ? b.entries : [])) out.set(e.key, e.kind === 'null' ? null : e.kind === 'str' ? e.value.trim() : undefined);
+    return out;
+  }
+  const DEF_DBL = new Map([...dblOf(CFG.defaults.keys)].filter(([, c]) => c));
+  let DBL = new Map();
   const DEF_KEYS = [...bindingsOf(CFG.defaults.keys)].filter(([, c]) => c);
   const DEF_KEY = new Map(DEF_KEYS);
   let KEYMAP = [], keyMap = new Map();
@@ -1657,8 +2393,27 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     for (const [k, c] of DEF_KEYS) { const v = user.has(k) ? user.get(k) : c; if (v) out.push([k, v]); }
     for (const [k, v] of user) if (v && !DEF_KEY.has(k)) out.push([k, v]);
     KEYMAP = out; keyMap = new Map(out);
+    DBL = new Map(DEF_DBL);
+    for (const [t, v] of dblOf(userCfg.keys.text)) { if (v) DBL.set(t, v); else if (v === null) DBL.delete(t); }
   }
   rebuildKeys();
+  /** 设某类节点的双击命令;undefined = 恢复默认 */
+  function setDbl(type, cmd) {
+    const value = cmd === undefined || cmd === DEF_DBL.get(type) ? undefined : cmd;
+    cfgEdit('keys', { path: ['dblclick', type], value });
+    rebuildKeys();
+    if (!$('physics').hidden) renderPhysics(true);
+  }
+  /** 双击某个节点要执行的命令行 */
+  function dblLine(id) {
+    const n = raw.get(id); if (!n) return null;
+    const sn = isSpaces() ? compiled.node(id) : sim.get(id), path = fileOf(n);
+    const type = sn && sn.container ? 'container' : path ? fileTypeOf(path) : 'node';
+    const tpl = DBL.get(type) ?? (path ? DBL.get('file') : undefined);
+    if (!tpl) return null;
+    const dir = path && path.includes('/') ? path.replace(/\/[^/]*$/, '') : '.';
+    return tpl.replace(/\$(id|path|dir)\b/g, (_, k) => quoteArg(k === 'id' ? id : k === 'path' ? path || id : dir));
+  }
   /** 绑定 / 取消 / 恢复默认一个键:cmd 是命令行;null = 取消;undefined = 恢复默认 */
   function setBinding(key, cmd) {
     key = normKey(key);
@@ -1709,7 +2464,14 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
           + (st && def ? `<span class="mini" data-kb="reset" title="恢复默认:${esc(def)}">↺</span>` : '<span></span>')
           + (off ? '<span></span>' : `<span class="mini no" data-kb="unbind" title="${def ? '取消这个键' : '删掉这个绑定'}">✗</span>`) + '</div>';
       }).join('') + '</div>'
-      + `<div class="btns" style="margin-top:6px"><span class="btn" id="kb-add">${recording ? '请按下要绑的键…(Esc 取消)' : '+ 添加快捷键'}</span></div>`;
+      + `<div class="btns" style="margin-top:6px"><span class="btn" id="kb-add">${recording ? '请按下要绑的键…(Esc 取消)' : '+ 添加快捷键'}</span></div>`
+      + '<div class="sg" style="margin-top:10px"><div class="sg-h"><span>双击</span></div><div class="sg-b"><div class="tag" style="font-size:11px;margin-bottom:4px">按节点的种类执行命令:$id = 被双击的节点,$path = 它的文件,$dir = 文件所在目录;清空 = 恢复默认</div>'
+      + Object.entries(DBL_TYPES).map(([t, label]) => {
+        const def = DEF_DBL.get(t), cur = DBL.get(t), st = cur === def ? '' : cur ? '已改' : '已取消';
+        return `<div class="kb-row dbl ${st ? 'mod' : ''}"><kbd title="${t}">${esc(label)}</kbd>`
+          + `<input class="kb-cmd" data-dbl="${t}" list="cmd-names" value="${esc(cur || '')}" placeholder="${esc(def ? '默认:' + def : '(按「文件」)')}" spellcheck="false">`
+          + `<span class="kb-st">${st}</span>${st && def ? `<span class="mini" data-dblreset="${t}" title="恢复默认:${esc(def)}">↺</span>` : '<span></span>'}<span></span></div>`;
+      }).join('') + '</div></div>';
   }
   function rawView(name) {
     const u = userCfg[name];
@@ -1741,7 +2503,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     if (t) setTab = t.dataset.tab; else if (r) setRaw = r.dataset.raw === '1'; else return;
     recording = false; saveSetView(); renderPhysics();
   });
-  $('ph-reset').addEventListener('click', () => exec(setTab === 'keys' ? 'bind reset' : 'param reset', 'ui'));
+  $('ph-reset').addEventListener('click', () => { if (setTab === 'keys') { exec('bind reset', 'ui'); exec('dbl reset', 'ui'); } else exec('param reset', 'ui'); });
   $('ph-body').addEventListener('input', (ev) => {
     const t = ev.target;
     if (t.id === 'set-raw') { rawInput(t); return; }
@@ -1752,6 +2514,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
   });
   $('ph-body').addEventListener('change', (ev) => {
     const t = ev.target, k = t.dataset && t.dataset.k;
+    if (t.classList.contains('kb-cmd') && t.dataset.dbl) { const v = t.value.trim(); exec(v ? `dbl ${t.dataset.dbl} ${v}` : `dbl reset ${t.dataset.dbl}`, 'ui'); return; }
     if (t.classList.contains('kb-cmd')) { const v = t.value.trim(); exec(v ? `bind ${quoteArg(t.dataset.key)} ${v}` : `unbind ${quoteArg(t.dataset.key)}`, 'ui'); return; }
     if (!k) return;
     if (t.type === 'range') { setParam(k, P[k]); did(`param ${k} ${formatSetting(SET.items[k].w, P[k])}`); return; }
@@ -1764,6 +2527,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     if (ch) { exec(`param ${ch.dataset.k} ${quoteArg(ch.dataset.v)}`, 'ui'); return; }
     const t = ev.target.closest('.st-tog');
     if (t) { exec(`param ${t.dataset.k} toggle`, 'ui'); return; }
+    const dr = ev.target.closest('[data-dblreset]'); if (dr) { exec(`dbl reset ${dr.dataset.dblreset}`, 'ui'); return; }
     const kb = ev.target.closest('[data-kb]');
     if (kb) { const key = kb.closest('[data-key]').dataset.key; exec(kb.dataset.kb === 'reset' ? `bind reset ${quoteArg(key)}` : `unbind ${quoteArg(key)}`, 'ui'); return; }
     if (ev.target.closest('#kb-add')) { recording = !recording; renderPhysics(); }
@@ -1990,6 +2754,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     const n = sim.get(id);
     if (!n || !n.container) return;
     manual.set(id, !n.expanded);
+    savePlace();
     recompute(false);
   }
   // 双击不在这里处理:统一走 handleTap() 的"原地双击"(作用在第一次点击的目标上),镜头移动也不会点空。
@@ -2193,6 +2958,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     const ps = holderOf(id);
     if (expandedSet.has(id)) expandedSet.delete(id);
     else expandedSet.add(id);
+    savePlace();
     updateFootprints(ps); applyForces(ps);
     ps.sim.alpha(0.7).restart(); // 父空间动画地让出(或收回)位置
     renderSide();
@@ -2498,7 +3264,25 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     else fitSpace(false);
     afterSwitch();
   }
-  function afterSwitch() { renderStatus(); renderCrumbs(); }
+  function afterSwitch() { renderStatus(); renderCrumbs(); savePlace(); }
+  // ---- 记住所在的位置:刷新后回到同一个空间、同样的展开(按项目目录 + 视图,存在浏览器里;选中不记,免得一刷新就打开文件)----
+  const placeKey = () => 'stars.place:' + (project ? project.dir : '_') + ':' + currentView;
+  function savePlace() {
+    clearTimeout(placeTimer);
+    placeTimer = setTimeout(() => {
+      if (!compiled || replay || window.__STARS_STATIC__) return;
+      const v = { space: curSpaceId, expanded: [...expandedSet], manual: [...manual] };
+      try { if (v.space === null && !v.expanded.length && !v.manual.length) localStorage.removeItem(placeKey()); else localStorage.setItem(placeKey(), JSON.stringify(v)); } catch { /* 隐私模式 */ }
+    }, 400);
+  }
+  function restorePlace() {
+    let v = null;
+    try { v = JSON.parse(localStorage.getItem(placeKey()) || 'null'); } catch { /* 隐私模式 / 坏数据 */ }
+    if (!v || window.__STARS_STATIC__) return;
+    curSpaceId = v.space && raw.has(v.space) ? v.space : null;   // 编译后还会再核对一次是不是容器
+    expandedSet.clear(); for (const id of v.expanded || []) if (raw.has(id)) expandedSet.add(id);
+    manual.clear(); for (const [id, on] of v.manual || []) if (raw.has(id)) manual.set(id, !!on);
+  }
   function fitSpace(animate) {
     const sp = getSpace(curSpaceId);
     let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
@@ -2605,6 +3389,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     for (const h of frameHits) {
       const rr = h.domain ? h.R + 3 : h.sr + 3, sev = issueByNode.get(h.n.id);
       if (sev === 'error' || sev === 'warn') { ctx.strokeStyle = sev === 'error' ? 'rgba(255,90,90,.9)' : 'rgba(255,179,71,.9)'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(h.sx, h.sy, rr, 0, TAU); ctx.stroke(); }
+      if (raw.get(h.n.id)?.attrs.status === 'proposed') { ctx.strokeStyle = 'rgba(255,210,74,.9)'; ctx.lineWidth = 1.3; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.arc(h.sx, h.sy, rr + 1.5, 0, TAU); ctx.stroke(); ctx.setLineDash([]); }   // 待确认的节点:黄色虚线环(同提议的边)
       if (replay && (replay.added.has(h.n.id) || replay.changed.has(h.n.id))) { ctx.strokeStyle = replay.added.has(h.n.id) ? 'rgba(123,224,160,.95)' : 'rgba(255,179,71,.95)'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(h.sx, h.sy, rr + 5, 0, TAU); ctx.stroke(); }
       if (h.n.id === selected && !h.domain) { ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(h.sx, h.sy, rr + 3, 0, TAU); ctx.stroke(); }
     }
@@ -3037,6 +3822,10 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
         ctx.strokeStyle = rgba(sev === 'error' ? [255, 90, 90] : [255, 179, 71], 0.9 * a); ctx.lineWidth = 1.4 / k;
         ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 1.5 + 3, 0, TAU); ctx.stroke();
       }
+      if (raw.get(n.id)?.attrs.status === 'proposed') {   // 待确认的节点:黄色虚线环(同提议的边)
+        ctx.strokeStyle = rgba([255, 210, 74], 0.9 * a); ctx.lineWidth = 1.3 / k; ctx.setLineDash([4 / k, 3 / k]);
+        ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 1.5 + 4.5, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+      }
       if (replay && (replay.added.has(n.id) || replay.changed.has(n.id))) {
         ctx.strokeStyle = replay.added.has(n.id) ? 'rgba(123,224,160,0.95)' : 'rgba(255,179,71,0.95)'; ctx.lineWidth = 1.6 / k;
         ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 1.5 + 9, 0, TAU); ctx.stroke();
@@ -3098,22 +3887,10 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
   // 按钮(data-cmd)、快捷键(KEYMAP)、控制台(`)、命令面板(Ctrl K)走同一张表,写法和 CLI 一样:`名字 参数… -选项 值`;
   // 写宇宙的命令(add / link / rm …)和 CLI 同名同参数。点按钮、按快捷键、点星图时,控制台里会灰显出等价的命令(回显),
   // 边用边学,也能直接拿去绑键。run 的返回值:false = "此时不适用"(比如没选中东西时按 E,按键就不吞掉);字符串 = 输出。
+  // effect:这个命令对页面(页面桥)来说算什么 —— read 读 / ui 界面 / write 写;不写 = 页面不能用(个人设置、保存文件、开项目……)
   const CMDS = new Map();
   const defCmd = (name, spec) => CMDS.set(name, { name, group: '其它', ...spec });
-  /** 按空白切词;"…" 里可用 \" \\ 转义,'…' 原样 */
-  function tokenize(line) {
-    const out = []; let cur = null, q = null;
-    for (let i = 0; i < line.length; i++) {
-      const c = line[i];
-      if (q) { if (c === q) q = null; else if (c === '\\' && q === '"' && i + 1 < line.length) cur += line[++i]; else cur += c; continue; }
-      if (c === '"' || c === "'") { q = c; cur = cur ?? ''; continue; }
-      if (/\s/.test(c)) { if (cur !== null) { out.push(cur); cur = null; } continue; }
-      cur = (cur ?? '') + c;
-    }
-    if (cur !== null) out.push(cur);
-    return out;
-  }
-  function quoteArg(s) { s = String(s); return /^[^\s"'\\]+$/.test(s) ? s : '"' + s.replace(/["\\]/g, '\\$&') + '"'; }
+  const tokenize = cmdTokenize, quoteArg = cmdQuote;   // 切词与加引号:和 CLI、脚本共用一套(core/src/cmdline.ts)
   /** 位置参数 + 选项(-t x / --type x / --proposed;-a k=v 可重复)。只有声明了 flags/bools 的命令才认选项,别的命令里 -0.5 之类原样当参数 */
   function parseArgs(spec, toks) {
     const a = [], o = {};
@@ -3137,30 +3914,44 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
   const need = (a, n, spec) => { if (a.length < n) throw new Error('用法:' + (spec.usage || spec.name)); };
   const nodeIds = (p) => { const r = []; for (const id of raw.keys()) if (id.startsWith(p) && !id.startsWith('~')) { r.push(id); if (r.length >= 60) break; } return r; };
   const nodeArg = (name = 'id') => ({ name, values: nodeIds });
+  const projectFiles = (p, re) => { const r = []; for (const n of raw.values()) { const f = fileOf(n); if (f && re.test(f) && f.startsWith(p)) { r.push(f); if (r.length >= 60) break; } } return r; };
 
-  /** 执行一行命令。src:console / palette(你敲的)、key / ui / mouse(界面操作,回显)、remote(stars ui 遥控)。
-   *  report(可选):执行完回报 { ok, out, error } —— 遥控用它把输出交回给 CLI */
-  function exec(line, src = 'console', report = null, from = '') {
-    line = String(line || '').trim(); if (!line) return;
+  /** 执行一行命令。src:console / palette(你敲的)、key / ui / mouse(界面操作,回显)、remote(stars ui 遥控)、
+   *  page(侧栏预览里的页面,经页面桥;from = page:<路径>,level = 它的连接级别,执行前按命令的 effect 检查)。
+   *  report(可选):执行完回报 { ok, out, data, error } —— 遥控用它把输出交回给 CLI,页面桥交回给页面。
+   *  run 的返回值可以是字符串(输出),也可以是 { out, data }(data 给程序用:页面、遥控) */
+  function exec(line, src = 'console', report = null, from = '', level = 'off') {
+    line = String(line || '').trim();
+    if (!line) { if (report) report({ ok: false, error: '空命令' }); return; }
     const toks = tokenize(line), spec = CMDS.get(toks[0]);
-    const typed = src === 'console' || src === 'palette';
+    const typed = src === 'console' || src === 'palette', page = src === 'page';
+    let echoed = false;   // 页面的这条命令已经在控制台里显示了(被拒绝时要跟一行说明)
     if (typed) conLog(line, 'in');
     if (src === 'remote') { conLog(line + (from ? `   ← ${from}` : ''), 'remote'); if ($('console').hidden) toast(`遥控${from ? '(' + esc(from) + ')' : ''}:<code>${esc(line)}</code>`, false, 2500); }
     const fail = (e) => {
-      const m = String((e && e.message) || e); conLog(m, 'err');
-      if (!typed && $('console').hidden) toast(esc(m), true);
+      const m = String((e && e.message) || e);
       if (report) report({ ok: false, error: m });
+      if (page) { if (echoed) conLog('  ✗ ' + m, 'dim'); return; }   // 页面自己处理错误,不打扰你
+      conLog(m, 'err');
+      if (!typed && $('console').hidden) toast(esc(m), true);
     };
     if (!spec) { fail(`没有这个命令:${toks[0]}(help 看全部)`); return null; }
+    if (page && !bridgeAllows(spec.effect, level)) {
+      const need = { read: 'read', ui: 'ui', write: 'propose' }[spec.effect], who = from.startsWith('script:') ? '脚本' : '页面';
+      fail(need ? `这个${who}的连接级别是「${LEVEL_NAMES[level]}」,${toks[0]} 至少要「${LEVEL_NAMES[need]}」(授权:connect ${need} ${quoteArg(from.replace(/^\w+:/, ''))})`
+        : `${who}不能用 ${toks[0]}(个人设置、保存文件、开项目、跑脚本这类命令只给你自己用)`);
+      return null;
+    }
+    if (page && spec.effect !== 'read') { conLog(line + `   ← ${from}`, 'remote'); echoed = true; }   // 页面做的界面操作和写入,控制台里都看得到
     let r;
-    try { const { a, o } = parseArgs(spec, toks.slice(1)); r = spec.run(a, o, { src }); }
+    try { const { a, o } = parseArgs(spec, toks.slice(1)); r = spec.run(a, o, { src, from, level, author: page ? from : 'viewer' }); }
     catch (e) { fail(e); return null; }
     if (r === false) { if (typed || src === 'remote') conLog('(此时不适用)', 'dim'); if (report) report({ ok: false, error: '此时不适用' }); return false; }
-    if (!typed && src !== 'remote') conLog(line, 'echo');
+    if (!typed && src !== 'remote' && !page) conLog(line, 'echo');
     const show = (v) => {
-      const out = typeof v === 'string' ? v : '';
-      if (out) { conLog(out); if ($('console').hidden && src !== 'remote') toggleConsole(true); }   // 有输出就把控制台拉出来(遥控的输出交回 CLI,不打扰)
-      if (report) report({ ok: true, out });
+      const out = typeof v === 'string' ? v : v && typeof v.out === 'string' ? v.out : '';
+      if (out && !page) { conLog(out); if ($('console').hidden && src !== 'remote') toggleConsole(true); }   // 有输出就把控制台拉出来(遥控的输出交回 CLI,页面的交回页面,不打扰)
+      if (report) report({ ok: true, out, data: v && typeof v === 'object' && 'data' in v ? v.data : undefined });
     };
     if (r && typeof r.then === 'function') r.then(show, fail); else show(r);
     return r === undefined ? true : r;
@@ -3187,7 +3978,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
   };
   try { if (localStorage.getItem('stars.chips') === '1') PANEL_DEFS.types.set(true); } catch { /* 隐私模式 */ }
   defCmd('panel', {
-    group: '面板', title: '打开 / 关闭面板', usage: 'panel <名字> [on|off|toggle]',
+    group: '面板', effect: 'ui', title: '打开 / 关闭面板', usage: 'panel <名字> [on|off|toggle]',
     args: [{ name: '名字', values: () => Object.keys(PANEL_DEFS) }, { name: '开关', values: () => ['on', 'off', 'toggle'] }],
     palette: () => Object.entries(PANEL_DEFS).map(([k, d]) => ({ line: 'panel ' + k, title: '开 / 关 ' + d.label })),
     run: ([name, v]) => {
@@ -3200,7 +3991,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
 
   // ---- 视图与导航 ----
   defCmd('view', {
-    group: '视图', title: '切换视图(名字或序号)', usage: 'view <名字|序号>', args: [{ name: '视图', values: () => viewNames }],
+    group: '视图', effect: 'ui', title: '切换视图(名字或序号)', usage: 'view <名字|序号>', args: [{ name: '视图', values: () => viewNames }],
     palette: () => viewNames.map((v) => ({ line: 'view ' + quoteArg(v), title: '切换到视图 ' + v })),
     run: ([v]) => {
       if (!v) return `当前:${currentView}\n可用:${viewNames.join('  ')}`;
@@ -3210,36 +4001,38 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
     },
   });
   defCmd('filter', {
-    group: '视图', title: '过滤节点(不带参数 = 把光标放进过滤框)', usage: 'filter [文字…]',
+    group: '视图', effect: 'ui', title: '过滤节点(不带参数 = 把光标放进过滤框)', usage: 'filter [文字…]',
     run: (a) => { if (!a.length) { $('q').focus(); return; } $('q').value = a.join(' '); $('q').dispatchEvent(new Event('input')); },
   });
   defCmd('type', {
-    group: '视图', title: '显示 / 隐藏某个类型的节点', usage: 'type <类型> [on|off|toggle]',
+    group: '视图', effect: 'ui', title: '显示 / 隐藏某个类型的节点', usage: 'type <类型> [on|off|toggle]',
     args: [{ name: '类型', values: () => [...new Set(data.nodes.map((n) => typeOf(n.id)))] }, { name: '开关', values: () => ['on', 'off', 'toggle'] }],
     run: ([t, v], o, c) => { if (!t) throw new Error('用法:type <类型> [on|off|toggle]'); setTypeShown(t, onOff(v, !hiddenTypes.has(t))); },
   });
   defCmd('tag', {
-    group: '视图', title: '点亮 / 熄灭一个 tag(tags 视图);不带参数 = 全部清除', usage: 'tag [id]', args: [nodeArg('tag')],
+    group: '视图', effect: 'ui', title: '点亮 / 熄灭一个 tag(tags 视图);不带参数 = 全部清除', usage: 'tag [id]', args: [nodeArg('tag')],
     run: ([t]) => { toggleTag(t || ''); },
   });
   defCmd('select', {
-    group: '视图', title: '选中节点并让它出现在画面里(不带参数 = 取消选中)', usage: 'select [id]', args: [nodeArg()],
+    group: '视图', effect: 'ui', title: '选中节点并让它出现在画面里(不带参数 = 取消选中)', usage: 'select [id]', args: [nodeArg()],
     run: ([id]) => { if (id && !raw.has(id)) throw new Error(`节点不存在:${id}`); select(id || null, true); },
   });
   defCmd('cancel', {
-    group: '视图', title: '取消:关掉最上层的浮层,或清空过滤与选中',
+    group: '视图', effect: 'ui', title: '取消:关掉最上层的浮层,或清空过滤与选中',
     run: () => {
       const ae = document.activeElement;
       if (ae && ['INPUT', 'TEXTAREA', 'SELECT'].includes(ae.tagName)) { ae.blur(); return; }
+      if (!$('lightbox').hidden) { $('lightbox').hidden = true; return; }
       if (!$('palette').hidden) { togglePalette(false); return; }
       if (!$('keys').hidden) { toggleKeys(false); return; }
       if (replay) { exitReplay(); return; }
       if (!$('projects').hidden) { toggleProjects(false); return; }
       if (!$('physics').hidden) { togglePhysics(false); return; }
+      if (!selected && !$('q').value && fp && fp.pinned) { fp.pinned = false; syncFile(null); fpState(); return; }   // 什么都没选时再按一次 Esc:取消固定、收起
       $('q').value = ''; query = ''; select(null);
     },
   });
-  defCmd('fit', { group: '镜头', title: '适应窗口', run: () => fit() });
+  defCmd('fit', { group: '镜头', effect: 'ui', title: '适应窗口', run: () => fit() });
   defCmd('bg', {
     group: '显示', title: '背景:星系 / 星点 / 无', usage: 'bg [galaxy|dots|none|next]', args: [{ name: '背景', values: () => ['galaxy', 'dots', 'none', 'next'] }],
     palette: () => BG_MODES.map((m, i) => ({ line: 'bg ' + m, title: '背景:' + PHYS.bg.names[i] })),
@@ -3257,30 +4050,141 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
 
   // ---- 空间 ----
   defCmd('expand', {
-    group: '空间', title: '就地展开 / 收起(默认是选中的)', usage: 'expand [id]', args: [nodeArg()],
+    group: '空间', effect: 'ui', title: '就地展开 / 收起(默认是选中的)', usage: 'expand [id]', args: [nodeArg()],
     run: ([id]) => { id = id || selected; if (!id) return false; if (isSpaces()) toggleExpandSpace(id); else toggleExpand(id); },
   });
   defCmd('collapse-all', {
-    group: '空间', title: '全部收起',
-    run: () => { if (isSpaces()) { expandedSet.clear(); spaceVer++; renderStatus(); } else { manual.clear(); auto.clear(); recompute(false); } },
+    group: '空间', effect: 'ui', title: '全部收起',
+    run: () => { if (isSpaces()) { expandedSet.clear(); spaceVer++; renderStatus(); } else { manual.clear(); auto.clear(); recompute(false); } savePlace(); },
   });
   defCmd('enter', {
-    group: '空间', title: '进入选中的空间;选中的是文件就进编辑', usage: 'enter [id]', args: [nodeArg()],
+    group: '空间', effect: 'ui', title: '进入选中的空间;选中的是文件就打开它(= open)', usage: 'enter [id]', args: [nodeArg()],
     run: ([id]) => {
       id = id || selected; if (!id) return false;
       if (isSpaces() && compiled.node(id)?.container) { if (!enterSpace(id, true)) jumpTo(id); return; }
-      if (fileOf(raw.get(id))) { if (id !== selected) select(id, true); focusEditor(); return; }
+      if (fileOf(raw.get(id))) return CMDS.get('open').run([id], {});
       return false;
     },
   });
-  defCmd('exit', { group: '空间', title: '回到上一层空间', run: () => { if (!isSpaces()) return false; exitSpace(true); } });
+  defCmd('exit', { group: '空间', effect: 'ui', title: '回到上一层空间', run: () => { if (!isSpaces()) return false; exitSpace(true); } });
   defCmd('jump', {
-    group: '空间', title: '跳到某个空间(不带参数 = 最外层)', usage: 'jump [id]', args: [nodeArg()],
+    group: '空间', effect: 'ui', title: '跳到某个空间(不带参数 = 最外层)', usage: 'jump [id]', args: [nodeArg()],
     run: ([id]) => { if (id && !raw.has(id)) throw new Error(`节点不存在:${id}`); jumpTo(id || null); },
   });
 
   // ---- 文件 ----
-  defCmd('edit', { group: '文件', title: '把光标放进侧栏的文件编辑器', run: () => { if (!$('fp-text')) return false; focusEditor(); } });
+  defCmd('open', {
+    group: '文件', effect: 'ui', title: '打开节点的文件:侧栏里按它的种类显示(--with 指定视图;--remember / --forget 记住或忘掉这类扩展名的打开方式;--full 全屏看图)',
+    usage: 'open [id|文件路径] [--with text|markdown|form|image|universe|info] [--remember|--forget] [--full]',
+    flags: { with: 'with', w: 'with' }, bools: ['remember', 'forget', 'full'], args: [nodeArg()],
+    palette: () => [{ line: 'open ', title: '打开一个文件', more: true }, ...(fp && fp.info ? handlersFor(fpDesc()).map(({ h }) => ({ line: `open ${quoteArg(fp.id)} --with ${h.id}`, title: `用「${h.label}」看 ${fp.path}` })) : [])],
+    run: ([id], o) => {
+      id = id || selected; if (!id) return false;
+      if (!raw.has(id)) { const n = [...raw.values()].find((x) => x.attrs.file === id); if (!n) throw new Error(`节点不存在:${id}`); id = n.id; }
+      if (o.with && !FILE_HANDLERS.some((h) => h.id === o.with)) throw new Error(`没有这个视图:${o.with}(可用:${FILE_HANDLERS.map((h) => h.id).join(' ')})`);
+      const path = fileOf(raw.get(id));
+      if (!path) { if (id !== selected) select(id, true); return; }
+      const ext = extOf(path);
+      if (o.forget) { delete openWith[ext]; saveOpenWith(); }
+      else if (o.remember) { const h = o.with || (fp && fp.id === id ? fp.handler : null); if (h) { openWith[ext] = h; saveOpenWith(); } }
+      if (o.full) { if (fileTypeOf(path) !== 'image' || window.__STARS_STATIC__) return false; showLightbox(path); }
+      const focus = !o.with && !o.remember && !o.forget && !o.full;   // 双击 / 回车打开:光标放进去;切视图、记住、看大图不抢焦点
+      if (fp && fp.id === id) {
+        if (o.with) fp.want = o.with;
+        if (fp.info && (o.with || o.remember || o.forget)) renderFileBody();
+        if (focus) focusPrimary();
+        return;
+      }
+      fpNext = { id, want: o.with, focus };
+      if (fp && fp.pinned) fp.pinned = false;   // 明确要打开别的文件:固定让位
+      select(id, true);
+    },
+  });
+  defCmd('preview', {
+    group: '文件', effect: 'ui', title: '侧栏预览的开关:html(Markdown 渲染 HTML)、scripts(HTML 运行脚本)、live(HTML 实时)、split(并排编辑);reload 重新加载',
+    usage: 'preview <html|scripts|live|split> [on|off|toggle] · preview reload',
+    args: [{ name: '开关', values: () => ['html', 'scripts', 'live', 'split', 'reload'] }, { name: '值', values: () => ['on', 'off', 'toggle'] }],
+    palette: () => (fp && fp.info && ['markdown', 'html'].includes(fp.handler) ? [
+      ...(fp.handler === 'markdown' ? [{ line: 'preview html toggle', title: 'Markdown:开 / 关渲染 HTML' }] : [{ line: 'preview scripts toggle', title: 'HTML 预览:开 / 关脚本' }, { line: 'preview live toggle', title: 'HTML 预览:开 / 关实时' }, { line: 'preview reload', title: 'HTML 预览:重新加载' }]),
+      { line: 'preview split toggle', title: '开 / 关并排编辑' }] : []),
+    run: ([k, v]) => {
+      if (!fp || !fp.info || !['markdown', 'html'].includes(fp.handler)) return false;
+      if (k === 'reload') { if (fp.renderView) fp.renderView(); return; }
+      if (!['html', 'scripts', 'live', 'split'].includes(k)) throw new Error('用法:preview <html|scripts|live|split> [on|off|toggle] · preview reload');
+      fp.opts[k] = onOff(v, !!fp.opts[k]);
+      if (k === 'split') renderFileBody(); else if (fp.renderView) fp.renderView();
+    },
+  });
+  defCmd('connect', {
+    group: '文件', title: '页面连接:侧栏 HTML 预览(或给路径:某个页面 / 脚本)里的 window.stars 能调哪些命令(按路径记在 ~/.config/stars/grants.llf;default = 用设置里的默认);不带参数列出',
+    usage: 'connect [off|read|ui|propose|write|default] [页面或脚本的路径]', args: [{ name: '级别', values: () => [...BRIDGE_LEVELS, 'default'] }, { name: '路径', values: (p) => projectFiles(p, /\.(html?|m?js)$/i) }],
+    palette: () => (fp && fp.info && fp.handler === 'html' ? [...BRIDGE_LEVELS, 'default'].map((l) => ({ line: 'connect ' + l, title: `这个页面的连接:${LEVEL_NAMES[l] || '用默认'}` })) : []),
+    run: ([lv, path]) => {
+      if (!lv) {
+        const rows = [];
+        try {
+          const pages = llfFind(llfParseDoc(userCfg.grants.text, CFG_OPTS), ['pages']);
+          for (const d of pages && pages.kind === 'map' ? pages.entries : []) for (const e of d.kind === 'map' ? d.entries : []) rows.push(`  ${String(e.value ?? '').padEnd(8)} ${d.key}/${e.key}`);
+        } catch { /* 坏文件 */ }
+        const cur = fp && fp.info && fp.handler === 'html' ? `这个页面(${fp.path}):${LEVEL_NAMES[levelOf(fp.path)]}${grantOf(fp.path) ? '' : '(默认)'}${fp.opts.scripts ? '' : ';不过脚本没开,现在连不上'}\n` : '';
+        return cur + `默认:${LEVEL_NAMES[P.pageBridge] || P.pageBridge}(设置 → 文件预览 → 页面连接)\n` + (rows.length ? '单独授权过的页面:\n' + rows.join('\n') : '(还没有单独授权过的页面)');
+      }
+      if (lv !== 'default' && !bridgeIsLevel(lv)) throw new Error('应为 off / read / ui / propose / write / default');
+      path = path ? path.replace(/^\.\//, '') : fp && fp.info && fp.handler === 'html' ? fp.path : null;   // 不给路径 = 侧栏里的 HTML 页面
+      if (!path) return false;
+      setGrant(path, lv === 'default' ? null : lv);
+    },
+  });
+  defCmd('run', {
+    group: '脚本', title: '在查看器里跑一个 JS 脚本(隐藏的沙箱里,用页面桥调命令;级别同页面:connect <级别> <路径>);不带参数列出正在跑的',
+    usage: 'run [脚本.js] [参数…]', args: [{ name: '脚本', values: (p) => projectFiles(p, /\.m?js$/i) }],
+    run: ([path, ...args]) => {
+      if (!path) return [...scripts.values()].map((s) => `${s.path.padEnd(24)} ${s.state}  ${LEVEL_NAMES[s.b.level]}  ${ago(s.started)}`).join('\n') || '(没有正在跑的脚本)';
+      if (raw.has(path) && fileOf(raw.get(path))) path = fileOf(raw.get(path));
+      return runScript(path.replace(/^\.\//, ''), args);
+    },
+  });
+  defCmd('stop', {
+    group: '脚本', title: '停掉正在跑(或还在监听)的脚本;不带参数 = 全部', usage: 'stop [脚本路径]', args: [{ name: '脚本', values: () => [...scripts.keys()] }],
+    run: ([path]) => {
+      const list = path ? [scripts.get(path.replace(/^\.\//, ''))].filter(Boolean) : [...scripts.values()];
+      if (!list.length) return path ? false : '(没有正在跑的脚本)';
+      for (const s of list) { if (!s.finished) { s.finished = true; s.resolve({ out: `■ ${s.path} 被停止` }); } stopScript(s, null); }
+      return `已停止 ${list.map((s) => s.path).join('、')}`;
+    },
+  });
+  defCmd('edit', {
+    group: '文件', effect: 'ui', title: '在原文里编辑侧栏的文件(当前是别的视图就切到原文)',
+    run: () => {
+      if (!fp || !fp.info || fp.info.kind !== 'text') return false;
+      if (fp.handler !== 'text') { fp.want = 'text'; renderFileBody(); }
+      focusEditor();
+    },
+  });
+  defCmd('dbl', {
+    group: '设置', title: '双击某类节点时执行的命令($id / $path / $dir 换成那个节点的);dbl reset [类型] 恢复默认;不带参数列出全部',
+    usage: 'dbl [类型] [命令…] · dbl reset [类型]',
+    args: [{ name: '类型', values: () => ['reset', ...Object.keys(DBL_TYPES)] }, { name: '命令', values: () => [...CMDS.keys()] }],
+    run: ([t, ...cmd]) => {
+      if (!t) return Object.keys(DBL_TYPES).map((k) => `${k.padEnd(10)} ${DBL.get(k) ?? '(按 file)'}${DBL.get(k) !== DEF_DBL.get(k) ? '   (改过)' : ''}`).join('\n');
+      if (t === 'reset') { for (const k of cmd.length ? cmd : Object.keys(DBL_TYPES)) setDbl(k, undefined); return; }
+      if (!(t in DBL_TYPES)) throw new Error(`没有这个种类:${t}(可用:${Object.keys(DBL_TYPES).join(' ')})`);
+      if (!cmd.length) return `${t} → ${DBL.get(t) ?? '(按 file)'}${DEF_DBL.has(t) ? `   默认:${DEF_DBL.get(t)}` : ''}`;
+      const line = cmd.length === 1 ? cmd[0] : cmd.map(quoteArg).join(' ');
+      if (!CMDS.has(tokenize(line)[0])) throw new Error(`没有这个命令:${tokenize(line)[0]}`);
+      setDbl(t, line);
+    },
+  });
+  defCmd('pin', {
+    group: '文件', effect: 'read', title: '固定侧栏里的文件:单击选中别的节点时不换(双击 / open 照样打开别的文件;什么都没选时按 Esc 取消固定)。页面也能固定自己',
+    usage: 'pin [on|off|toggle]', args: [{ name: '开关', values: () => ['on', 'off', 'toggle'] }],
+    run: ([v]) => {
+      if (!fp) return false;
+      fp.pinned = onOff(v, !!fp.pinned);
+      fpState();
+      if (!fp.pinned) { const n = selected && raw.get(selected); if (!n || n.id !== fp.id) syncFile(n || null); }   // 取消固定:侧栏回到跟着选中走
+    },
+  });
   defCmd('save', { group: '文件', title: '保存侧栏里的文件(Ctrl+S)', run: () => { if (!fp || !fp.full) return false; return saveFile(false); } });
 
   // ---- 设置(写回 ~/.config/stars/settings.llf)与快捷键(keys.llf)----
@@ -3335,7 +4239,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
   // ---- 时间线 ----
   const TL_ACTS = { prev: '上一个提交', next: '下一个提交', first: '最早的提交', now: '回到现在', play: '播放 / 暂停', scope: '宇宙文件的历史 ↔ 文件夹的历史', more: '再往前载入一批' };
   defCmd('timeline', {
-    group: '时间线', title: '时间线操作(先 panel timeline 打开)', usage: 'timeline <' + Object.keys(TL_ACTS).join('|') + '>', args: [{ name: '动作', values: () => Object.keys(TL_ACTS) }],
+    group: '时间线', effect: 'ui', title: '时间线操作(先 panel timeline 打开)', usage: 'timeline <' + Object.keys(TL_ACTS).join('|') + '>', args: [{ name: '动作', values: () => Object.keys(TL_ACTS) }],
     palette: () => Object.entries(TL_ACTS).map(([k, t]) => ({ line: 'timeline ' + k, title: '时间线:' + t })),
     run: ([act]) => {
       if (act === 'now') { if (!replay) return false; exitReplay(); return; }
@@ -3348,9 +4252,16 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
 
   // ---- 项目 ----
   defCmd('project', {
-    group: '项目', title: '列出已打开的项目;带目录 = 打开那个文件夹(--create 没有宇宙就新建)', usage: 'project [目录] [--create]', bools: ['create'],
+    group: '项目', title: '列出已打开的项目;带目录 = 打开那个文件夹(--create 没有宇宙就新建);--close [目录] 关掉一个打开着的项目(默认当前的)', usage: 'project [目录] [--create] · project --close [目录]', bools: ['create', 'close'],
     run: ([dir], o) => {
       if (window.__STARS_STATIC__) throw new Error('静态导出不能切换项目');
+      if (o.close) return api('/api/projects').then((r) => {
+        openList = r.open;
+        const want = dir ? dir.replace(/[\\/]+$/, '') : null;
+        const p = want ? r.open.find((x) => x.dir === want || x.name === want || x.id === want) : r.open.find((x) => project && x.id === project.id);
+        if (!p) throw new Error(`没有打开着的项目:${dir}`);
+        return closeProject(p.id);
+      });
       if (!dir) return api('/api/projects').then((r) => r.open.map((p) => `${project && p.id === project.id ? '*' : ' '} ${p.name}  ${p.dir}`)
         .concat(r.recent.length ? ['最近:', ...r.recent.map((d) => `  ${d.dir}${d.hasUniverse ? '' : '   (还没有宇宙,加 --create 新建)'}`)] : []).join('\n'));
       return openDir(dir, !!o.create);
@@ -3359,118 +4270,167 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
 
   // ---- 审阅 ----
   defCmd('review', {
-    group: '审阅', title: '全部接受 / 全部拒绝待审阅的提议', usage: 'review <accept-all|reject-all>', args: [{ name: '动作', values: () => ['accept-all', 'reject-all'] }],
+    group: '审阅', effect: 'write', title: '全部接受 / 全部拒绝待审阅的提议', usage: 'review <accept-all|reject-all>', args: [{ name: '动作', values: () => ['accept-all', 'reject-all'] }],
     palette: () => [{ line: 'review accept-all', title: '接受全部提议' }, { line: 'review reject-all', title: '拒绝全部提议' }],
-    run: ([act]) => {
+    run: ([act], o, c) => {
+      noProposing(c, '批量确认 / 拒绝提议');
       const l = proposed();
-      if (act === 'accept-all') { if (!l.length) return '没有待审阅的提议'; return write({ op: 'batch', ops: l.map(acceptOp) }, `已接受全部 ${l.length} 条`); }
-      if (act === 'reject-all') { if (!l.length) return '没有待审阅的提议'; if (!confirm(`拒绝并删除全部 ${l.length} 条提议?(之后可以撤销)`)) return; return write({ op: 'batch', ops: l.map(rejectOp) }, `已拒绝全部 ${l.length} 条`); }
+      if (act === 'accept-all') { if (!l.length) return '没有待审阅的提议'; return write(batchOps(l, acceptOp), `已接受全部 ${l.length} 条`, c.author); }
+      if (act === 'reject-all') { if (!l.length) return '没有待审阅的提议'; if (c.src !== 'page' && !confirm(`拒绝并删除全部 ${l.length} 条提议?(之后可以撤销)`)) return; return write(batchOps(l, rejectOp), `已拒绝全部 ${l.length} 条`, c.author); }
       throw new Error('用法:review <accept-all|reject-all>');
     },
   });
 
-  // ---- 写宇宙:和 CLI 同名同参数(作者记为 viewer,都能 undo)----
+  // ---- 写宇宙:和 CLI 同名同参数(作者记为 viewer;页面写的记为 page:<路径>;都能 undo)----
+  // 「提议」级的页面(见 core/src/bridge.ts):新增的节点和边都落成 status=proposed,等你在审阅里确认;
+  // 改、删只能动它自己提的、还没被确认的;不能确认、不能撤销、不能动 status。
   const kvs = (list) => Object.fromEntries((list || []).map((it) => { const i = it.indexOf('='); if (i <= 0) throw new Error(`属性应写成 key=value,得到 "${it}"`); return [it.slice(0, i), it.slice(i + 1)]; }));
   const NODE_FLAGS = { t: 'type', s: 'summary', l: 'label', a: 'attr', ref: 'ref', unset: 'unset' };
   function nodeAttrs(o) { const at = kvs(o.attr); if (o.type !== undefined) at.type = o.type; if (o.summary !== undefined) at.summary = o.summary; if (o.ref !== undefined) at.file = o.ref; return at; }
-  async function commitOp(op, done) {
-    const r = await api('/api/op', { op, author: 'viewer' });
+  const proposing = (c) => !!c && c.src === 'page' && c.level === 'propose';
+  const pagePending = new Map();   // 页面刚提的(日志还没推回来):键 → { author, n }
+  function ownProposal(c, k, what) {
+    const p = (data.proposals || {})[k], q = pagePending.get(k);
+    if (p ? p.author === c.author : q && q.author === c.author && q.n > lastN) return;
+    throw new Error(`「提议」级的页面只能改、删自己提的还没被确认的东西,${what} 不是`);
+  }
+  const noProposing = (c, what) => { if (proposing(c)) throw new Error(`「提议」级的页面不能${what}(这要你来)`); };
+  async function commitOp(op, done, c, pendingKey) {
+    const r = await api('/api/op', { op, author: (c && c.author) || 'viewer' });
+    if (pendingKey) pagePending.set(pendingKey, { author: c.author, n: r.n });
+    await waitApplied(r.n);
     if (!$('review').hidden) rvMsg(`${done}(操作 #${r.n},可撤销)`);
-    return `${done}   #${r.n}`;
+    return { out: `${done}   #${r.n}`, data: { n: r.n } };
   }
   const edgeArgs = [nodeArg('from'), { name: '类型', values: () => [...new Set(data.edges.map((e) => e.type))] }, nodeArg('to')];
   defCmd('add', {
-    group: '宇宙', title: '新建节点', usage: 'add <id> [label] [-t 类型] [-s 摘要] [--ref 文件] [-a k=v …]', flags: NODE_FLAGS, multi: ['attr', 'unset'], more: true,
-    run: (a, o, c) => { need(a, 1, CMDS.get('add')); return commitOp({ op: 'addNode', id: a[0], label: a[1] ?? o.label ?? a[0], attrs: nodeAttrs(o) }, `+ ${a[0]}`); },
+    group: '宇宙', effect: 'write', title: '新建节点(--proposed 提议:等确认)', usage: 'add <id> [label] [-t 类型] [-s 摘要] [--ref 文件] [-a k=v …] [--proposed]', flags: NODE_FLAGS, multi: ['attr', 'unset'], bools: ['proposed'], more: true,
+    run: (a, o, c) => {
+      need(a, 1, CMDS.get('add'));
+      const attrs = nodeAttrs(o), prop = o.proposed || proposing(c);
+      if (prop) attrs.status = 'proposed';
+      return commitOp({ op: 'addNode', id: a[0], label: a[1] ?? o.label ?? a[0], attrs }, `+ ${a[0]}${prop ? '  (proposed)' : ''}`, c, prop && c.src === 'page' ? nodeProposalKey(a[0]) : null);
+    },
   });
   defCmd('set', {
-    group: '宇宙', title: '修改节点', usage: 'set <id> [-l 标签] [-t 类型] [-s 摘要] [-a k=v …] [--unset k …]', flags: NODE_FLAGS, multi: ['attr', 'unset'], args: [nodeArg()], more: true,
-    run: (a, o) => { need(a, 1, CMDS.get('set')); return commitOp({ op: 'setNode', id: a[0], label: o.label, set: nodeAttrs(o), unset: o.unset }, `~ ${a[0]}`); },
+    group: '宇宙', effect: 'write', title: '修改节点', usage: 'set <id> [-l 标签] [-t 类型] [-s 摘要] [-a k=v …] [--unset k …]', flags: NODE_FLAGS, multi: ['attr', 'unset'], args: [nodeArg()], more: true,
+    run: (a, o, c) => {
+      need(a, 1, CMDS.get('set'));
+      const set = nodeAttrs(o);
+      if (proposing(c)) {
+        ownProposal(c, nodeProposalKey(a[0]), `节点 ${a[0]}`);
+        if ('status' in set || (o.unset || []).includes('status')) throw new Error('「提议」级的页面不能改 status(确认要你来)');
+      }
+      return commitOp({ op: 'setNode', id: a[0], label: o.label, set, unset: o.unset }, `~ ${a[0]}`, c);
+    },
   });
   defCmd('rm', {
-    group: '宇宙', title: '删除节点(连带它的边)', usage: 'rm <id>', args: [nodeArg()], more: true,
-    run: (a) => { need(a, 1, CMDS.get('rm')); if (!confirm(`删除节点 ${a[0]} 和它的所有边?(之后可以 undo)`)) return; return commitOp({ op: 'removeNode', id: a[0] }, `- ${a[0]}`); },
+    group: '宇宙', effect: 'write', title: '删除节点(连带它的边)', usage: 'rm <id>', args: [nodeArg()], more: true,
+    run: (a, o, c) => {
+      need(a, 1, CMDS.get('rm'));
+      if (proposing(c)) ownProposal(c, nodeProposalKey(a[0]), `节点 ${a[0]}`);
+      else if (c.src !== 'page' && !confirm(`删除节点 ${a[0]} 和它的所有边?(之后可以 undo)`)) return;   // 页面已经被你授权「写」,不弹框(照样能 undo)
+      return commitOp({ op: 'removeNode', id: a[0] }, `- ${a[0]}`, c);
+    },
   });
   defCmd('link', {
-    group: '宇宙', title: '建边', usage: 'link <from> <type> <to> [--proposed] [-a k=v …]', flags: { a: 'attr' }, multi: ['attr'], bools: ['proposed'], args: edgeArgs, more: true,
-    run: (a, o) => {
+    group: '宇宙', effect: 'write', title: '建边', usage: 'link <from> <type> <to> [--proposed] [-a k=v …]', flags: { a: 'attr' }, multi: ['attr'], bools: ['proposed'], args: edgeArgs, more: true,
+    run: (a, o, c) => {
       need(a, 3, CMDS.get('link'));
-      const attrs = kvs(o.attr); if (o.proposed) attrs.status = 'proposed';
-      return commitOp({ op: 'addEdge', from: a[0], type: a[1], to: a[2], attrs }, `+ ${a[0]} -${a[1]}-> ${a[2]}${o.proposed ? '  (proposed)' : ''}`);
+      const attrs = kvs(o.attr), prop = o.proposed || proposing(c);
+      if (prop) attrs.status = 'proposed';
+      return commitOp({ op: 'addEdge', from: a[0], type: a[1], to: a[2], attrs }, `+ ${a[0]} -${a[1]}-> ${a[2]}${prop ? '  (proposed)' : ''}`, c, prop && c.src === 'page' ? `${a[0]}|${a[1]}|${a[2]}` : null);
     },
   });
   defCmd('unlink', {
-    group: '宇宙', title: '删边', usage: 'unlink <from> <type> <to>', args: edgeArgs, more: true,
-    run: (a) => { need(a, 3, CMDS.get('unlink')); return commitOp({ op: 'removeEdge', from: a[0], type: a[1], to: a[2] }, `- ${a[0]} -${a[1]}-> ${a[2]}`); },
+    group: '宇宙', effect: 'write', title: '删边', usage: 'unlink <from> <type> <to>', args: edgeArgs, more: true,
+    run: (a, o, c) => {
+      need(a, 3, CMDS.get('unlink'));
+      if (proposing(c)) ownProposal(c, `${a[0]}|${a[1]}|${a[2]}`, `边 ${a[0]} -${a[1]}-> ${a[2]}`);
+      return commitOp({ op: 'removeEdge', from: a[0], type: a[1], to: a[2] }, `- ${a[0]} -${a[1]}-> ${a[2]}`, c);
+    },
   });
   defCmd('accept', {
-    group: '宇宙', title: '确认一条 proposed 边', usage: 'accept <from> <type> <to>', args: edgeArgs, more: true,
-    run: (a) => { need(a, 3, CMDS.get('accept')); return commitOp({ op: 'setEdge', from: a[0], type: a[1], to: a[2], unset: ['status'] }, `✓ ${a[0]} -${a[1]}-> ${a[2]}`); },
+    group: '宇宙', effect: 'write', title: '确认一条 proposed 边;只给 id 就是确认 proposed 节点', usage: 'accept <from> <type> <to> · accept <id>', args: edgeArgs, more: true,
+    run: (a, o, c) => {
+      noProposing(c, '确认提议');
+      if (a.length === 1) return commitOp({ op: 'setNode', id: a[0], unset: ['status'] }, `✓ ${a[0]}`, c);
+      need(a, 3, CMDS.get('accept'));
+      return commitOp({ op: 'setEdge', from: a[0], type: a[1], to: a[2], unset: ['status'] }, `✓ ${a[0]} -${a[1]}-> ${a[2]}`, c);
+    },
   });
   defCmd('undo', {
-    group: '宇宙', title: '撤销最近一次写入',
-    run: async () => { const r = await api('/api/undo', {}); if (!$('review').hidden) rvMsg(`已撤销(操作 #${r.n})`); return `已撤销   #${r.n}`; },
+    group: '宇宙', effect: 'write', title: '撤销最近一次写入',
+    run: async (a, o, c) => {
+      noProposing(c, '撤销');
+      const r = await api('/api/undo', {}); await waitApplied(r.n); if (!$('review').hidden) rvMsg(`已撤销(操作 #${r.n})`);
+      return { out: `已撤销   #${r.n}`, data: { n: r.n } };
+    },
   });
 
-  // ---- 读宇宙(在浏览器里算,不用等服务端)----
-  const descNode = (id) => { const n = uni.nodes.get(id); return n ? `${n.id}${n.attrs.type ? ` [${n.attrs.type}]` : ''}  ${n.label}` : `${id}  (不存在)`; };
+  // ---- 读宇宙(在浏览器里算,不用等服务端)。输出给人看;data 给页面和遥控用 ----
+  const descNode = (id) => { const n = uni.nodes.get(id); return n ? `${n.id}${n.attrs.type ? ` [${n.attrs.type}]` : ''}  ${n.label}${n.attrs.status === 'proposed' ? '  (proposed)' : ''}` : `${id}  (不存在)`; };
   const needUni = () => { if (!uni) throw new Error('宇宙还没载入'); return uni; };
   defCmd('show', {
-    group: '查询', title: '节点详情及其所有边', usage: 'show <id>', args: [nodeArg()], more: true,
+    group: '查询', effect: 'read', title: '节点详情及其所有边', usage: 'show <id>', args: [nodeArg()], more: true,
     run: (a) => {
       need(a, 1, CMDS.get('show'));
       const id = a[0], u = needUni(), n = u.nodes.get(id); if (!n) throw new Error(`节点不存在:${id}`);
-      const lines = [descNode(id)];
+      const lines = [descNode(id)], out = [], inn = [];
+      for (const e of u.edges.values()) { if (e.from === id) out.push(e); if (e.to === id) inn.push(e); }
       for (const [k, v] of Object.entries(n.attrs)) if (k !== 'type') lines.push(`  ${k}: ${v}`);
-      for (const e of u.edges.values()) if (e.from === id) lines.push(`  → -${e.type}-> ${e.to}${e.attrs.status ? ` (${e.attrs.status})` : ''}`);
-      for (const e of u.edges.values()) if (e.to === id) lines.push(`  ← ${e.from} -${e.type}->`);
-      return lines.join('\n');
+      for (const e of out) lines.push(`  → -${e.type}-> ${e.to}${e.attrs.status ? ` (${e.attrs.status})` : ''}`);
+      for (const e of inn) lines.push(`  ← ${e.from} -${e.type}->`);
+      return { out: lines.join('\n'), data: { node: n, out, in: inn } };
     },
   });
   defCmd('nb', {
-    group: '查询', title: '邻域', usage: 'nb <id> [--depth N] [--dir out|in|both] [-t 边类型]', flags: { depth: 'depth', dir: 'dir', t: 'type' }, args: [nodeArg()], more: true,
+    group: '查询', effect: 'read', title: '邻域', usage: 'nb <id> [--depth N] [--dir out|in|both] [-t 边类型]', flags: { depth: 'depth', dir: 'dir', t: 'type' }, args: [nodeArg()], more: true,
     run: (a, o) => {
       need(a, 1, CMDS.get('nb'));
       const id = a[0], u = needUni(); if (!u.nodes.has(id)) throw new Error(`节点不存在:${id}`);
       const nb = neighborhood(u, id, { depth: Number(o.depth ?? 1), dir: o.dir ?? 'both', type: o.type });
-      return [...nb.dist].sort((x, y) => x[1] - y[1]).map(([nid, d]) => '  '.repeat(d) + descNode(nid)).join('\n');
+      const list = [...nb.dist].sort((x, y) => x[1] - y[1]);
+      return { out: list.map(([nid, d]) => '  '.repeat(d) + descNode(nid)).join('\n'), data: list.map(([nid, d]) => ({ id: nid, depth: d })) };
     },
   });
   defCmd('path', {
-    group: '查询', title: '最短路径', usage: 'path <a> <b> [-t 边类型]', flags: { t: 'type' }, args: [nodeArg('a'), nodeArg('b')], more: true,
+    group: '查询', effect: 'read', title: '最短路径', usage: 'path <a> <b> [-t 边类型]', flags: { t: 'type' }, args: [nodeArg('a'), nodeArg('b')], more: true,
     run: (a, o) => {
       need(a, 2, CMDS.get('path'));
       const p = shortestPath(needUni(), a[0], a[1], { type: o.type });
-      return p === null ? '不可达' : [a[0], ...p.map((st) => `${st.forward ? `-${st.edge.type}->` : `<-${st.edge.type}-`} ${st.to}`)].join(' ');
+      if (p === null) return { out: '不可达', data: null };
+      return { out: [a[0], ...p.map((st) => `${st.forward ? `-${st.edge.type}->` : `<-${st.edge.type}-`} ${st.to}`)].join(' '),
+        data: { from: a[0], steps: p.map((st) => ({ type: st.edge.type, forward: st.forward, to: st.to })) } };
     },
   });
   defCmd('ls', {
-    group: '查询', title: '列节点', usage: 'ls [-t 类型] [-q 文本] [-w k=v …] [--orphans]', flags: { t: 'type', q: 'q', w: 'where' }, multi: ['where'], bools: ['orphans'],
+    group: '查询', effect: 'read', title: '列节点', usage: 'ls [-t 类型] [-q 文本] [-w k=v …] [--orphans]', flags: { t: 'type', q: 'q', w: 'where' }, multi: ['where'], bools: ['orphans'],
     run: (a, o) => {
       const u = needUni(), ns = filterNodes(u, { type: o.type, where: kvs(o.where), orphans: o.orphans, text: o.q ?? (a.join(' ') || undefined) });
-      return (ns.slice(0, 300).map((n) => descNode(n.id)).join('\n') || '(空)') + (ns.length > 300 ? `\n… 共 ${ns.length} 个,只列前 300` : '');
+      return { out: (ns.slice(0, 300).map((n) => descNode(n.id)).join('\n') || '(空)') + (ns.length > 300 ? `\n… 共 ${ns.length} 个,只列前 300` : ''), data: ns };
     },
   });
   defCmd('log', {
-    group: '查询', title: '操作日志', usage: 'log [-n 20]', flags: { n: 'n' },
-    run: (a, o) => data.log.slice(-Number(o.n ?? 20)).map((e) => `#${e.n} ${e.author.padEnd(8)} ${summ(e)}`).join('\n') || '(无记录)',
+    group: '查询', effect: 'read', title: '操作日志', usage: 'log [-n 20]', flags: { n: 'n' },
+    run: (a, o) => { const l = data.log.slice(-Number(o.n ?? 20)); return { out: l.map((e) => `#${e.n} ${e.author.padEnd(8)} ${summ(e)}`).join('\n') || '(无记录)', data: l }; },
   });
   defCmd('lint', {
-    group: '查询', title: '体检结果', run: () => data.issues.map((i) => `${i.severity.padEnd(5)} ${i.rule.padEnd(20)} ${i.message}`).join('\n') || '✓ 没有问题',
+    group: '查询', effect: 'read', title: '体检结果', run: () => ({ out: data.issues.map((i) => `${i.severity.padEnd(5)} ${i.rule.padEnd(20)} ${i.message}`).join('\n') || '✓ 没有问题', data: data.issues }),
   });
-  defCmd('views', { group: '查询', title: '列出视图', run: () => viewNames.map((v, i) => `${i + 1}. ${v}${v === currentView ? '   ← 当前' : ''}`).join('\n') });
+  defCmd('views', { group: '查询', effect: 'read', title: '列出视图', run: () => ({ out: viewNames.map((v, i) => `${i + 1}. ${v}${v === currentView ? '   ← 当前' : ''}`).join('\n'), data: { current: currentView, names: viewNames } }) });
 
   // ---- 控制台自己 ----
   defCmd('help', {
-    group: '控制台', title: '列出全部命令;help <命令> 看用法', usage: 'help [命令]', args: [{ name: '命令', values: () => [...CMDS.keys()] }],
+    group: '控制台', effect: 'read', title: '列出全部命令;help <命令> 看用法', usage: 'help [命令]', args: [{ name: '命令', values: () => [...CMDS.keys()] }],
     run: ([name]) => {
       if (name) { const c = CMDS.get(name); if (!c) throw new Error(`没有这个命令:${name}`); const ks = keysOf(name); return `${c.usage || c.name}\n  ${c.title}${ks.length ? '\n  快捷键:' + ks.join(' / ') : ''}`; }
       const groups = new Map(); for (const c of CMDS.values()) { if (!groups.has(c.group)) groups.set(c.group, []); groups.get(c.group).push(c); }
       return [...groups].map(([g, cs]) => `【${g}】\n` + cs.map((c) => `  ${c.name.padEnd(13)} ${c.title}`).join('\n')).join('\n') + '\n写法和 CLI 一样;Tab 补全,↑↓ 翻历史。';
     },
   });
-  defCmd('clear', { group: '控制台', title: '清空控制台', run: () => { $('con-out').innerHTML = ''; } });
-  defCmd('palette', { group: '控制台', title: '命令面板:搜索全部命令', run: () => togglePalette(true) });
+  defCmd('clear', { group: '控制台', effect: 'ui', title: '清空控制台', run: () => { $('con-out').innerHTML = ''; } });
+  defCmd('palette', { group: '控制台', effect: 'ui', title: '命令面板:搜索全部命令', run: () => togglePalette(true) });
 
   // ---------- 键位(KEYMAP / keyMap 由 core/keys.llf + 个人 keys.llf 合成,见「快捷键」一节)----------
   const KEY_LABEL = { escape: 'Esc', enter: '⏎', backspace: '⌫', arrowleft: '←', arrowright: '→', arrowup: '↑', arrowdown: '↓', space: '空格', ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift' };
@@ -3655,7 +4615,7 @@ import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '
         + '</div>';
     }
     html += `<div class="grp"><b>鼠标</b>`
-      + [['单击', '选中(回显成 select)'], ['双击', '容器就地展开 / 收起,文件进编辑'], ['滚轮', '缩放:放大进入空间,缩小回到外层'], ['拖动', '平移镜头;拖节点 = 给它一个拉力'], ['拖侧栏左边', '调整侧栏宽度']]
+      + [['单击', '选中(回显成 select)'], ['双击', '按节点种类执行命令(容器就地展开、文件打开、图片全屏;设置 → 快捷键 → 双击)'], ['滚轮', '缩放:放大进入空间,缩小回到外层'], ['拖动', '平移镜头;拖节点 = 给它一个拉力'], ['拖侧栏左边', '调整侧栏宽度']]
         .map(([k, t]) => `<div class="k"><span>${k}</span><span>${t}</span></div>`).join('') + '</div></div>';
     $('keys').innerHTML = html;
   }

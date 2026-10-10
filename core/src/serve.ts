@@ -12,11 +12,12 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch, writ
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { stripTypeScriptTypes } from 'node:module';
 import { homedir } from 'node:os';
-import { basename, dirname, extname, join, resolve } from 'node:path';
+import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { invalidateSignals, loadSignals, type LiveSignals } from './activity.ts';
+import { bridgeInject, bridgeNonceOk, bridgeShim } from './bridge.ts';
 import { configDir, isConfigName, pageConfig, readUserConfig, registerServer, unregisterServer, writeUserConfig } from './config.ts';
-import { FileConflict, IMAGE_TYPES, readProjectFile, resolveInside, writeProjectFile } from './files.ts';
+import { FileConflict, IMAGE_TYPES, PREVIEW_TYPES, patchProjectFile, readProjectFile, resolveInside, writeProjectFile } from './files.ts';
 import { diffUniverses, gitFirstParent, gitHistory, gitParentSnapshot, gitSnapshot, gitTreeUniverse, type HistoryScope } from './history.ts';
 import { lint } from './lint.ts';
 import { StarsError, type Universe } from './model.ts';
@@ -30,7 +31,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const viewerDir = resolve(here, '..', 'viewer');
 
 /** 浏览器能直接 import 的共享模块(都不依赖 Node)。 */
-const SHARED = new Set(['model', 'view', 'expr', 'ops', 'proposals', 'query', 'llf']);
+const SHARED = new Set(['model', 'view', 'expr', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync', 'bridge', 'cmdline', 'jsonc', 'toml']);
 
 function sharedModule(name: string): string {
   const ts = readFileSync(resolve(here, `${name}.ts`), 'utf8');
@@ -216,6 +217,8 @@ export interface ServerOptions {
 
 export interface ServerHandle {
   token: string;
+  /** 只用于 /preview 的 token:预览页能从自己的地址读到它,所以它什么也写不了 */
+  previewToken: string;
   close: () => void;
   /** 下面三个作用于启动时的主项目(其它项目在服务内部各自管理) */
   pushLive: (live: LiveSignals) => void;
@@ -230,6 +233,7 @@ export function startServer(
   extraHosts: string[] = [], options: ServerOptions = {},
 ): ServerHandle {
   const token = randomBytes(16).toString('hex');
+  const previewToken = randomBytes(16).toString('hex');
   process.removeAllListeners('warning'); // stripTypeScriptTypes 的实验性提示对用户是噪音
   const genesis = readFileSync(resolve(here, '..', 'genesis.stars'), 'utf8');
 
@@ -309,8 +313,9 @@ export function startServer(
     if (tok !== token) return json(res, 403, { error: '缺少或错误的 token' });
     const origin = req.headers.origin;
     if (origin) { // 同源,或来自明确信任的主机名(反向代理时 Origin 是代理的域名)
-      const o = new URL(origin);
-      if (o.host !== req.headers.host && !allowedHosts.has(o.hostname)) return json(res, 403, { error: '跨源请求被拒绝' });
+      let o: URL | null = null;
+      try { o = new URL(origin); } catch { /* Origin: null(沙箱里的预览页、file://)解析不了,一样算跨源 */ }
+      if (!o || (o.host !== req.headers.host && !allowedHosts.has(o.hostname))) return json(res, 403, { error: '跨源请求被拒绝' });
     }
     try {
       const proj = projectOf(url);
@@ -322,7 +327,7 @@ export function startServer(
       }
       if (req.method === 'GET' && url.pathname === '/api/config') {
         const name = url.searchParams.get('name');
-        if (!isConfigName(name)) return json(res, 400, { error: '需要 name(settings / keys)' });
+        if (!isConfigName(name)) return json(res, 400, { error: '需要 name(settings / keys / grants)' });
         return json(res, 200, readUserConfig(name));
       }
       if (req.method === 'GET' && url.pathname === '/api/ls') {
@@ -337,7 +342,7 @@ export function startServer(
       const self = selfRel(proj.baseDir, proj.store.file);
       if (req.method === 'GET' && url.pathname === '/api/file') {
         const head = Number(url.searchParams.get('head')) || undefined;
-        return json(res, 200, readProjectFile(proj.baseDir, url.searchParams.get('path') ?? '', { self, statOnly: url.searchParams.has('stat'), head }));
+        return json(res, 200, readProjectFile(proj.baseDir, url.searchParams.get('path') ?? '', { self, statOnly: url.searchParams.has('stat'), head, since: url.searchParams.get('since') ?? undefined }));
       }
       if (req.method === 'GET' && url.pathname === '/api/raw') { // 图片预览
         const abs = resolveInside(proj.baseDir, url.searchParams.get('path') ?? '');
@@ -369,17 +374,25 @@ export function startServer(
       }
       if (req.method === 'POST') {
         if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return json(res, 415, { error: '需要 application/json' });
-        const body = JSON.parse(await readBody(req, url.pathname === '/api/file' ? 8 << 20 : 1 << 20) || '{}') as {
+        const body = JSON.parse(await readBody(req, url.pathname === '/api/file' || url.pathname === '/api/ui-result' ? 8 << 20 : 1 << 20) || '{}') as {
           op?: Op; author?: string; dir?: string; create?: boolean; path?: string; content?: string; mtime?: number | null;
           name?: string; line?: string; file?: string; from?: string; id?: string; wait?: number;
+          patch?: { start: number; end: number; insert: string }; baseHash?: string;
         };
         if (url.pathname === '/api/file') {
-          if (typeof body.path !== 'string' || typeof body.content !== 'string') return json(res, 400, { error: '需要 path 与 content' });
-          try { return json(res, 200, writeProjectFile(proj.baseDir, body.path, body.content, typeof body.mtime === 'number' ? body.mtime : null, { self })); }
-          catch (err) { if (err instanceof FileConflict) return json(res, 409, { error: err.message, mtime: err.mtime }); throw err; }
+          // 两种写法:{ path, patch: { start, end, insert }, baseHash }(只传改动的一段)或 { path, content, mtime }(整份;mtime: null = 覆盖)
+          if (typeof body.path !== 'string' || (typeof body.content !== 'string' && !(body.patch && typeof body.baseHash === 'string'))) return json(res, 400, { error: '需要 path,以及 content 或 patch + baseHash' });
+          try {
+            if (body.patch) return json(res, 200, patchProjectFile(proj.baseDir, body.path, body.patch, body.baseHash!, { self }));
+            return json(res, 200, writeProjectFile(proj.baseDir, body.path, body.content!, typeof body.mtime === 'number' ? body.mtime : null, { self }));
+          } catch (err) {
+            if (err instanceof FileConflict) return json(res, 409, { error: err.message, mtime: err.mtime });
+            if (err instanceof RangeError) return json(res, 400, { error: err.message });
+            throw err;
+          }
         }
         if (url.pathname === '/api/config') {
-          if (!isConfigName(body.name) || typeof body.content !== 'string') return json(res, 400, { error: '需要 name(settings / keys)与 content' });
+          if (!isConfigName(body.name) || typeof body.content !== 'string') return json(res, 400, { error: '需要 name(settings / keys / grants)与 content' });
           try { return json(res, 200, writeUserConfig(body.name, body.content, typeof body.mtime === 'number' ? body.mtime : null)); }
           catch (err) { if (err instanceof FileConflict) return json(res, 409, { error: err.message, mtime: err.mtime }); throw err; }
         }
@@ -400,6 +413,15 @@ export function startServer(
         }
         if (url.pathname === '/api/ui-result') {
           if (typeof body.id === 'string') pendingUi.get(body.id)?.(body);
+          return json(res, 200, { ok: true });
+        }
+        if (url.pathname === '/api/close') {   // 关掉一个打开着的项目(不删任何文件);看着它的页面收到 closed,回到主项目
+          const p = typeof body.id === 'string' ? projects.get(body.id) : undefined;
+          if (!p) return json(res, 404, { error: '没有这个项目' });
+          if (p === main) return json(res, 400, { error: '主项目(启动服务时的那个)不能关' });
+          broadcast('closed', { id: p.id }, [p]);
+          projects.delete(p.id);
+          p.close();
           return json(res, 200, { ok: true });
         }
         if (url.pathname === '/api/open') {
@@ -433,6 +455,27 @@ export function startServer(
       req.on('close', () => proj.clients.delete(res));
       return;
     }
+    // 预览(侧栏的 HTML 预览、新标签页打开):/preview/<预览 token>/<项目 id 或 _>/<路径>。iframe 带不了请求头,token 放在路径里,
+    // 页面里的相对路径(css / js / 图片)自然落在同一个前缀下。预览 token 和 /api 的 token 是两个:页面能从自己的地址读到它,
+    // 但它只能读项目里的文件。HTML / SVG 带 CSP sandbox:就算在新标签页里直接打开也是不同源的,碰不到查看器;
+    // 允许跨源读(预览里的脚本 fetch 同目录的 json)。?bridge=<暗号>:往 HTML 里注入 window.stars(页面桥,见 bridge.ts)。
+    const pv = /^\/preview\/([0-9a-f]+)\/([0-9a-f]+|_)\/(.*)$/.exec(path);
+    if (pv) {
+      const proj = pv[2] === '_' ? main : projects.get(pv[2]!);
+      if (pv[1] !== previewToken) { res.writeHead(403).end('forbidden'); return; }
+      if (!proj) { res.writeHead(404).end('没有这个项目'); return; }
+      try {
+        let abs = resolveInside(proj.baseDir, decodeURIComponent(pv[3]!));
+        if (/(^|[\\/])\.git([\\/]|$)/.test(relative(proj.baseDir, abs))) throw new StarsError('.git 不提供');
+        if (statSync(abs).isDirectory()) abs = join(abs, 'index.html');
+        const type = PREVIEW_TYPES[extname(abs).toLowerCase()] ?? 'application/octet-stream';
+        const headers: Record<string, string> = { 'content-type': type, 'cache-control': 'no-cache', 'access-control-allow-origin': '*', 'x-content-type-options': 'nosniff' };
+        if (/html|svg|xml/.test(type)) headers['content-security-policy'] = 'sandbox allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox';
+        const body = readFileSync(abs), nonce = url.searchParams.get('bridge');
+        res.writeHead(200, headers).end(type.startsWith('text/html') && bridgeNonceOk(nonce) ? bridgeInject(body.toString('utf8'), bridgeShim(nonce)) : body);
+      } catch { res.writeHead(404).end('not found'); }
+      return;
+    }
     const mod = /^\/core\/(\w+)\.js$/.exec(path);
     if (mod && SHARED.has(mod[1]!)) {
       res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-cache' });
@@ -440,7 +483,7 @@ export function startServer(
       return;
     }
     if (path === '/') {
-      const html = readFileSync(resolve(viewerDir, 'index.html'), 'utf8').replace('__STARS_TOKEN__', token)
+      const html = readFileSync(resolve(viewerDir, 'index.html'), 'utf8').replace('__STARS_TOKEN__', token).replace('__STARS_PREVIEW__', previewToken)
         .replace('__STARS_CONFIG__', () => pageConfig(true));
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
       res.end(html);
@@ -472,6 +515,7 @@ export function startServer(
   });
   return {
     token,
+    previewToken,
     close: () => {
       clearInterval(keepalive); cfgWatcher?.close();
       onExit(); process.off('exit', onExit);

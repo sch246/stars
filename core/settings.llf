@@ -68,6 +68,20 @@ volume {}
   # 体积上限
   # 真实体积映射后最大节点的半径
   volMax !range(1,80,0.5) - 16
+# 文件预览
+preview {}
+  # Markdown 渲染 HTML
+  # 新打开的 Markdown 预览默认把里面的原始 HTML 也渲染出来(先清理掉脚本、iframe、事件属性等);每个预览上还能单独开关
+  mdHtml !bool - true
+  # HTML 允许脚本
+  # 新打开的 HTML 预览默认运行 JavaScript(在沙箱里,碰不到查看器本身);每个预览上还能单独开关
+  htmlScripts !bool - false
+  # HTML 实时预览
+  # 新打开的 HTML 预览默认跟着编辑器里还没保存的改动走(像 VS Code 的 Live Preview);关掉则只显示保存了的版本
+  htmlLive !bool - true
+  # 页面连接
+  # 开了脚本的 HTML 预览默认能通过 window.stars 调哪些命令:读(查询、快照、订阅变化)/ 界面(再加选中、镜头、视图)/ 提议(再加写,但都是待确认)/ 写。每个页面还能在预览栏上单独选,记在 ~/.config/stars/grants.llf
+  pageBridge !choice(off=关,read=读,ui=界面,propose=提议,write=写) - read
 # 高级
 advanced !folded {}
   # 间隙 px

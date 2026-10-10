@@ -49,6 +49,9 @@ test('服务端:没有 token / 主机头不对 / 跨源 一律拒绝;带 token �
     assert.equal(await raw(port, '/api/op', { host: `127.0.0.1:${port}`, origin: 'http://evil.example', 'x-stars-token': srv.token, 'content-type': 'application/json' },
       'POST', JSON.stringify({ op: { op: 'addNode', id: 'y', label: 'y' } })), 403, '跨源');
     assert.ok(!parse(readFileSync(store.file, 'utf8')).nodes.has('y'), '被拒绝的写入没有落盘');
+    // 沙箱里的预览页发出的请求带 Origin: null;/api/raw 的 token 能放在查询参数里,所以连预检都没有
+    assert.equal(await raw(port, `/api/raw?t=${srv.token}&path=universe.stars`, { host: `127.0.0.1:${port}`, origin: 'null' }), 403, 'Origin: null 也是跨源');
+    assert.equal((await fetch(`${base}/`)).status, 200, '服务器还活着');
     const ok = await post({ op: { op: 'addNode', id: 'x', label: 'X' }, author: 'tester' }, { 'x-stars-token': srv.token });
     assert.equal(ok.status, 200);
     assert.ok(parse(readFileSync(store.file, 'utf8')).nodes.has('x'));
@@ -231,6 +234,24 @@ test('多项目:列目录、打开已有宇宙、在空目录建立宇宙;事件
     const projects = (await get('/api/projects')).body;
     assert.equal(projects.open.length, 3);
     assert.equal(projects.main, snapA.project.id);
+
+    // 关项目:看着它的页面收到 closed;主项目不能关;不删任何文件,以后还能再打开
+    const events: string[] = [];
+    const ctl = new AbortController();
+    void fetch(`${base}/events?p=${pc.body.id}`, { signal: ctl.signal }).then(async (res) => {
+      const reader = res.body!.getReader(), dec = new TextDecoder();
+      for (;;) { const { value, done } = await reader.read(); if (done) break; events.push(dec.decode(value)); }
+    }).catch(() => {});
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal((await post('/api/close', { id: pc.body.id })).status, 200);
+    await new Promise((r) => setTimeout(r, 100));
+    ctl.abort();
+    assert.ok(events.join('').includes(`event: closed\ndata: {"id":"${pc.body.id}"}`), '看着它的页面收到 closed');
+    assert.equal((await get('/api/projects')).body.open.length, 2);
+    assert.ok(existsSync(join(c, 'universe.stars')), '不删文件');
+    assert.equal((await post('/api/close', { id: snapA.project.id })).status, 400, '主项目不能关');
+    assert.equal((await post('/api/close', { id: 'nope' })).status, 404);
+    assert.equal((await post('/api/open', { dir: c })).status, 200, '关了以后还能再打开');
   } finally { srv.close(); }
 });
 
@@ -282,6 +303,41 @@ test('文件:在查看器里读写项目文件 —— 出不了项目目录、�
     const w = await get('/api/file?path=win.txt');
     await save({ path: 'win.txt', content: w.body.content.replace(/\r\n/g, '\n').replace('l2', 'L2'), mtime: w.body.mtime });
     assert.equal(readFileSync(join(dir, 'win.txt'), 'utf8'), 'l1\r\nL2\r\n', 'CRLF 文件保存后仍是 CRLF');
+    // 增量保存:只传改动的一段 + 基线哈希;CRLF 文件拼完仍是 CRLF;基线不对 → 409,文件不动;补丁越界 → 400
+    const { textDiff, textHash } = await import('../src/textsync.ts');
+    const winBase = 'l1\nL2\n', winNext = 'l1\nL2 改\nl3\n';
+    const pr = await save({ path: 'win.txt', patch: textDiff(winBase, winNext), baseHash: textHash(winBase) });
+    assert.equal(pr.status, 200);
+    assert.equal(readFileSync(join(dir, 'win.txt'), 'utf8'), 'l1\r\nL2 改\r\nl3\r\n', '补丁拼进去,CRLF 还原');
+    assert.equal(pr.body.hash, textHash(winNext), '返回新内容的哈希');
+    const stale = await save({ path: 'win.txt', patch: textDiff(winBase, 'x'), baseHash: textHash(winBase) });
+    assert.equal(stale.status, 409, '基线已经不是磁盘上那一版');
+    assert.equal(readFileSync(join(dir, 'win.txt'), 'utf8'), 'l1\r\nL2 改\r\nl3\r\n');
+    assert.equal((await save({ path: 'win.txt', patch: { start: 3, end: 999, insert: '' }, baseHash: textHash(winNext) })).status, 400);
+    // 增量重新载入:带着手上那一版的哈希(since)来要,服务端记得那一版就只回改动的一段;CRLF 按折成 LF 之后算
+    const r0 = await get('/api/file?path=win.txt&since=' + textHash(winNext));
+    assert.deepEqual([r0.body.content, r0.body.patch, r0.body.hash], [undefined, { start: winNext.length, end: winNext.length, insert: '' }, textHash(winNext)], '没变:空补丁');
+    writeFileSync(join(dir, 'win.txt'), 'l1\r\nL2 改了\r\nl3\r\n');
+    const r1 = await get('/api/file?path=win.txt&since=' + textHash(winNext));
+    assert.deepEqual(r1.body.patch, { start: 7, end: 7, insert: '了' }, '别处改了:只回改动');
+    assert.equal(r1.body.hash, textHash('l1\nL2 改了\nl3\n'));
+    assert.equal((await get('/api/file?path=win.txt&since=' + textHash('从没见过的版本'))).body.content, 'l1\r\nL2 改了\r\nl3\r\n', '不记得那一版:回整份');
+    const big = Array.from({ length: 5000 }, (_, i) => `line ${i}`).join('\n') + '\n';
+    writeFileSync(join(dir, 'big.txt'), big);
+    assert.equal((await get('/api/file?path=big.txt')).body.content, big);
+    writeFileSync(join(dir, 'big.txt'), big.replace('line 2500\n', 'line 2500 改\n'));
+    const rb = await fetch(`${base}/api/file?path=big.txt&since=${encodeURIComponent(textHash(big))}`, { headers: h });
+    const rbText = await rb.text();
+    assert.ok(rbText.length < 400 && big.length > 40000, `${big.length} 字节的文件改一处,回的只有 ${rbText.length} 字节`);
+    assert.equal((await get('/api/file?path=big.txt&head=100&since=' + textHash(big))).body.partial, true, '只要开头时不管 since');
+    writeFileSync(join(dir, 'win.txt'), 'l1\r\nL2\r\n');
+    // 内容和磁盘上一样(查看器里的文本框把 CRLF 折成了 LF 也算一样):不写、不改修改时间,也不算冲突
+    const before = statSync(join(dir, 'win.txt')).mtimeMs;
+    await new Promise((r) => setTimeout(r, 20));
+    const same = await save({ path: 'win.txt', content: 'l1\nL2\n', mtime: 1 });
+    assert.equal(same.status, 200, '内容没变时旧的修改时间也不算冲突');
+    assert.equal(same.body.unchanged, true);
+    assert.equal(statSync(join(dir, 'win.txt')).mtimeMs, before, '没有碰文件');
 
     assert.equal((await fetch(`${base}/api/raw?path=pic.png`)).status, 403, 'raw 也要 token');
     const img = await fetch(`${base}/api/raw?path=pic.png&t=${srv.token}`);
@@ -333,7 +389,7 @@ test('共享模块:浏览器拿到的 /core/*.js 去掉了类型、能直接 imp
   await new Promise((r) => setTimeout(r, 150));
   const out = mkdtempSync(join(tmpdir(), 'stars-js-'));
   try {
-    for (const name of ['model', 'expr', 'view', 'ops', 'proposals', 'query', 'llf']) {
+    for (const name of ['model', 'expr', 'view', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync', 'bridge', 'cmdline', 'jsonc', 'toml']) {
       const r = await fetch(`http://127.0.0.1:${port}/core/${name}.js`);
       assert.equal(r.status, 200, name);
       const js = await r.text();
@@ -345,6 +401,8 @@ test('共享模块:浏览器拿到的 /core/*.js 去掉了类型、能直接 imp
     assert.deepEqual(llf.llfToJson(llf.llfParse('a !color - #fff\n--LLF-END\n', { tags: true })), { a: { $tag: 'color', $value: '#fff' } });
     const q = await import(pathToFileURL(join(out, 'query.js')).href);
     assert.equal(typeof q.shortestPath, 'function');
+    const fmt = await import(pathToFileURL(join(out, 'format.js')).href);
+    assert.equal(fmt.parse(genesis).nodes.size > 0, true, '浏览器里也能解析宇宙文件(侧栏的宇宙概况)');
   } finally { srv.close(); }
   // 静态导出:内核模块去掉 import/export 后拼进查看器的模块脚本;名字撞了或语法坏了这里会报
   const html = exportHtml(store, dir);
@@ -429,7 +487,7 @@ test('遥控:stars ui 找到正在运行的服务,命令推给页面执行,页�
       if (e !== 'ui') return;
       const m = d as { id: string; line: string; from: string };
       got.push(`${m.line} ← ${m.from}`);
-      const result = m.line === 'nope' ? { ok: false, error: '没有这个命令:nope' } : { ok: true, out: `做了 ${m.line}` };
+      const result = m.line === 'nope' ? { ok: false, error: '没有这个命令:nope' } : m.line === 'select q' ? { ok: true, out: '选中 q', data: { id: 'q' } } : { ok: true, out: `做了 ${m.line}` };
       void fetch(`http://127.0.0.1:${port}/api/ui-result`, { method: 'POST', headers: { 'x-stars-token': srv.token, 'content-type': 'application/json' }, body: JSON.stringify({ id: m.id, ...result }) });
     });
     await new Promise((r) => setTimeout(r, 100));
@@ -439,6 +497,17 @@ test('遥控:stars ui 找到正在运行的服务,命令推给页面执行,页�
       const bad = await cli('nope');
       assert.equal(bad.code, 1); assert.match(bad.err, /没有这个命令/);
       assert.deepEqual(got, ['select "a b" ← human', 'nope ← human']);
+      // --json:一行一个 { ok, out, data }
+      const j = await cli('--json', 'select', 'q');
+      assert.deepEqual(JSON.parse(j.out), { ok: true, out: '选中 q', data: { id: 'q' } });
+      // 脚本里的界面命令(不是内核命令)也转给页面
+      writeFileSync(join(dir, 's.mjs'), "export default async (stars) => (await stars.exec('fit')).out + ' / ' + (await stars.cmd.select('q')).data.id;\n");
+      const r = await new Promise<{ code: number | null; out: string; err: string }>((ok) => {
+        execFile(process.execPath, [new URL('../src/cli.ts', import.meta.url).pathname, '-f', file, 'run', join(dir, 's.mjs')], { env: process.env, cwd: dir }, (e, out, err) => ok({ code: e ? (e as { code?: number }).code ?? 1 : 0, out, err }));
+      });
+      assert.equal(r.code, 0, r.err);
+      assert.equal(r.out.trim(), '做了 fit / q');
+      assert.deepEqual(got.slice(-2), ['fit ← script:s.mjs', 'select q ← script:s.mjs'], '作者默认是 script:<相对路径>');
     } finally { stop(); }
   } finally { srv.close(); }
   assert.ok(!existsSync(reg), '关掉服务后登记删除');

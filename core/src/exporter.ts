@@ -24,12 +24,13 @@ export function exportHtml(store: Store, baseDir: string): string {
   process.removeAllListeners('warning'); // stripTypeScriptTypes 的实验性提示对用户是噪音
   let html = readFileSync(resolve(here, '..', 'viewer', 'index.html'), 'utf8');
   const d3 = readFileSync(resolve(here, '..', 'viewer', 'd3.v7.min.js'), 'utf8');
-  const kernel = ['model', 'expr', 'view', 'ops', 'proposals', 'query', 'llf'].map(inline).join('\n');
+  const kernel = ['model', 'expr', 'view', 'ops', 'proposals', 'query', 'llf', 'format', 'textsync', 'bridge', 'cmdline', 'jsonc', 'toml'].map(inline).join('\n');
   // 只带项目名,不带本机路径(导出的文件常会发给别人)
   const project = { id: 'static', name: basename(resolve(baseDir)), dir: '静态导出 · 只读', file: basename(store.file), primary: true };
   const snapshot = JSON.stringify({ ...buildSnapshot(store, baseDir), project });
   html = html
     .replace('<meta name="stars-token" content="__STARS_TOKEN__">', '')
+    .replace('<meta name="stars-preview" content="__STARS_PREVIEW__">', '')
     .replace('<script src="/d3.js"></script>', () => `<script>${safe(d3)}</script>`)
     .replace('__STARS_CONFIG__', () => pageConfig(false))   // 只带默认值;个人设置存在看的人的浏览器里
     .replace(/^import \{[^}]*\} from '\/core\/\w+\.js';\n/gm, '')
