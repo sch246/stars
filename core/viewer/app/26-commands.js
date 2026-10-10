@@ -65,7 +65,8 @@ function exec(line, src = 'console', report = null, from = '', level = 'off') {
   if (!typed && src !== 'remote' && !page) conLog(line, 'echo');
   const show = (v) => {
     const out = typeof v === 'string' ? v : v && typeof v.out === 'string' ? v.out : '';
-    if (out && !page) { conLog(out); if ($('console').hidden && src !== 'remote') toggleConsole(true); }   // 有输出就把控制台拉出来(遥控的输出交回 CLI,页面的交回页面,不打扰)
+    // 有输出就把控制台拉出来(遥控的输出交回 CLI,页面的交回页面,不打扰);界面上点出来的写入只记一行,不拉出来(画面上已经看得到结果)
+    if (out && !page) { conLog(out); if ($('console').hidden && src !== 'remote' && !(spec.effect === 'write' && !typed)) toggleConsole(true); }
     if (report) report({ ok: true, out, data: v && typeof v === 'object' && 'data' in v ? v.data : undefined });
   };
   if (r && typeof r.then === 'function') r.then(show, fail); else show(r);

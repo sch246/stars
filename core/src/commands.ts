@@ -59,6 +59,9 @@ export const CLI_OPTIONS = {
   'no-agent': { type: 'boolean' },
   reverse: { type: 'boolean' },
   top: { type: 'boolean' },
+  'node-only': { type: 'boolean' },
+  force: { type: 'boolean' },
+  name: { type: 'string' },
   rel: { type: 'string' },
   help: { type: 'boolean', short: 'h' },
 } as const satisfies ParseArgsConfig['options'];
@@ -71,7 +74,7 @@ export type CliOpts = {
 export interface KernelCtx { store: Store; author: string; /** 项目根目录(体检查文件、扫描、信号) */ root: string }
 export interface CmdOut { out: string; data?: unknown; exitCode?: number }
 
-export const KERNEL_COMMANDS = new Set(['add', 'set', 'rm', 'mv', 'cp', 'ln', 'link', 'unlink', 'relink', 'accept', 'stamp', 'scan', 'undo', 'ls', 'show', 'nb', 'path', 'lint', 'stale', 'log', 'views', 'view', 'view-set', 'fn-set', 'query', 'query-set', 'queries', 'draft', 'types', 'type-set', 'rule-set', 'rules', 'script-set', 'scripts']);
+export const KERNEL_COMMANDS = new Set(['add', 'set', 'rm', 'mv', 'cp', 'ln', 'group', 'ungroup', 'link', 'unlink', 'relink', 'accept', 'stamp', 'scan', 'undo', 'ls', 'show', 'nb', 'path', 'lint', 'stale', 'log', 'views', 'view', 'view-set', 'fn-set', 'query', 'query-set', 'queries', 'draft', 'types', 'type-set', 'rule-set', 'rules', 'script-set', 'scripts']);
 
 function kv(list: string[] | undefined): Attrs {
   const attrs: Attrs = {};
@@ -149,10 +152,14 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
     case 'set':
       need(1, 'set <id> [-l 标签] [-a k=v] [--unset k]');
       return wrote(described({ op: 'setNode', id: args[0]!, label: o.label, set: nodeAttrs(), unset: o.unset }), `~ ${args[0]}`);
-    case 'rm': {
-      need(1, 'rm <id> ...');
-      const ids = [...new Set(args)], ops = ids.map((id): Op => ({ op: 'removeNode', id }));
-      return wrote(ops.length === 1 ? ops[0]! : { op: 'batch', ops }, ids.length === 1 ? `- ${ids[0]}` : `- ${ids.length} 个节点`);
+    case 'rm': {   // 文件 / 文件夹节点连文件一起挪进回收站(撤销时搬回来);--node-only 只删节点
+      need(1, 'rm <id> ... [--node-only]');
+      const ids = [...new Set(args)];
+      const r = arrange(store, ctx.root, 'delete', ids, null, { nodeOnly: !!o['node-only'] }, ctx.author);
+      const e = r.entry;
+      if (!e) return { out: '没有要删的' };
+      const note = ids.length === 1 && !r.plan.fs.length ? `- ${ids[0]}` : r.plan.summary;
+      return e.draft ? { out: `${note}   (草稿 #${e.draft})`, data: { draft: e.draft } } : { out: note, data: { n: e.n, fs: r.plan.fs } };
     }
     case 'link': {
       need(3, 'link <from> <type> <to>');
@@ -173,6 +180,24 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
       if (!r.entry) return { out: `没有要改的(${r.plan.skipped.length ? '已经在那里了' : '空'})`, data: { result: r.plan.result } };
       const e = r.entry, fsNote = r.plan.fs.length ? `\n${r.plan.fs.map((a) => `  ${a.act === 'move' ? '搬' : '复制'} ${a.from} → ${a.to}`).join('\n')}` : '';
       return { out: `${r.plan.summary}${fsNote}`, data: { n: e.n, result: r.plan.result, fs: r.plan.fs } };
+    }
+    case 'group': {   // 打包同一层的几个进一个新域(在文件夹里 = 新文件夹,文件真的搬进去);不给 id = 在 --from 里新建一个空域
+      const from = o.from === undefined ? null : o.from === '-' ? null : o.from;
+      const r = arrange(store, ctx.root, 'group', args, from, { name: o.name ?? o.label, type: o.type, inferParent: o.from === undefined, rel: o.rel }, ctx.author);
+      if (!r.entry) return { out: '没有要改的' };
+      return { out: r.plan.summary + (r.plan.fs.length ? `\n${r.plan.fs.map((a) => `  ${a.act === 'mkdir' ? '新建' : '搬'} ${a.act === 'mkdir' ? a.to : `${a.from} → ${a.to}`}`).join('\n')}` : ''), data: { n: r.entry.n, result: r.plan.result } };
+    }
+    case 'ungroup': {   // 解散一个域:里面的放回上一层;有冲突(重名、磁盘上图里没有的文件、会丢掉的说明 / 关系)就报出来不做,--force 照做会丢的
+      need(1, 'ungroup <域> [--force] [--from 上一层]');
+      const from = o.from === undefined ? null : o.from === '-' ? null : o.from;
+      const r = arrange(store, ctx.root, 'ungroup', [args[0]!], from, { force: !!o.force, inferParent: o.from === undefined, rel: o.rel }, ctx.author);
+      const cf = r.plan.conflicts;
+      if (cf && (cf.hard.length || cf.soft.length)) {
+        const lines = [...cf.hard.map((x) => `  ✗ ${x}`), ...cf.soft.map((x) => `  ! ${x}`)];
+        return { out: `解散不了「${args[0]}」:\n${lines.join('\n')}${!cf.hard.length ? '\n(只是会丢东西:确定的话加 --force)' : ''}`, data: { conflicts: cf }, exitCode: 1 };
+      }
+      if (!r.entry) return { out: '没有要改的' };
+      return { out: r.plan.summary, data: { n: r.entry.n, result: r.plan.result } };
     }
     case 'relink': {   // 换类型 / 反向:属性跟着走,一步撤回
       need(3, 'relink <from> <type> <to> [--type 新类型] [--reverse]');

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -135,4 +135,68 @@ test('外面来的文件:存进文件夹(不覆盖、空白换成 -),概念也�
   undoWithFs(store, dir, 't');
   assert.ok(!existsSync(join(dir, 'docs/my-note.txt')));
   assert.throws(() => saveUploads(store, dir, 'x', [{ name: 'a', data: Buffer.from('') }], {}, 't'), /不是文件夹/);
+});
+
+test('删除:文件 / 文件夹挪进回收站,撤销搬回来、关系都回来;--node-only 只删节点;回收站不进扫描', () => {
+  const { dir, store } = project();
+  const r = arrange(store, dir, 'delete', ['src/', 'src/a.ts', 'x'], null, {}, 't');
+  assert.equal(r.plan.fs.length, 1, '文件夹里的文件跟着文件夹挪,不单独挪');
+  assert.match(r.plan.fs[0]!.to, /^\.stars-trash\/.+\/src\/$/);
+  assert.ok(!existsSync(join(dir, 'src')) && existsSync(join(dir, r.plan.fs[0]!.to, 'a.ts')));
+  const u = store.load();
+  assert.ok(!u.nodes.has('src/') && !u.nodes.has('src/a.ts') && !u.nodes.has('src/b.ts') && !u.nodes.has('x'));
+  assert.ok(u.nodes.has('y'), '概念里的东西不跟着删');
+  assert.deepEqual(listFiles(dir, 'universe.stars').filter((f) => f.includes('stars-trash')), [], '回收站不进扫描');
+  undoWithFs(store, dir, 't');
+  assert.ok(existsSync(join(dir, 'src/a.ts')));
+  assert.ok(has(store, 'src/b.ts', 'dependsOn', 'src/a.ts') && has(store, 'ideas', 'contains', 'src/a.ts') && has(store, 'x', 'contains', 'y'), '关系都回来了');
+  const k = runKernel('rm', ['docs/r.md', '--node-only'].slice(0, 1), { 'node-only': true } as never, { store, author: 't', root: dir });
+  assert.match(k.out, /- docs\/r\.md/);
+  assert.ok(existsSync(join(dir, 'docs/r.md')) && !store.load().nodes.has('docs/r.md'));
+  assert.throws(() => planArrange(store.load(), 'delete', ['repo'], null), /根目录/);
+});
+
+test('打包 / 解散:文件夹里打包 = 真的新建文件夹;概念里 = 概念域;解散有冲突先报出来', () => {
+  const { dir, store } = project();
+  const g = arrange(store, dir, 'group', ['src/a.ts', 'src/b.ts'], null, { name: 'lib', inferParent: true }, 't');
+  assert.deepEqual(g.plan.result, ['src/lib/']);
+  assert.ok(existsSync(join(dir, 'src/lib/a.ts')) && !existsSync(join(dir, 'src/a.ts')));
+  assert.ok(has(store, 'src/', 'contains', 'src/lib/') && has(store, 'src/lib/', 'contains', 'src/lib/a.ts'));
+  assert.ok(has(store, 'src/lib/b.ts', 'dependsOn', 'src/lib/a.ts') && has(store, 'ideas', 'contains', 'src/lib/a.ts'), '关系跟着走');
+  undoWithFs(store, dir, 't');
+  assert.ok(existsSync(join(dir, 'src/a.ts')) && !existsSync(join(dir, 'src/lib')), '撤销:文件回去,文件夹删掉');
+  // 不同层的不能打包;空的 = 新建一个空域(在文件夹里就是空文件夹)
+  assert.throws(() => planArrange(store.load(), 'group', ['src/a.ts', 'docs/r.md'], null, { inferParent: true }), /同一层/);
+  const e = arrange(store, dir, 'group', [], 'docs/', { name: '草稿 箱' }, 't');
+  assert.deepEqual(e.plan.result, ['docs/草稿-箱/']);
+  assert.ok(existsSync(join(dir, 'docs/草稿-箱')));
+  // 概念:打包成概念域
+  const c = arrange(store, dir, 'group', ['x'], 'ideas', { name: '一组' }, 't');
+  assert.deepEqual(c.plan.result, ['一组']);
+  assert.ok(has(store, 'ideas', 'contains', '一组') && has(store, '一组', 'contains', 'x') && !has(store, 'ideas', 'contains', 'x'));
+  // 解散概念域:放回上一层
+  const u1 = arrange(store, dir, 'ungroup', ['一组'], null, { inferParent: true }, 't');
+  assert.ok(u1.entry && has(store, 'ideas', 'contains', 'x') && !store.load().nodes.has('一组'));
+  // 解散文件夹:有图里没有的文件 → 冲突,什么都不做
+  arrange(store, dir, 'group', ['src/a.ts'], 'src/', { name: 'lib' }, 't');
+  writeFileSync(join(dir, 'src/lib/notes.txt'), 'x');
+  const u2 = arrange(store, dir, 'ungroup', ['src/lib/'], null, {}, 't');
+  assert.equal(u2.entry, null);
+  assert.match(u2.plan.conflicts!.hard.join(), /图里没有的 notes\.txt/);
+  assert.ok(existsSync(join(dir, 'src/lib/a.ts')));
+  // 重名 → 冲突
+  writeFileSync(join(dir, 'src/a.ts'), 'other');
+  store.commit({ op: 'addNode', id: 'src/a.ts', label: 'a.ts', attrs: { type: 'file', file: 'src/a.ts' } }, { author: 't' });
+  rmSync(join(dir, 'src/lib/notes.txt'));
+  const u3 = arrange(store, dir, 'ungroup', ['src/lib/'], null, {}, 't');
+  assert.match(u3.plan.conflicts!.hard.join(), /已经有 a\.ts/);
+  // 域自己有说明 = 会丢东西:要 force
+  store.commit({ op: 'removeNode', id: 'src/a.ts' }, { author: 't' }); rmSync(join(dir, 'src/a.ts'));
+  store.commit({ op: 'setNode', id: 'src/lib/', set: { summary: '库' } }, { author: 't' });
+  const u4 = arrange(store, dir, 'ungroup', ['src/lib/'], null, {}, 't');
+  assert.match(u4.plan.conflicts!.soft.join(), /说明会丢掉/);
+  const u5 = arrange(store, dir, 'ungroup', ['src/lib/'], null, { force: true }, 't');
+  assert.ok(u5.entry && existsSync(join(dir, 'src/a.ts')) && !existsSync(join(dir, 'src/lib')));
+  undoWithFs(store, dir, 't');
+  assert.ok(existsSync(join(dir, 'src/lib/a.ts')) && store.load().nodes.get('src/lib/')!.attrs.summary === '库', '撤销解散:文件夹和说明都回来');
 });

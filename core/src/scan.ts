@@ -12,7 +12,7 @@ import { type Op } from './ops.ts';
  * 宇宙文件本身由调用方指明(self,相对路径)—— 别的 .stars 文件(比如 genesis.stars)照常收录。
  */
 const STORE_AUX = /\.stars\.(log|tmp|sig|lock|draft|draft\.tmp|runs|runs\.tmp)$/;
-export const isStorage = (rel: string, self?: string): boolean => STORE_AUX.test(rel) || rel === self;
+export const isStorage = (rel: string, self?: string): boolean => STORE_AUX.test(rel) || rel === self || rel.startsWith('.stars-trash/');   // 回收站(删除的文件挪到这里,见 arrange.ts)
 /** 宇宙文件相对于被扫描目录的路径(统一用 /) */
 export const selfRel = (dir: string, file: string): string => relative(dir, file).split(sep).join('/');
 

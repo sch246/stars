@@ -152,10 +152,11 @@ overlayDrawers.push(() => {
 // ---- 右键菜单 ----
 // 各节往 menuProviders 里挂:(右键点到的节点 id 或 null, 选中的 id[]) => 菜单项[];项 = { label, cmd | run, key?, disabled? } 或 '-'
 const menuProviders = [];
-let menuEl = null;
+let menuEl = null, menuAt = [0, 0];   // 菜单弹出的位置(client 坐标;「新建节点…」就建在这里)
 function closeMenu() { if (menuEl) { menuEl.remove(); menuEl = null; } }
 function showMenu(x, y, items) {
   closeMenu();
+  menuAt = [x, y];
   if (!items.length) return;
   const el = menuEl = document.createElement('div');
   el.id = 'ctxmenu'; el.className = 'panel';

@@ -83,6 +83,7 @@ function recompute(structural = true) {
     spaceVer++;                                   // 空间按需重建,保留已有位置
     if (curSpaceId !== null && !compiled.node(curSpaceId)) curSpaceId = null;
     pruneSelection();   // 空间模式:别的空间里选中的照样留着(可以跨空间多选),只去掉已经不在的
+    for (const id of [...pendingExpand]) if (compiled.node(id)?.container) { expandedSet.add(id); pendingExpand.delete(id); savePlace(); }
     for (const id of [...expandedSet]) if (!compiled.node(id)) expandedSet.delete(id);
     scene = { look: compiled.look, nodes: [], edges: [], expand: { relation: 'contains' } };
     look = compiled.look;
@@ -123,6 +124,8 @@ function recompute(structural = true) {
   for (const n of sim.values()) {
     if (n.x !== undefined) continue;
     if (n.tx !== undefined) { n.x = n.tx; n.y = n.ty; n.vx = 0; n.vy = 0; continue; }
+    const at = spawnAt.get(n.id);
+    if (at && at.key === '*') { n.x = at.x; n.y = at.y; n.vx = 0; n.vy = 0; spawnAt.delete(n.id); continue; }   // 双击新建的:就在双击的位置
     const p = n.parent && sim.get(n.parent);
     const e = scene.edges.find((e) => (e.from === n.id && sim.get(e.to)?.x !== undefined) || (e.to === n.id && sim.get(e.from)?.x !== undefined));
     const nb = p && p.x !== undefined ? p : e ? sim.get(e.from === n.id ? e.to : e.from) : null;
