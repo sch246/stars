@@ -237,7 +237,7 @@ function edgePanel(se) {
   }
   const list = underlyingEdges(se);
   const rows = list.slice(0, 200).map((x) => `<div class="row"><span class="link" data-id="${esc(x.from)}">${lbl(x.from)}</span><span class="tag">→</span><span class="link" data-id="${esc(x.to)}">${lbl(x.to)}</span>`
-    + `<span class="mini" data-eone="${esc(JSON.stringify([x.from, x.type, x.to]))}" title="选中这条">选</span>${live ? `<span class="mini" data-erev="${esc(JSON.stringify([x.from, x.type, x.to]))}" title="反转">⇄</span><span class="mini no" data-erm="${esc(JSON.stringify([x.from, x.type, x.to]))}" title="删除">✗</span>` : ''}</div>`).join('');
+    + `<span class="mini" data-eone="${esc(JSON.stringify([x.from, x.type, x.to]))}" title="选中这条">选</span>${live ? `${isSymmetricType(x.type) ? '' : `<span class="mini" data-erev="${esc(JSON.stringify([x.from, x.type, x.to]))}" title="反转">⇄</span>`}<span class="mini no" data-erm="${esc(JSON.stringify([x.from, x.type, x.to]))}" title="删除">✗</span>` : ''}</div>`).join('');
   return `<h3><span style="color:${esc(col)}">${esc(se.type)}</span> <span class="tag">×${list.length}</span></h3>
     <div class="sub">汇总的关系:${lbl(se.from)} 里面 → ${lbl(se.to)} 里面</div>
     ${live && list.length ? `<div class="btns" style="margin:6px 0"><span class="btn" data-eact="retype-all">全部改类型…</span>${!e ? `<span class="btn" data-eact="promote" title="在两个容器之间建一条真实的边">提升为真实的边</span>` : ''}</div>` : ''}

@@ -307,7 +307,7 @@ export function planArrange(u: Universe, mode: ArrangeMode, ids: string[], targe
   }
 }
 
-/** 撤销一组磁盘动作要做的动作(倒序):搬回去;复制出来的删掉 */
+/** 撤销一组磁盘动作要做的动作(倒序):搬回去;复制 / 新建出来的删掉(撤销时 undoWithFs 把删改成挪进回收站) */
 export function arrangeRevertFs(acts: FsAct[]): FsAct[] {
   return [...acts].reverse().map((a): FsAct => (a.act === 'move' ? { act: 'move', from: a.to, to: a.from }
     : a.act === 'copy' || a.act === 'create' ? { act: 'delete', from: a.to, to: a.act === 'copy' ? a.from : a.to }

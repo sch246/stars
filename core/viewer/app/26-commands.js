@@ -160,11 +160,11 @@ defCmd('select', {
   },
 });
 defCmd('screen', {
-  group: '视图', effect: 'read', title: '画面里节点的位置(屏幕坐标,像素);给 id 只看这些。页面、脚本、测试用',
+  group: '视图', effect: 'read', title: '画面里节点的位置(屏幕坐标,像素;就地展开的容器还有第三个数:疆界的半径);给 id 只看这些。页面、脚本、测试用',
   usage: 'screen [id…]', args: [nodeArg()],
   run: (ids) => {
     const want = ids.length ? new Set(ids) : null, pos = {};
-    for (const p of screenNodes()) if (!want || want.has(p.id)) pos[p.id] = [Math.round(p.sx), Math.round(p.sy)];
+    for (const p of screenNodes()) if (!want || want.has(p.id)) pos[p.id] = p.r ? [Math.round(p.sx), Math.round(p.sy), Math.round(p.r)] : [Math.round(p.sx), Math.round(p.sy)];
     return { out: Object.entries(pos).map(([id, [x, y]]) => `${String(x).padStart(5)} ${String(y).padStart(5)}  ${id}`).join('\n') || '(都不在画面里)', data: pos };
   },
 });

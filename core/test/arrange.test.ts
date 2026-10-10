@@ -120,7 +120,7 @@ test('整理:引用 = 只加一条 contains;CLI 的 mv / cp / ln', () => {
   assert.match(k('cp', 'y', 'repo').out, /复制 1 个/);
 });
 
-test('外面来的文件:存进文件夹(不覆盖、空白换成 -),概念也装着;撤销删掉文件', () => {
+test('外面来的文件:存进文件夹(不覆盖、空白换成 -),概念也装着;撤销 = 挪进回收站', () => {
   const { dir, store } = project();
   const r = saveUploads(store, dir, 'docs/', [{ name: 'my note.txt', data: Buffer.from('hi') }, { name: 'r.md', data: Buffer.from('x') }], { container: null }, 't');
   assert.deepEqual(r.created, ['docs/my-note.txt', 'docs/r-copy.md']);
@@ -132,8 +132,12 @@ test('外面来的文件:存进文件夹(不覆盖、空白换成 -),概念也�
   assert.ok(has(store, 'repo', 'contains', 'evil.png') && has(store, 'x', 'contains', 'evil.png'));
   undoWithFs(store, dir, 't');
   assert.ok(!existsSync(join(dir, 'evil.png')) && !store.load().nodes.has('evil.png'));
-  undoWithFs(store, dir, 't');
+  writeFileSync(join(dir, 'docs/my-note.txt'), '新建之后写进去的内容');
+  const back = undoWithFs(store, dir, 't').fs!;
   assert.ok(!existsSync(join(dir, 'docs/my-note.txt')));
+  const binned = back.find((a) => a.from === 'docs/my-note.txt')!;
+  assert.match(binned.to, /^\.stars-trash\/undo-.+\/docs\/my-note\.txt$/, '撤销新建 = 挪进回收站,不是删掉');
+  assert.equal(readFileSync(join(dir, binned.to), 'utf8'), '新建之后写进去的内容', '之后写的内容还在回收站里');
   assert.throws(() => saveUploads(store, dir, 'x', [{ name: 'a', data: Buffer.from('') }], {}, 't'), /不是文件夹/);
 });
 

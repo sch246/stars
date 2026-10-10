@@ -7,7 +7,8 @@
   "bin": { "stars": "./src/cli.ts" },
   "scripts": {
     "stars": "node src/cli.ts",
-    "test": "node --test \"test/*.test.ts\""
+    "test": "node --test \"test/*.test.ts\"",
+    "test:ui": "node --test --test-concurrency=1 \"test/browser/*.test.ts\""
   },
   "engines": { "node": ">=22.18" }
 }

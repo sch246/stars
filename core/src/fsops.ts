@@ -1,5 +1,5 @@
 // 整理(arrange.ts)里动磁盘的那一半:在写锁里先动文件、再提交图的操作;任何一步失败就把已经做的倒回去。
-// 日志里记下这次动了哪些文件(LogEntry.fs),撤销时先把文件搬回去(复制出来的删掉),再撤销图的操作。
+// 日志里记下这次动了哪些文件(LogEntry.fs),撤销时先把文件搬回去(新建 / 复制出来的挪进回收站),再撤销图的操作。
 import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { ARRANGE_TRASH, type ArrangeMode, type ArrangeOpts, type ArrangePlan, type FsAct, arrangeCleanName, arrangeFreePath, arrangeIsFs, arrangeMount, arrangeRevertFs, planArrange } from './arrange.ts';
@@ -77,14 +77,20 @@ export function arrange(store: Store, root: string, mode: ArrangeMode, ids: stri
   });
 }
 
-/** 撤销:最近那一步动过磁盘的话,先把文件倒回去 */
+/** 撤销:最近那一步动过磁盘的话,先把文件倒回去。新建 / 复制出来的文件之后可能被改过,不直接删,挪进回收站 */
 export function undoWithFs(store: Store, root: string, author: string): LogEntry {
-  return store.undo({ author }, (acts) => { const back = arrangeRevertFs(acts); applyFsActs(root, back); return back; });
+  const bin = `${trashDir(root)}undo-${new Date().toISOString().replace(/[:.]/g, '-')}/`;
+  return store.undo({ author }, (acts) => {
+    const back = arrangeRevertFs(acts).flatMap((a): FsAct[] => a.act !== 'delete' ? [a]
+      : existsSync(inside(root, a.from)) ? [{ act: 'move', from: a.from, to: bin + a.from }] : []);   // 已经不在了就算了
+    applyFsActs(root, back);
+    return back;
+  });
 }
 
 /** 外面来的文件(粘贴、拖进查看器的)存进一个文件夹:不覆盖同名的(改名 a-copy.png),建好文件节点;
  *  dir: true = 新建一个空文件夹(查看器里双击新建,类型写 dir)。
- *  container 是概念之类不是文件夹的节点时,文件存进项目根,再让 container 也装着它。一步撤回(文件删掉) */
+ *  container 是概念之类不是文件夹的节点时,文件存进项目根,再让 container 也装着它。一步撤回(文件挪进回收站) */
 export function saveUploads(store: Store, root: string, dirId: string | null, files: Array<{ name: string; data: Buffer; dir?: boolean }>, opts: { container?: string | null; rel?: string; mountId?: string }, author: string): { entry: LogEntry; created: string[] } {
   return withLock(store.file, () => {
     const u = store.peek(), mount = arrangeMount(u, opts.mountId);

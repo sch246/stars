@@ -90,7 +90,7 @@ function renderSide() {
   const ej = (e) => esc(JSON.stringify([e.from, e.type, e.to]));
   const edgeRow = (e, other, arrow) => `<div class="row link" data-id="${esc(other)}"><span class="tag">${arrow}</span>`
     + `<span class="ed-type" data-eone="${ej(e)}" title="选中这条关系" style="color:${edgeColors.get(`${e.from}|${e.type}|${e.to}`) || '#8a8aa8'}">${esc(e.type)}</span><span>${esc(raw.get(other)?.label || other)}</span>`
-    + (live ? `<span class="ed-acts"><span class="mini" data-eretype="${ej(e)}" title="改类型">✎</span><span class="mini" data-erev="${ej(e)}" title="反转方向">⇄</span><span class="mini no" data-erm="${ej(e)}" title="删掉这条关系">✗</span></span>` : '')
+    + (live ? `<span class="ed-acts"><span class="mini" data-eretype="${ej(e)}" title="改类型">✎</span>${isSymmetricType(e.type) ? '' : `<span class="mini" data-erev="${ej(e)}" title="反转方向">⇄</span>`}<span class="mini no" data-erm="${ej(e)}" title="删掉这条关系">✗</span></span>` : '')
     + (e.attrs.status === 'proposed' ? `<span class="sev-warn">待确认</span><span class="mini ok" data-act="accept" data-from="${esc(e.from)}" data-type="${esc(e.type)}" data-to="${esc(e.to)}">✓</span><span class="mini no" data-act="reject" data-from="${esc(e.from)}" data-type="${esc(e.type)}" data-to="${esc(e.to)}">✗</span>` : (e.attrs.status ? `<span class="sev-warn">${esc(e.attrs.status)}</span>` : '')) + '</div>';
   const myIssues = data.issues.filter((i) => i.nodes.includes(n.id) && i.rule !== 'proposed' && i.rule !== 'stale');   // 待确认的上面已经有 ✓ ✗ 了(体检结果要等 1.5 秒才推,不用它);过期有自己的一栏
   el.innerHTML = `<h3 class="nd-title" style="color:${sn ? sn.color : '#fff'}"${live ? ' title="点一下改名(F2)"' : ''}>${esc(n.label)}</h3>

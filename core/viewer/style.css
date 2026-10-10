@@ -316,6 +316,11 @@ code.qexpr { display: block; white-space: pre-wrap; word-break: break-all; font:
 #creator input:focus { border-color: #4a5a9a; }
 #creator .cr-name { flex: 1; } #creator .cr-type { width: 92px; flex: none; }
 #creator .cr-hint { color: var(--muted); font-size: 10.5px; margin-top: 5px; line-height: 1.4; }
+#creator .cr-hint b { color: var(--text); font-weight: 500; }
+#creator .cr-types { display: flex; gap: 4px; margin-top: 5px; }
+#creator .cr-types button { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 10px; padding: 1px 8px; font: inherit; font-size: 11px; cursor: pointer; }
+#creator .cr-types button:hover { color: var(--text); }
+#creator .cr-types button.on { color: var(--text); border-color: #4a5a9a; background: #4a5a9a33; }
 /* 侧栏里就地改 */
 #side .nd-title, #side .nd-sum, #side .nd-v { cursor: text; border-radius: 4px; }
 #side .nd-title:hover, #side .nd-sum:hover, #side .nd-v:hover { background: #7aa7ff14; }
