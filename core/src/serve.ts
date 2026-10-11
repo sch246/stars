@@ -8,32 +8,27 @@
 // 安全:默认只监听 127.0.0.1;所有请求校验 Host(防 DNS 重绑定);
 // /api/* 要求页面里内嵌的一次性 token(随机,每次启动不同),并拒绝跨源请求。
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, statSync, watch, type FSWatcher } from 'node:fs';
-import { createServer, type IncomingMessage } from 'node:http';
-import { basename, extname, join, relative, resolve } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { extname, join, relative, resolve } from 'node:path';
 import { type LiveSignals } from './activity.ts';
-import { handleApi, type ServerCtx } from './api.ts';
+import { handleApi, type HttpCtx } from './api.ts';
 import { bridgeInject, bridgeNonceOk, bridgeShim } from './bridge.ts';
-import { configDir, isConfigName, pageConfig, readUserConfig, registerServer, unregisterServer } from './config.ts';
+import { pageConfig, registerServer, unregisterServer } from './config.ts';
 import { PREVIEW_TYPES, resolveInside } from './files.ts';
 import { StarsError } from './model.ts';
-import { apply } from './ops.ts';
 import { browserModule, isBrowserModule, isTsModule, stripTs, viewerDir, viewerHtml } from './page.ts';
-import { expandHome, Project, projectId, rememberRecent } from './project.ts';
-import { listFiles, planScan, statMeta } from './scan.ts';
-import { Store } from './store.ts';
+import { createHub, type HubOptions } from './hub.ts';
+import { type Project, type Subscriber } from './project.ts';
+import { type Store } from './store.ts';
 
-const genesisFile = resolve(viewerDir, '..', 'genesis.stars');
+export type ServerOptions = HubOptions;
 
-export interface ServerOptions {
-  /** 每个打开的项目都实时同步文件系统(serve --watch) */
-  watch?: boolean;
-  mountId?: string;
-  debounceMs?: number;
-  pollSec?: number;
-  /** 按触发跑脚本节点(默认开;false = 只能手动跑) */
-  agent?: boolean;
-}
+/** SSE:一个浏览器连接就是一个订阅者('message' 不带 event 行,和以前一样) */
+const sseSubscriber = (res: ServerResponse): Subscriber => ({
+  push: (event, data) => { res.write(`${event === 'message' ? '' : `event: ${event}\n`}data: ${JSON.stringify(data)}\n\n`); },
+  end: () => res.end(),
+});
 
 export interface ServerHandle {
   token: string;
@@ -55,61 +50,8 @@ export function startServer(
   const token = randomBytes(16).toString('hex');
   const previewToken = randomBytes(16).toString('hex');
   process.removeAllListeners('warning'); // stripTypeScriptTypes 的实验性提示对用户是噪音
-  const genesis = readFileSync(genesisFile, 'utf8');
-
-  const projects = new Map<string, Project>();
-  const main = new Project(store, baseDir);
-  main.primary = true;
-  projects.set(main.id, main);
-  const mountId = options.mountId ?? 'repo';
-  if (options.watch) main.startWatch(mountId, log, options);
-  if (options.agent !== false) main.startAgent(log);
-
-  const openProject = (dir: string, create = false): Project => {
-    const abs = resolve(expandHome(dir));
-    if (!existsSync(abs) || !statSync(abs).isDirectory()) throw new StarsError(`不是目录: ${abs}`);
-    const file = join(abs, 'universe.stars');
-    const id = projectId(file);
-    const existing = projects.get(id);
-    if (existing) return existing;
-    if (!existsSync(file)) {
-      if (!create) throw new StarsError('这个目录里还没有 universe.stars(可以选择"在这里建立宇宙")');
-      const st = new Store(file);
-      st.create(genesis);
-      const u = st.load();
-      apply(u, planScan(u, listFiles(abs, 'universe.stars'), mountId, basename(abs), statMeta(abs)));
-      st.save(u);
-      log(`在 ${abs} 建立了宇宙(扫描 ${u.nodes.size} 个节点)`);
-    }
-    const p = new Project(new Store(file), abs);
-    projects.set(p.id, p);
-    if (options.watch) p.startWatch(mountId, log, options);
-    if (options.agent !== false) p.startAgent(log);
-    rememberRecent(abs);
-    return p;
-  };
-  rememberRecent(baseDir);
-
-  /** 推给所有打开着的查看器页面(或指定项目的):SSE 的具名事件,和宇宙的增量消息走同一条连接 */
-  const broadcast = (event: string, obj: unknown, only?: Project[]): number => {
-    const line = `event: ${event}\ndata: ${JSON.stringify(obj)}\n\n`;
-    let n = 0;
-    for (const p of only ?? projects.values()) for (const c of p.clients) { c.write(line); n++; }
-    return n;
-  };
-
-  // 个人配置(设置、快捷键)在别处被改了(编辑器、另一个标签页、stars ui):推给所有页面,它们立即生效
-  let cfgWatcher: FSWatcher | null = null;
-  const cfgTimers = new Map<string, NodeJS.Timeout>();
-  try {
-    mkdirSync(configDir(), { recursive: true });
-    cfgWatcher = watch(configDir(), (_ev, name) => {
-      const n = String(name ?? '').replace(/\.llf$/, '');
-      if (!isConfigName(n)) return;
-      clearTimeout(cfgTimers.get(n));
-      cfgTimers.set(n, setTimeout(() => broadcast('config', readUserConfig(n)), 60));
-    });
-  } catch { /* 只读的家目录:设置只能存在浏览器里 */ }
+  const hub = createHub(store, baseDir, log, options);
+  const { projects, main } = hub;
 
   const allowedHosts = new Set(['localhost', '127.0.0.1', '[::1]']);
   if (host !== '0.0.0.0' && host !== '::') allowedHosts.add(host);
@@ -120,7 +62,8 @@ export function startServer(
     return host === '0.0.0.0' || host === '::' || allowedHosts.has(h);
   };
 
-  const ctx: ServerCtx = { token, projects, main, mountId, allowedHosts, openProject, broadcast, pendingUi: new Map() };
+  const ctx: HttpCtx = { hub, token, allowedHosts };
+  const sse = new Set<ServerResponse>();   // 打开着的事件流(保活用)
   const projectOf = (url: URL): Project => projects.get(url.searchParams.get('p') ?? '') ?? main;
 
   const server = createServer((req, res) => {
@@ -131,9 +74,9 @@ export function startServer(
     if (path === '/events') {
       const proj = projectOf(url);
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' }); // 最后一项让 nginx 不要缓冲事件流
-      res.write(`data: ${proj.snapshotLine()}\n\n`);
-      proj.clients.add(res);
-      req.on('close', () => proj.clients.delete(res));
+      const off = hub.subscribe(sseSubscriber(res), proj.id);   // 先发一份完整快照,之后是增量
+      sse.add(res);
+      req.on('close', () => { off(); sse.delete(res); });
       return;
     }
     // 预览(侧栏的 HTML 预览、新标签页打开):/preview/<预览 token>/<项目 id 或 _>/<路径>。iframe 带不了请求头,token 放在路径里,
@@ -193,7 +136,7 @@ export function startServer(
   process.once('exit', onExit);
 
   // 反向代理/负载均衡常在连接空闲 30~60 秒后断开,定期发一条注释行保活
-  const keepalive = setInterval(() => { for (const p of projects.values()) for (const c of p.clients) c.write(': ping\n\n'); }, 20_000);
+  const keepalive = setInterval(() => { for (const r of sse) r.write(': ping\n\n'); }, 20_000);
   keepalive.unref();
 
   server.listen(port, host, () => {
@@ -207,14 +150,14 @@ export function startServer(
     token,
     previewToken,
     close: () => {
-      clearInterval(keepalive); cfgWatcher?.close();
+      clearInterval(keepalive);
       onExit(); process.off('exit', onExit);
-      for (const p of projects.values()) p.close();
+      hub.close();
       server.close();
     },
     pushLive: (l) => main.pushLive(l),
     gitChanged: () => main.gitChanged(),
     setWatching: (on) => { main.watching = on; },
-    open: (dir, create) => openProject(dir, create).id,
+    open: (dir, create) => hub.openProject(dir, create).id,
   };
 }

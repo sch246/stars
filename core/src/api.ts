@@ -1,9 +1,11 @@
-// 服务端的 HTTP 接口(/api/*):一张"方法 + 路径 → 处理函数"的表。
-// 处理函数返回一个对象 = 200 + JSON;抛 HttpError = 指定的状态码;自己写了响应(图片)就返回 undefined。
-// 所有接口都要求页面里内嵌的 token,并拒绝跨源请求(见 serve.ts 开头的说明)。
+// 服务端的接口(/api/*):一张"方法 + 路径 → 处理函数"的表,和怎么通信无关。
+// 处理函数拿到参数(查询参数 q、请求体 body)和服务的核心(hub.ts),返回一个对象(= 200 + JSON)或 RawReply(图片这类);
+// 抛 HttpError = 指定的状态码。dispatch() 是不带传输的入口;handleApi() 是 HTTP 的接法(token、跨源检查,见 serve.ts 开头),
+// localApi() 是进程内的接法(测试、以后的 VS Code 宿主)。
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { type IncomingMessage, type ServerResponse } from 'node:http';
+import { type Hub } from './hub.ts';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { isConfigName, readUserConfig, writeUserConfig } from './config.ts';
 import { draftPreview } from './draft.ts';
@@ -21,18 +23,11 @@ import { updateDraft } from './store.ts';
 import { arrange, saveUploads } from './fsops.ts';
 import { readRuns } from './runlog.ts';
 
-/** 服务的共享状态(serve.ts 建好后交给接口) */
-export interface ServerCtx {
+/** HTTP 接法要的:服务的核心 + 页面里内嵌的 token + 信任的主机名 */
+export interface HttpCtx {
+  hub: Hub;
   token: string;
-  projects: Map<string, Project>;
-  main: Project;
-  mountId: string;
   allowedHosts: Set<string>;
-  openProject(dir: string, create?: boolean): Project;
-  /** 推给所有打开着的页面(或指定项目的);返回推给了几个连接 */
-  broadcast(event: string, obj: unknown, only?: Project[]): number;
-  /** 遥控(stars ui)等待页面回报的结果 */
-  pendingUi: Map<string, (r: unknown) => void>;
 }
 
 /** POST 请求体里可能出现的字段(各接口自己检查需要的那几个) */
@@ -49,17 +44,23 @@ export interface Body {
   type?: string; force?: boolean;
 }
 
+/** 查询参数:URLSearchParams 就是一种 */
+export type Query = Pick<URLSearchParams, 'get' | 'has'>;
+
 export interface ApiCall {
-  req: IncomingMessage;
-  res: ServerResponse;
-  url: URL;
-  q: URLSearchParams;
+  q: Query;
   /** ?p=<项目 id>,不给 = 主项目 */
   proj: Project;
   body: Body;
   /** 写操作记在日志里的作者(请求体的 author,不给 = viewer) */
   author: string;
-  s: ServerCtx;
+  s: Hub;
+}
+/** 不是 JSON 的回复(图片预览):HTTP 原样写出去,带上 type 和不许执行任何东西的 CSP */
+export class RawReply {
+  readonly body: Buffer;
+  readonly type: string;
+  constructor(body: Buffer, type: string) { this.body = body; this.type = type; }
 }
 
 export class HttpError extends Error {
@@ -81,8 +82,8 @@ const selfOf = (p: Project) => selfRel(p.baseDir, p.store.file);
 
 export const GET: Record<string, Handler> = {
   // 视图脚本的整串依赖(入口 + 它 import 的,只认相对路径):查看器按 version 换加载地址,依赖里哪个改了都重新加载
-  '/api/viewdeps': ({ url, proj }) => {
-    const path = (url.searchParams.get('path') ?? '').replace(/\\/g, '/').replace(/^(\.\/|\/)+/, '');
+  '/api/viewdeps': ({ q, proj }) => {
+    const path = (q.get('path') ?? '').replace(/\\/g, '/').replace(/^(\.\/|\/)+/, '');
     if (!path) throw new HttpError(400, '需要 path');
     const stat = new Map<string, string>();
     const g = moduleGraph(path, (p) => {
@@ -123,13 +124,11 @@ export const GET: Record<string, Handler> = {
     if (!d) throw new HttpError(400, '这个节点没记文件版本,或文件不在');
     return d;
   },
-  '/api/raw': ({ q, proj, res }) => {   // 图片预览(<img> 带不了请求头,token 可以放在查询参数 t 里)
+  '/api/raw': ({ q, proj }) => {   // 图片预览(<img> 带不了请求头,token 可以放在查询参数 t 里)
     const abs = resolveInside(proj.baseDir, q.get('path') ?? '');
     const type = IMAGE_TYPES[extname(abs).toLowerCase()];
     if (!type) throw new HttpError(415, '只提供图片');
-    res.writeHead(200, { 'content-type': type, 'cache-control': 'no-cache', 'content-security-policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'" });
-    res.end(readFileSync(abs));
-    return undefined;
+    return new RawReply(readFileSync(abs), type);
   },
   '/api/history': ({ q, proj }) => {
     // scope=auto:宇宙文件有历史就看它的,没有(新建的宇宙)就看所在文件夹的
@@ -287,31 +286,58 @@ export const json = (res: ServerResponse, status: number, body: unknown) => {
   res.end(JSON.stringify(body));
 };
 
-export async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL, s: ServerCtx): Promise<void> {
+/** 不带传输的入口:按方法和路径找处理函数,出错换成状态码。q 里的 p = 项目 id(不给 = 主项目) */
+export async function dispatch(method: string, path: string, q: Query, body: Body, s: Hub): Promise<{ status: number; json?: unknown; raw?: RawReply }> {
+  try {
+    const handler = (method === 'GET' ? GET : method === 'POST' ? POST : {})[path];
+    if (!handler) return { status: 404, json: { error: 'not found' } };
+    const proj = s.projects.get(q.get('p') ?? '') ?? s.main;
+    const author = typeof body.author === 'string' && body.author.trim() ? body.author.trim().slice(0, 40) : 'viewer';
+    const out = await handler({ q, proj, body, author, s });
+    return out instanceof RawReply ? { status: 200, raw: out } : { status: 200, json: out ?? { ok: true } };
+  } catch (err) {
+    if (err instanceof HttpError) return { status: err.status, json: { error: err.message, ...err.extra } };
+    const known = err instanceof StarsError || err instanceof SyntaxError || ['ENOENT', 'ENOTDIR', 'EACCES', 'EPERM'].includes((err as NodeJS.ErrnoException).code ?? '');
+    return { status: known ? 400 : 500, json: { error: (err as Error).message } };
+  }
+}
+
+/** HTTP 的接法:token、跨源检查,读请求体,写回复 */
+export async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL, h: HttpCtx): Promise<void> {
   // <img> 没法带请求头,只读的 /api/raw 允许把 token 放在查询参数里
   const tok = req.headers['x-stars-token'] ?? (url.pathname === '/api/raw' ? url.searchParams.get('t') : undefined);
-  if (tok !== s.token) return json(res, 403, { error: '缺少或错误的 token' });
+  if (tok !== h.token) return json(res, 403, { error: '缺少或错误的 token' });
   const origin = req.headers.origin;
   if (origin) { // 同源,或来自明确信任的主机名(反向代理时 Origin 是代理的域名)
     let o: URL | null = null;
     try { o = new URL(origin); } catch { /* Origin: null(沙箱里的预览页、file://)解析不了,一样算跨源 */ }
-    if (!o || (o.host !== req.headers.host && !s.allowedHosts.has(o.hostname))) return json(res, 403, { error: '跨源请求被拒绝' });
+    if (!o || (o.host !== req.headers.host && !h.allowedHosts.has(o.hostname))) return json(res, 403, { error: '跨源请求被拒绝' });
   }
-  try {
-    const handler = (req.method === 'GET' ? GET : req.method === 'POST' ? POST : {})[url.pathname];
-    if (!handler) return json(res, 404, { error: 'not found' });
-    let body: Body = {};
-    if (req.method === 'POST') {
-      if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return json(res, 415, { error: '需要 application/json' });
-      body = JSON.parse(await readBody(req, url.pathname === '/api/upload' ? UPLOAD_LIMIT : BIG_BODY.has(url.pathname) ? 8 << 20 : 1 << 20) || '{}') as Body;
-    }
-    const proj = s.projects.get(url.searchParams.get('p') ?? '') ?? s.main;
-    const author = typeof body.author === 'string' && body.author.trim() ? body.author.trim().slice(0, 40) : 'viewer';
-    const out = await handler({ req, res, url, q: url.searchParams, proj, body, author, s });
-    if (out !== undefined) json(res, 200, out);
-  } catch (err) {
-    if (err instanceof HttpError) return json(res, err.status, { error: err.message, ...err.extra });
-    const known = err instanceof StarsError || err instanceof SyntaxError || ['ENOENT', 'ENOTDIR', 'EACCES', 'EPERM'].includes((err as NodeJS.ErrnoException).code ?? '');
-    return json(res, known ? 400 : 500, { error: (err as Error).message });
+  let body: Body = {};
+  if (req.method === 'POST') {
+    if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return json(res, 415, { error: '需要 application/json' });
+    try { body = JSON.parse(await readBody(req, url.pathname === '/api/upload' ? UPLOAD_LIMIT : BIG_BODY.has(url.pathname) ? 8 << 20 : 1 << 20) || '{}') as Body; }
+    catch (err) { return json(res, 400, { error: (err as Error).message }); }
   }
+  const r = await dispatch(req.method ?? 'GET', url.pathname, url.searchParams, body, h.hub);
+  if (r.raw) {
+    res.writeHead(r.status, { 'content-type': r.raw.type, 'cache-control': 'no-cache', 'content-security-policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'" });
+    res.end(r.raw.body);
+  } else json(res, r.status, r.json);
+}
+
+/**
+ * 进程内的接法:和 HTTP 同一张表、同样的状态码,只是没有 token、不过网络(测试、以后的 VS Code 宿主)。
+ * 出错抛 HttpError(带状态码);图片这类给 RawReply。
+ */
+export function localApi(hub: Hub) {
+  const call = async (method: string, path: string, body: Body = {}, query: Record<string, string> = {}): Promise<unknown> => {
+    const r = await dispatch(method, path, new URLSearchParams(query), JSON.parse(JSON.stringify(body)) as Body, hub);   // 和过网络一样:请求体是一份拷贝
+    if (r.status >= 400) { const j = r.json as { error?: string } & Record<string, unknown>; const { error, ...extra } = j; throw new HttpError(r.status, error ?? `状态 ${r.status}`, extra); }
+    return r.raw ?? r.json;
+  };
+  return {
+    get: (path: string, query?: Record<string, string>) => call('GET', path, {}, query),
+    post: (path: string, body?: Body, query?: Record<string, string>) => call('POST', path, body, query),
+  };
 }
