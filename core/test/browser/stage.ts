@@ -142,6 +142,8 @@ export async function scene(t: { skip: (msg: string) => void; name: string }, bo
     await body(s);
     const errors = s.page.errors.filter((e) => !/favicon/.test(e));
     if (errors.length) throw new Error(`页面报错:\n${errors.join('\n')}`);
+    // 查看器不用浏览器自带的对话框(沙箱 iframe、VS Code webview 里它们不弹,命令就悄悄失败);用页内的 ask()
+    if (s.page.dialogs.length) throw new Error(`用了浏览器自带的对话框:${JSON.stringify(s.page.dialogs)}`);
   } catch (e) {
     const shot = join(tmpdir(), `stars-ui-${t.name.replace(/[^\w一-龥]+/g, '-').slice(0, 40)}-${Date.now()}.png`);
     try { await s.page.screenshot(shot); (e as Error).message += `\n截图:${shot}\n弹窗:${JSON.stringify(s.page.dialogs)}`; } catch { /* 页面已经没了 */ }

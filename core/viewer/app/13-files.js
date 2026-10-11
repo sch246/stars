@@ -21,6 +21,42 @@ function toast(html, bad, ms = 4000) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, ms);
 }
 $('toast').addEventListener('click', (ev) => { const b = ev.target.closest('[data-sel]'); if (b) { $('toast').hidden = true; select(b.dataset.sel, true); } });
+
+// 页内的确认 / 输入框。不用 window.confirm / prompt / alert:被嵌进不带 allow-modals 的沙箱 iframe、VS Code webview 里时
+// 它们不弹出来、直接返回默认值(确认算「取消」),命令就悄悄什么也没做。同一时间只开一个,再开一个时前一个算取消
+let askDone = null, askFocus = null;
+function openAsk(text, { ok, cancel, input, danger }) {
+  if (askDone) askDone(false);
+  askFocus = document.activeElement;
+  $('ask-t').textContent = text;
+  $('ask-in').hidden = input == null; $('ask-in').value = input ?? '';
+  $('ask-ok').textContent = ok; $('ask-ok').classList.toggle('danger', !!danger);
+  $('ask-no').textContent = cancel || ''; $('ask-no').hidden = !cancel;
+  $('ask').hidden = false;
+  if (input == null) $('ask-ok').focus(); else { $('ask-in').focus(); $('ask-in').select(); }
+  return new Promise((res) => {
+    askDone = (yes) => {
+      askDone = null; $('ask').hidden = true;
+      if (askFocus && askFocus.isConnected && askFocus.focus) askFocus.focus();
+      res(yes);
+    };
+  });
+}
+/** 问一句:确认 → true;取消、Esc、点外面 → false。cancel: null 只有一个按钮(当提示用) */
+const ask = (text, { ok = '确认', cancel = '取消', danger = false } = {}) => openAsk(text, { ok, cancel, danger });
+/** 要一个名字之类:确定 → 输入的内容(去掉首尾空白),取消 → null */
+const askText = async (text, value = '') => ((await openAsk(text, { ok: '确定', cancel: '取消', input: value })) ? $('ask-in').value.trim() : null);
+$('ask').addEventListener('click', (ev) => {
+  if (!askDone) return;
+  if (ev.target.closest('#ask-ok')) askDone(true);
+  else if (ev.target.closest('#ask-no') || ev.target === $('ask')) askDone(false);
+});
+addEventListener('keydown', (ev) => {
+  if (!askDone) return;
+  ev.stopPropagation();   // 开着的时候快捷键都不生效
+  if (ev.key === 'Escape') { ev.preventDefault(); askDone(false); }
+  else if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); askDone(document.activeElement !== $('ask-no')); }
+}, true);
 const enc = encodeURIComponent;
 
 // ---------- 文件类型处理器:每类文件有自己的侧栏视图;文本文件的「原文」视图始终可用 ----------

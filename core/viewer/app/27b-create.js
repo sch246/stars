@@ -312,8 +312,8 @@ async function ungroupNow(id, force = false) {
   const cf = r.conflicts;
   if (cf && (cf.hard.length || cf.soft.length)) {
     const lines = [...cf.hard.map((x) => '✗ ' + x), ...cf.soft.map((x) => '! ' + x)].join('\n');
-    if (cf.hard.length) { alert(`解散不了「${label}」:\n\n${lines}`); return r; }
-    if (!confirm(`解散「${label}」会丢东西:\n\n${lines}\n\n仍然解散?(之后可以撤销)`)) return r;
+    if (cf.hard.length) { await ask(`解散不了「${label}」:\n\n${lines}`, { ok: '知道了', cancel: null }); return r; }
+    if (!(await ask(`解散「${label}」会丢东西:\n\n${lines}\n\n仍然解散?(之后可以撤销)`, { ok: '解散', danger: true }))) return r;
     return ungroupNow(id, true);
   }
   if (!r.n) return r;

@@ -182,7 +182,7 @@ $('side').addEventListener('click', (ev) => {
     const r = compiled && compiled.queryResults().find((x) => x.name === qActive);
     if (!r) return;
     if (qa.dataset.qact === 'edit') { qEditing = r.name; qActive = null; $('q').value = '= ' + r.expr; $('q').dispatchEvent(new Event('input')); $('q').focus(); renderSide(); }
-    if (qa.dataset.qact === 'rm' && confirm(`删除查询「${r.label}」?(只删这个查询,不动它的成员;之后可以 undo)`)) exec(`rm ${quoteArg(r.id)}`, 'ui', (x) => { if (x.ok) setRegion(null); });
+    if (qa.dataset.qact === 'rm') exec(`rm ${quoteArg(r.id)}`, 'ui', (x) => { if (x.ok) setRegion(null); });   // 只删这个查询,不动它的成员;能撤销(提示条上有)
     return;
   }
   const el = ev.target.closest('.row.link'); if (el) select(el.dataset.id, true);

@@ -92,10 +92,11 @@ $('fp-body').addEventListener('click', (ev) => {
   const del = t.closest('.fm-del'); if (del) { formEdit((s) => F.del(s, pathOf(del)), true); return; }
   const add = t.closest('.fm-add');
   if (add) {
-    const path = pathOf(add), sel = add.parentElement.querySelector(':scope > .fm-addtype');
-    let key;
-    if (add.dataset.kind === 'map') { key = prompt('新的键名'); if (!key) return; }
-    formEdit((s) => F.add(s, path, key, sel ? sel.value : null, add.dataset.elem || null), true);
+    const path = pathOf(add), sel = add.parentElement.querySelector(':scope > .fm-addtype'), type = sel ? sel.value : null, elem = add.dataset.elem || null;
+    const put = (key) => formEdit((s) => F.add(s, path, key, type, elem), true);
+    if (add.dataset.kind !== 'map') { put(undefined); return; }
+    const f0 = fp;
+    askText('新的键名').then((key) => { if (key && fp === f0 && $('fp-form')) put(key); });
     return;
   }
   const h = t.closest('#fp-form .sg-h'); if (h && !t.closest('.fm-hctl')) h.parentElement.classList.toggle('fold');

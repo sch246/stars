@@ -79,12 +79,10 @@ kdef('rm', {
     for (const id of ids) if (!raw.has(id)) throw new Error(`节点不存在:${id}`);
     const files = o['node-only'] ? [] : ids.filter((id) => isFsNode(id));
     if (proposing(c)) for (const id of ids) ownProposal(c, nodeProposalKey(id), `节点 ${id}`);
-    else if (c.src !== 'page' && (ids.length > 1 || files.length) && !confirm(`删除${ids.length > 1 ? `这 ${ids.length} 个节点和它们` : `「${raw.get(ids[0])?.label || ids[0]}」和它`}的所有边?`
-      + (files.length ? `\n其中 ${files.length} 个是文件 / 文件夹,会挪进回收站(.git/stars-trash/ 或 .stars-trash/)。` : '')
-      + `\n之后可以撤销(Ctrl Z / undo)。${ids.length > 1 ? `\n\n${ids.slice(0, 12).join('\n')}${ids.length > 12 ? `\n… 还有 ${ids.length - 12} 个` : ''}` : ''}`)) return;   // 单个普通节点直接删(能撤销);页面已经被你授权「写」,不弹框
     const what = ids.length === 1 ? raw.get(ids[0])?.label || ids[0] : `${ids.length} 个节点`;
     const r = await kernelCmd('rm', ids, o, c);
-    if (c.src !== 'page') toast(`${files.length ? esc(r.out.split('\n')[0]) : '已删除 ' + esc(what)} · ${undoLink}`, false, files.length ? 5000 : 4000);
+    // 不先问:删了能撤销(文件在回收站里),提示条上就带着「撤销」
+    if (c.src !== 'page') toast(`${files.length ? esc(r.out.split('\n')[0]) : '已删除 ' + esc(what)} · ${undoLink}`, false, ids.length > 1 || files.length ? 6000 : 4000);
     return r;
   },
 });
@@ -142,7 +140,7 @@ kdef('draft', {
     noProposing(c, '应用或丢弃草稿');
     if (act !== 'apply' && act !== 'drop') throw new Error('用法:' + CMDS.get('draft').usage);
     if (!draft.length) return '草稿是空的';
-    if (act === 'drop' && !rest.length && c.src !== 'page' && !confirm(`丢弃整个草稿(${draft.length} 条改动)?丢了就没了(草稿不进操作日志)`)) return;
+    if (act === 'drop' && !rest.length && c.src !== 'page' && !(await ask(`丢弃整个草稿(${draft.length} 条改动)?\n丢了就没了:草稿不进操作日志,撤销不回来。`, { ok: '丢弃', danger: true }))) return '没有丢弃';
     const r = await kernelCmd('draft', [act, ...rest], o, c);
     if (act === 'apply') { exitDraft(); if (c.src !== 'page') toast(esc(r.out)); }
     return r;

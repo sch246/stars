@@ -480,7 +480,10 @@ defCmd('review', {
     noProposing(c, '批量确认 / 拒绝提议');
     const l = proposed();
     if (act === 'accept-all') { if (!l.length) return '没有待审阅的提议'; return write(batchOps(l, acceptOp), `已接受全部 ${l.length} 条`, c.author); }
-    if (act === 'reject-all') { if (!l.length) return '没有待审阅的提议'; if (c.src !== 'page' && !confirm(`拒绝并删除全部 ${l.length} 条提议?(之后可以撤销)`)) return; return write(batchOps(l, rejectOp), `已拒绝全部 ${l.length} 条`, c.author); }
+    if (act === 'reject-all') {   // 不先问:拒绝能撤销,提示条上带着「撤销」
+      if (!l.length) return '没有待审阅的提议';
+      return write(batchOps(l, rejectOp), `已拒绝全部 ${l.length} 条`, c.author).then((ok) => { if (ok && c.src !== 'page') toast(`已拒绝并删除全部 ${l.length} 条提议 · ${undoLink}`, false, 6000); });
+    }
     throw new Error('用法:review <accept-all|reject-all>');
   },
 });
