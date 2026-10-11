@@ -14,6 +14,8 @@
 - **说明会过期**:给文件写的说明记着当时的文件版本,文件之后改了就会提醒。
 - **人、脚本、AI 一起改**:命令行、查看器、脚本走同一套命令(一张命令表、一份实现),每一步都进操作日志,记着是谁改的;时间线能一步一步回放。
   AI 写进来的可以先只是「提议」,审阅后再接受;批量改动可以先进草稿,看过再整批应用。
+- **接 AI 客户端**:`stars mcp` 是一个 MCP 服务,Claude Code 之类的客户端直接用星罗的命令读写图谱(工具从同一张命令表生成);
+  `--draft` 让它只能往草稿里写,`--read-only` 只给读。
 - **脚本节点**:一段 JS 存在宇宙里,手动跑,或者在文件变化、宇宙变化、定时的时候自动跑,每次运行都有记录。
 - **运行零依赖**:Node ≥ 22.18 直接运行 TypeScript 源码,不需要构建。
 
@@ -28,6 +30,8 @@ stars init                     # 新建 universe.stars
 stars scan .                   # 把文件夹铺成节点
 stars serve --watch            # 打开 http://localhost:4321;磁盘上的变化实时同步进来
 ```
+
+接到 Claude Code:`claude mcp add stars -- stars mcp -f "$PWD/universe.stars"`(没 link 就把 `stars` 换成 `node <路径>/core/src/cli.ts`)。
 
 查看器里按 `?` 看所有快捷键,按 `` ` `` 打开控制台,`Ctrl K` 打开命令面板。`stars help` 列出所有命令。
 

@@ -18,6 +18,7 @@ import { Project } from './project.ts';
 import { runScriptNode } from './agent.ts';
 import { SCRIPT_PREFIX, scriptDef, type TriggerInfo } from './scriptnode.ts';
 import { runNodeScript, sendUi } from './script.ts';
+import { serveMcp } from './mcp.ts';
 import { DraftStore, readDraft, Store } from './store.ts';
 
 
@@ -139,6 +140,13 @@ function run(): void {
       const r = w.start();
       console.log(`监听 ${process.env.STARS_ROOT ?? dirname(file)} → ${file}(挂载根 ${o.mount ?? 'repo'})。启动对账 ${r.ms.toFixed(0)}ms: ${describeSync(r)}。Ctrl-C 退出。`);
       process.on('SIGINT', () => { w.stop(); process.exit(0); });
+      return;
+    }
+    case 'mcp': {   // AI 客户端(Claude Code 等)通过 MCP 用星罗:工具从命令表来,执行和 CLI 同一份(mcp.ts);stdout 只给协议
+      if (!store.exists()) throw new StarsError(`找不到宇宙文件 ${file}(先运行 stars init,或用 -f 指定)`);
+      const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
+      serveMcp({ store, root: root(), author: o.author, readOnly: o['read-only'], version })
+        .catch((err: Error) => { console.error(err); process.exitCode = 1; });
       return;
     }
     case 'ui': {

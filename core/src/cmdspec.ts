@@ -50,6 +50,7 @@ export const CMD_OPTIONS = {
   force: { type: 'boolean' },
   name: { type: 'string' },
   rel: { type: 'string' },
+  'read-only': { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
 } as const;
 export type CmdOption = keyof typeof CMD_OPTIONS;
@@ -174,6 +175,10 @@ export const CMD_LIST: readonly CmdSpec[] = [
     title: '监听文件系统,把文件 / 目录的新增、删除、改名实时同步进宇宙(Ctrl-C 退出)', opts: ['mount', 'debounce', 'poll'] },
   { name: 'export', group: '同步与服务', where: 'cli', effect: 'local', usage: 'export <out.html>', title: '导出成一个自包含的 HTML(含查看器与当前宇宙),拷到任何机器双击就能看(只读)' },
   { name: 'merge', group: '同步与服务', where: 'cli', effect: 'local', usage: 'merge <base> <ours> <theirs>', title: '按事实三方合并宇宙文件(git 合并驱动;结果写入 <ours>,有冲突退出码 1)' },
+  { name: 'mcp', group: '同步与服务', where: 'cli', effect: 'local', usage: 'mcp [--draft] [--read-only] [--author 名字]',
+    title: 'MCP 服务(标准输入输出):把内核命令一条一个暴露成工具,给 Claude Code 这类 AI 客户端用',
+    more: ['--draft 写入一律进草稿(你看过再应用)· --read-only 只给读命令 · 写入的作者默认 mcp:<客户端名>',
+      '例:claude mcp add stars -- node <core>/src/cli.ts mcp -f <项目>/universe.stars'], opts: ['read-only'] },
   { name: 'install-merge', group: '同步与服务', where: 'cli', effect: 'local', usage: 'install-merge', title: '在当前 git 仓库里启用上面的合并驱动(写 .git/config 和 .gitattributes)' },
 
   // ---- 遥控 ----
