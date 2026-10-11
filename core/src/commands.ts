@@ -21,7 +21,7 @@ import { styleKindOf, styleOp, styleTypes, type StyleKind, type StyleTypeInfo } 
 import { compileView } from './view.ts';
 import { resolveView } from './viewlayers.ts';
 import { writeViewSkeleton } from './viewload.ts';
-import type { ViewModule } from './viewscript.ts';
+import { VIEW_SCRIPT_FILE, type ViewModule } from './viewscript.ts';
 import { BUILTIN_VIEWS, listViews, validateSpec, type ViewSpec } from './viewspec.ts';
 
 /** CLI 的全部选项(全局选项 + 各命令的选项);脚本里的 stars.exec 也按它解析 */
@@ -361,7 +361,7 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
       if (o.script !== undefined) {
         const path = o.script.replace(/\\/g, '/').replace(/^\.\//, '');
         spec = { ...spec, script: path };
-        if (/\.m?js$/.test(path) && !existsSync(resolve(ctx.root, path))) { writeViewSkeleton(ctx.root, path, o.base ?? 'galaxy'); made = `\n  新建了骨架 ${path}(base: ${o.base ?? 'galaxy'}),打开它改`; }
+        if (VIEW_SCRIPT_FILE.test(path) && !existsSync(resolve(ctx.root, path))) { writeViewSkeleton(ctx.root, path, o.base ?? 'galaxy'); made = `\n  新建了骨架 ${path}(base: ${o.base ?? 'galaxy'}),打开它改`; }
         else if (o.base !== undefined) spec.base = o.base;
       } else if (o.base !== undefined) spec = { base: o.base, ...spec };
       if (o.params !== undefined) { try { spec.params = JSON.parse(o.params); } catch (err) { throw new StarsError(`--params 不是合法 JSON: ${(err as Error).message}`); } }

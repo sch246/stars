@@ -401,7 +401,7 @@ export function validateSpec(spec: unknown, u?: Universe): string[] {
   unknownKeys(spec, KEYS.spec, '规格');
   if (spec.base !== undefined && (typeof spec.base !== 'string' || !spec.base)) bad.push('base 必须是视图名(内置的或 ~view/ 的)');
   else if (typeof spec.base === 'string' && u && !BUILTIN_VIEWS[spec.base] && !u.nodes.has(`${SCHEMA_PREFIX}view/${spec.base}`)) bad.push(`base: 没有视图 "${spec.base}"`);
-  if (spec.script !== undefined && !(typeof spec.script === 'string' && /\.m?js$/.test(spec.script))) bad.push('script 必须是项目里的 .js 文件路径(如 "views/热力.js")');
+  if (spec.script !== undefined && !(typeof spec.script === 'string' && /\.m?[jt]s$/.test(spec.script))) bad.push('script 必须是项目里的 .js / .ts 文件路径(如 "views/热力.js")');
   if (spec.params !== undefined && !isObj(spec.params)) bad.push('params 必须是对象');
   const layered = spec.base !== undefined || spec.script !== undefined;   // 下面还有层:没写全的关系规则由下面补
   if (spec.forces !== undefined && (!Array.isArray(spec.forces) || !spec.forces.every((f) => typeof f === 'string'))) bad.push('forces 必须是函数名字符串数组(如 ["~fn/名字"])');

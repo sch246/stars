@@ -18,7 +18,7 @@ import { configDir, isConfigName, pageConfig, readUserConfig, registerServer, un
 import { PREVIEW_TYPES, resolveInside } from './files.ts';
 import { StarsError } from './model.ts';
 import { apply } from './ops.ts';
-import { browserModule, isBrowserModule, viewerDir, viewerHtml } from './page.ts';
+import { browserModule, isBrowserModule, isTsModule, stripTs, viewerDir, viewerHtml } from './page.ts';
 import { expandHome, Project, projectId, rememberRecent } from './project.ts';
 import { listFiles, planScan, statMeta } from './scan.ts';
 import { Store } from './store.ts';
@@ -140,7 +140,8 @@ export function startServer(
     // 页面里的相对路径(css / js / 图片)自然落在同一个前缀下。预览 token 和 /api 的 token 是两个:页面能从自己的地址读到它,
     // 但它只能读项目里的文件。HTML / SVG 带 CSP sandbox:就算在新标签页里直接打开也是不同源的,碰不到查看器;
     // 允许跨源读(预览里的脚本 fetch 同目录的 json)。?bridge=<暗号>:往 HTML 里注入 window.stars(页面桥,见 bridge.ts)。
-    // 视图脚本从 /preview/…/~v<版本>/<路径> 加载:版本那一段只是让浏览器换个地址重新加载整串模块,这里去掉
+    // 视图脚本从 /preview/…/~v<版本>/<路径> 加载:版本那一段只是让浏览器换个地址重新加载整串模块,这里去掉。
+    // .ts / .mts 去掉类型再给(浏览器只认 JS);去不掉(enum 这类)就给一个抛出原因的模块,import() 的报错里看得到
     const pv = /^\/preview\/([0-9a-f]+)\/([0-9a-f]+|_)\/(?:~v[0-9a-f]+\/)?(.*)$/.exec(path);
     if (pv) {
       const proj = pv[2] === '_' ? main : projects.get(pv[2]!);
@@ -150,8 +151,15 @@ export function startServer(
         let abs = resolveInside(proj.baseDir, decodeURIComponent(pv[3]!));
         if (/(^|[\\/])\.git([\\/]|$)/.test(relative(proj.baseDir, abs))) throw new StarsError('.git 不提供');
         if (statSync(abs).isDirectory()) abs = join(abs, 'index.html');
-        const type = PREVIEW_TYPES[extname(abs).toLowerCase()] ?? 'application/octet-stream';
+        const ts = isTsModule(abs);
+        const type = ts ? 'text/javascript; charset=utf-8' : PREVIEW_TYPES[extname(abs).toLowerCase()] ?? 'application/octet-stream';
         const headers: Record<string, string> = { 'content-type': type, 'cache-control': 'no-cache', 'access-control-allow-origin': '*', 'x-content-type-options': 'nosniff' };
+        if (ts) {
+          let js: string;
+          try { js = stripTs(readFileSync(abs, 'utf8')); } catch (err) { js = `throw new SyntaxError(${JSON.stringify(`${pv[3]}: ${(err as Error).message}`)});\n`; }
+          res.writeHead(200, headers).end(js);
+          return;
+        }
         if (/html|svg|xml/.test(type)) headers['content-security-policy'] = 'sandbox allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox';
         const body = readFileSync(abs), nonce = url.searchParams.get('bridge');
         res.writeHead(200, headers).end(type.startsWith('text/html') && bridgeNonceOk(nonce) ? bridgeInject(body.toString('utf8'), bridgeShim(nonce)) : body);

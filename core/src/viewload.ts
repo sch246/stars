@@ -1,4 +1,4 @@
-// Node 里加载视图脚本(stars view、脚本里的 stars.cmd.view):import() 项目里的 .js 文件,地址带修改时间,改了不吃旧缓存。
+// Node 里加载视图脚本(stars view、脚本里的 stars.cmd.view):import() 项目里的 .js / .ts 文件(Node 自己去类型),地址带修改时间,改了不吃旧缓存。
 // 还有 view-set --script 用的骨架文件、静态导出要带的脚本源码。只在 Node 端用。
 
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -10,6 +10,7 @@ import { resolveView } from './viewlayers.ts';
 import { viewModuleOf, viewSkeleton, type ViewModule } from './viewscript.ts';
 import { moduleGraph } from './imports.ts';
 import { resolveInside } from './files.ts';
+import { isTsModule, stripTs } from './page.ts';
 
 /** 加载一个视图脚本:失败(文件不在、语法错、顶层抛错)返回 Error,不抛出 */
 export async function importViewModule(root: string, path: string): Promise<ViewModule | Error> {
@@ -52,7 +53,7 @@ export async function viewSources(u: Universe, root: string): Promise<Record<str
   for (const [name, spec] of Object.entries(listViews(u).specs)) {
     let mods: Map<string, ViewModule | Error>;
     try { mods = await loadViewModules(u, spec, root, name); } catch { continue; }   // base 写错:导出后照样报
-    for (const [p, m] of mods) if (!(m instanceof Error)) for (const f of moduleGraph(p, read).files) out[f] ??= read(f)!;
+    for (const [p, m] of mods) if (!(m instanceof Error)) for (const f of moduleGraph(p, read).files) out[f] ??= isTsModule(f) ? stripTs(read(f)!) : read(f)!;   // 导出的页面里没有服务端去类型
   }
   return out;
 }

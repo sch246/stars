@@ -198,7 +198,7 @@ defCmd('view-script', {
   run: async ([name], o) => {
     if (!name || !/^[\p{L}\p{N}_-]+$/u.test(name)) throw new Error('需要视图名(文字、数字、_ 和 -)');
     const path = (o.file || `views/${name}.js`).replace(/^\.\//, '');
-    if (!/\.m?js$/.test(path)) throw new Error('视图脚本要是 .js 文件');
+    if (!VIEW_SCRIPT_FILE.test(path)) throw new Error('视图脚本要是 .js / .ts 文件');
     let made = false;
     try { await api('/api/file?stat=1&path=' + encodeURIComponent(path)); }
     catch { await api('/api/file', { path, content: viewSkeleton(path, o.base || currentView), mtime: null, create: true }); made = true; }

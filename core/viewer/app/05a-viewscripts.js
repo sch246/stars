@@ -66,8 +66,8 @@ function reloadViewScripts(paths) {
 const viewReloadNotes = () => [...viewErr].map(([p, m]) => `视图脚本 ${p} 加载失败(先用着上一次的): ${m}`);
 const viewScriptFiles = () => [...new Set([...viewDeps.values()].flatMap((d) => d.files))];
 
-/** 一个文件节点像不像视图脚本(.js / .mjs) */
-const scriptFileOf = (id) => { const n = raw.get(id); const f = n && (n.attrs.file || (n.attrs.type === 'file' ? id : '')); return f && /\.m?js$/.test(f) ? f : null; };
+/** 一个文件节点像不像视图脚本(.js / .mjs / .ts / .mts) */
+const scriptFileOf = (id) => { const n = raw.get(id); const f = n && (n.attrs.file || (n.attrs.type === 'file' ? id : '')); return f && VIEW_SCRIPT_FILE.test(f) ? f : null; };
 /** 用一个视图脚本新建视图(拖到视图列表上 / view-script):先加载看看它导出了什么,不像视图脚本就不建 */
 async function viewFromScript(path, name) {
   if (window.__STARS_STATIC__ || replay) { toast('静态导出 / 回放里不能新建视图', true); return; }
@@ -78,7 +78,7 @@ async function viewFromScript(path, name) {
   if (!['spec', 'select', 'size', 'color', 'shape', 'label', 'edge', 'forces', 'looks'].some((k) => m[k] !== undefined)) {
     toast(`${esc(path)} 不像视图脚本(没有导出 spec / select / size / color …)`, true, 6000); return;
   }
-  let base = name || path.split('/').pop().replace(/\.m?js$/, '').replace(/[^\p{L}\p{N}_-]+/gu, '-').replace(/^-+|-+$/g, '') || 'script';
+  let base = name || path.split('/').pop().replace(VIEW_SCRIPT_FILE, '').replace(/[^\p{L}\p{N}_-]+/gu, '-').replace(/^-+|-+$/g, '') || 'script';
   let id = base; for (let i = 2; specs[id] && !(name && i === 2); i++) id = `${base}-${i}`;
   const spec = { script: path }, key = '~view/' + id, compact = JSON.stringify(spec);
   const op = uni.nodes.has(key) ? { op: 'setNode', id: key, set: { spec: compact } } : { op: 'addNode', id: key, label: id, attrs: { kind: 'view', spec: compact } };

@@ -100,6 +100,8 @@ export function scaleValue(v: number, max: number, scale: 'sqrt' | 'log' | 'line
   const t = scale === 'log' ? Math.log1p(v) / Math.log1p(max) : scale === 'linear' ? v / max : Math.sqrt(v / max);
   return lo + (hi - lo) * Math.max(0, Math.min(1, t));
 }
+/** 视图脚本的文件:.js / .mjs,或 .ts / .mts(浏览器里由服务端去掉类型;import 别的 .ts 时写上扩展名,和 Node 一样) */
+export const VIEW_SCRIPT_FILE = /\.m?[jt]s$/;
 /** 一定有的信号(没有记录 = 0) */
 const KNOWN_SIGNALS = ['touched', 'fileChanged', 'stale'];
 const STRUCT = new Set(['i', 'id', 'label', 'type', 'attrs', 'parent', 'kids', 'edges']);

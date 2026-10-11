@@ -5,7 +5,7 @@ import { request } from 'node:http';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import { parse } from '../src/format.ts';
 import { apply } from '../src/ops.ts';
@@ -422,6 +422,9 @@ test('视图脚本:/api/viewdeps 给整串依赖和版本(改了依赖版本就�
   mkdirSync(join(dir, 'views'));
   writeFileSync(join(dir, 'views/heat.js'), "import { hot } from './pal.js';\nexport function color() { return hot; }\n");
   writeFileSync(join(dir, 'views/pal.js'), "export const hot = '#ff00ff';\n");
+  writeFileSync(join(dir, 'views/typed.ts'), "interface P { a: string }\nexport const k: string = 'x';\nexport function color(n: P): string | undefined { return undefined; }\n");
+  writeFileSync(join(dir, 'views/enum.ts'), 'enum E { A }\nexport const e = E.A;\n');
+  store.commit({ op: 'addNode', id: '~view/typed', label: 'typed', attrs: { kind: 'view', spec: JSON.stringify({ script: 'views/typed.ts' }) } }, { author: 't' });
   const port = await freePort();
   const srv = startServer(store, port, dir, '127.0.0.1', () => {});
   await new Promise((r) => setTimeout(r, 150));
@@ -439,9 +442,17 @@ test('视图脚本:/api/viewdeps 给整串依赖和版本(改了依赖版本就�
     assert.match(await r.text(), /#00ffaa/);
     const missing = await (await get('/api/viewdeps?path=views/nope.js')).json() as { missing: string[] };
     assert.deepEqual(missing.missing, ['views/nope.js']);
+    // .ts:去掉类型再给;去不掉的给一个抛出原因的模块
+    const t = await fetch(`http://127.0.0.1:${port}/preview/${srv.previewToken}/_/views/typed.ts`);
+    assert.match(t.headers.get('content-type') ?? '', /javascript/);
+    const js = await t.text();
+    assert.doesNotMatch(js, /: string|interface/); assert.match(js, /export const k +=\s*'x'/, '去掉类型时用空格占位(行列号不变)');
+    const bad = await (await fetch(`http://127.0.0.1:${port}/preview/${srv.previewToken}/_/views/enum.ts`)).text();
+    assert.match(bad, /^throw new SyntaxError\(".*views\/enum\.ts/);
   } finally { srv.close(); }
   const src = await viewSources(store.load(), dir);
-  assert.deepEqual(Object.keys(src).sort(), ['views/heat.js', 'views/pal.js']);
+  assert.deepEqual(Object.keys(src).sort(), ['views/heat.js', 'views/pal.js', 'views/typed.ts']);
+  assert.doesNotMatch(src['views/typed.ts']!, /: string/, '静态导出里的 .ts 已经去掉类型');
   const html = exportHtml(store, dir, src);
   assert.match(html, /window\.__STARS_VIEWSRC__ = \{"views\/heat\.js":/);
 });
@@ -509,11 +520,11 @@ test('遥控:stars ui 找到正在运行的服务,命令推给页面执行,页�
   await new Promise((r) => setTimeout(r, 150));
   const reg = join(process.env.XDG_CONFIG_HOME!, 'stars', 'servers', `${port}.json`);
   const cli = (...args: string[]) => new Promise<{ code: number | null; out: string; err: string }>((ok) => {
-    execFile(process.execPath, [new URL('../src/cli.ts', import.meta.url).pathname, '-f', file, 'ui', ...args], { env: process.env }, (e, out, err) => ok({ code: e ? (e as { code?: number }).code ?? 1 : 0, out, err }));
+    execFile(process.execPath, [fileURLToPath(new URL('../src/cli.ts', import.meta.url)), '-f', file, 'ui', ...args], { env: process.env }, (e, out, err) => ok({ code: e ? (e as { code?: number }).code ?? 1 : 0, out, err }));
   });
   try {
     assert.ok(existsSync(reg), '服务登记在 servers/<端口>.json');
-    assert.equal(statSync(reg).mode & 0o777, 0o600, '含 token,只有自己能读');
+    if (process.platform !== 'win32') assert.equal(statSync(reg).mode & 0o777, 0o600, '含 token,只有自己能读');   // Windows 没有这种权限位(靠家目录的 ACL)
     assert.match((await cli('fit')).err, /没有打开着的查看器页面/);
     // 假装是一个页面:收到 ui 事件就回报
     const got: string[] = [];
@@ -537,7 +548,7 @@ test('遥控:stars ui 找到正在运行的服务,命令推给页面执行,页�
       // 脚本里的界面命令(不是内核命令)也转给页面
       writeFileSync(join(dir, 's.mjs'), "export default async (stars) => (await stars.exec('fit')).out + ' / ' + (await stars.cmd.select('q')).data.id;\n");
       const r = await new Promise<{ code: number | null; out: string; err: string }>((ok) => {
-        execFile(process.execPath, [new URL('../src/cli.ts', import.meta.url).pathname, '-f', file, 'run', join(dir, 's.mjs')], { env: process.env, cwd: dir }, (e, out, err) => ok({ code: e ? (e as { code?: number }).code ?? 1 : 0, out, err }));
+        execFile(process.execPath, [fileURLToPath(new URL('../src/cli.ts', import.meta.url)), '-f', file, 'run', join(dir, 's.mjs')], { env: process.env, cwd: dir }, (e, out, err) => ok({ code: e ? (e as { code?: number }).code ?? 1 : 0, out, err }));
       });
       assert.equal(r.code, 0, r.err);
       assert.equal(r.out.trim(), '做了 fit / q');
