@@ -37,11 +37,18 @@ test('拖动整理:移动 / 复制 / 引用;放不进自己里面;Ctrl+Z 撤回(
 test('多选普通拖:选中的一起被拉向指针', (t) => scene(t, async (s) => {
   const { page } = s;
   await s.ui('select idea/a idea/b'); await sleep(300);
-  const a0 = await s.at('idea/a'), b0 = await s.at('idea/b'), to: [number, number] = [a0[0] + 160, a0[1] + 120];
+  const d = (p: number[], q: number[]) => Math.hypot(p[0]! - q[0]!, p[1]! - q[1]!);
+  const a0 = await s.at('idea/a'), b0 = await s.at('idea/b');
+  // 朝容器中心拖一半:成员侧有一条"疆域上限"(pullTo 的 shrinkCap),往外拖会被截在疆界上 ——
+  // 那样断言就变成在考缩放和疆界,而不是在考"选中的一起被拉"。往里拖一定在疆界内。
+  const c = (await s.screen('ideas'))['ideas'] ?? [a0[0] - 60, a0[1] + 60];
+  const to: [number, number] = [a0[0] + (c[0] - a0[0]) * 0.5, a0[1] + (c[1] - a0[1]) * 0.5];
   await page.mouse.move(...a0); await page.mouse.down();
   await page.mouse.move(...to, 15); await sleep(1500);
   const a1 = await s.at('idea/a'), b1 = await s.at('idea/b');
   await page.mouse.up();
-  const d = (p: number[], q: number[]) => Math.hypot(p[0]! - q[0]!, p[1]! - q[1]!);
-  assert.ok(d(a1, to) < d(a0, to) - 40 && d(b1, to) < d(b0, to) - 40, `两个都靠近了:a ${d(a0, to) | 0}→${d(a1, to) | 0},b ${d(b0, to) | 0}→${d(b1, to) | 0}`);
+  // 抓着的那个可能已经贴在疆界上,只能往里挪一点点;所以两边都要近,但小的那个门槛按它自己的距离算。
+  const ga = d(a0, to) - d(a1, to), gb = d(b0, to) - d(b1, to);
+  assert.ok(ga > d(a0, to) * 0.15 && gb > d(b0, to) * 0.15 && ga + gb > (d(a0, to) + d(b0, to)) * 0.3,
+    `两个都被拉向指针:a ${d(a0, to) | 0}→${d(a1, to) | 0}(近 ${ga | 0}),b ${d(b0, to) | 0}→${d(b1, to) | 0}(近 ${gb | 0})`);
 }));

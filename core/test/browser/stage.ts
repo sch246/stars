@@ -121,8 +121,10 @@ export async function openStage(expand: string[] = ['repo', 'ideas', 'docs/', 's
     await ui('param heat off'); await ui('param follow off');   // 不公转、单选不挪镜头:位置才稳
     await ui('collapse-all');
     for (const id of expand) { await ui(`expand ${id}`); await sleep(500); }
-    await ui('select'); await ui('fit');
-    await settle(expand.length ? expand : ['repo']);
+    await ui('select');
+    await settle(Object.keys(await screen()));   // 先等布局停下来:fit 是按「当时的疆界」算窗口的,算完再动就会把节点留在屏幕外
+    await ui('fit');
+    await settle(Object.keys(await screen()));   // 再等「适应窗口」的动画走完
   } catch (e) { await close(); throw e; }
 
   return {

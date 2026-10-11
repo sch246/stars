@@ -167,12 +167,15 @@ function drawSpacesFrame(now) {
   let morphC = null;
   if (!fade && curSpaceId !== null) { // 外面:父空间按"来源—目的"的几何画在下面,画法和在外面时一样(焦点就是当前空间)
     const ps = holderOf(curSpaceId), c = ps.byId.get(curSpaceId);
-    if (c && !expandedSet.has(c.id)) {
+    if (c) {
+      // 父空间这一帧也要走:按当前空间(容器)此刻画在哪对齐。自己就地展开着的时候它不当"上下文"画(免得
+      // 里面那份再画一遍),但时间照走 —— 否则退出时它的位置是几秒前的,镜头会跳。
+      const wrap = !expandedSet.has(c.id);
       const r = cur.E * k / 0.92 / enterT(), sc = scOf(c, cur), kP = k / sc, e = innerAlpha(r);
-      orbitStep(ps, now);   // 父空间也在走开普勒轨道时:按当前空间(容器)此刻画在哪对齐
+      orbitStep(ps, now);
       const cq = dispOf(c);
-      if (outerAlpha(r) > 0.01 || e < 0.999) { drawSpace(ps, x - kP * cq.x, y - kP * cq.y, kP, 1, 0, now, null, 'context', { focusId: c.id }); frameLabels = frameLabels.filter((L) => (L.fade ?? 1) >= 0.25); }
-      if (e < 0.999 && fadeOn()) morphC = { host: c, hs: kP, e };
+      if (wrap && (outerAlpha(r) > 0.01 || e < 0.999)) { drawSpace(ps, x - kP * cq.x, y - kP * cq.y, kP, 1, 0, now, null, 'context', { focusId: c.id }); frameLabels = frameLabels.filter((L) => (L.fade ?? 1) >= 0.25); }
+      if (wrap && e < 0.999 && fadeOn()) morphC = { host: c, hs: kP, e };
     }
   }
   drawSpace(cur, x, y, k, fade ? Math.max(0.05, ease) : 1, 0, now, null, '', { morph: morphC });

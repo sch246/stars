@@ -70,13 +70,13 @@ volume {}
   volMap !choice(log,sqrt,linear) - sqrt
   # 归一化
   # 合一:目录和文件在同一个池里归一化 —— 同样字节数得到同样半径;分开:各自归一化,各自用满区间
-  volPool !choice(合一,分开) - 合一
+  volPool !choice(合一,分开) - 分开
   # 体积下限
   # 体积映射后最小节点的半径
   volMin !range(0,40,0.5) - 2
   # 体积上限
   # 体积映射后最大节点的半径
-  volMax !range(1,200,0.5) - 24
+  volMax !range(1,200,0.5) - 16
 # 文件预览
 preview {}
   # Markdown 渲染 HTML

@@ -99,6 +99,7 @@ function getSpace(id) {
   if (old) old.sim.stop();
   sim.force('pointer', pullTo(sim));
   const sp = { key, id, ver: spaceVer, nodes, byId, links, external: sd.external, sim, E: 24, warm: false };
+  for (const n of nodes) n._sp = sp;   // 节点认自己的空间:开普勒轨道的"位置"要能在没画到这个空间时按需算出来(见 23a-orbit.js)
   sp.forces = compileForces();
   sim.force('swirl', () => {
     if (!sp.warm || !heatOn()) return;
