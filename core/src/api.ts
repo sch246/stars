@@ -10,11 +10,11 @@ import { basename, dirname, extname, join, resolve } from 'node:path';
 import { isConfigName, readUserConfig, writeUserConfig } from './config.ts';
 import { draftPreview } from './draft.ts';
 import { FileConflict, IMAGE_TYPES, patchProjectFile, readProjectFile, resolveInside, writeProjectFile } from './files.ts';
-import { diffUniverses, gitFirstParent, gitHistory, gitParentSnapshot, gitSnapshot, type HistoryScope } from './history.ts';
+import { diffUniverses, gitFirstParent, gitHistory, gitParentSnapshot, gitSnapshot, universeAtOp, withGhosts, type HistoryScope } from './history.ts';
 import { moduleGraph } from './imports.ts';
 import { KERNEL_NAMES } from './cmdspec.ts';
-import { execKernel } from './commands.ts';
-import { StarsError } from './model.ts';
+import { execKernel, summarize } from './commands.ts';
+import { StarsError, type Universe } from './model.ts';
 import { apply, type Op } from './ops.ts';
 import { expandHome, readRecent, type Project } from './project.ts';
 import { selfRel } from './scan.ts';
@@ -141,18 +141,32 @@ export const GET: Record<string, Handler> = {
     runs: readRuns(proj.store.file, { script: q.get('script') ?? undefined, limit: Math.min(500, Number(q.get('limit')) || 30) }),
     running: proj.agent?.runningNames() ?? [],
   }),
+  // 回放:某个提交(commit=…,scope=repo 时由那时的文件树长出来)或操作日志里的某一条(op=n)刚做完时的宇宙;
+  // diff 是和前一刻比的;删掉的节点也放在里面(diff.removedNodes,查看器画成红圈)
   '/api/state': ({ q, proj, s }) => {
+    const reply = (snap: Universe, prev: Universe | null, extra: Record<string, unknown> = {}) => {
+      const diff = diffUniverses(prev, snap);
+      withGhosts(prev, snap);
+      return { nodes: [...snap.nodes.values()], edges: [...snap.edges.values()], diff, ...extra };
+    };
+    if (q.has('op')) {
+      const { at, before, entry } = universeAtOp(proj.store.peek(), proj.store.readLog(), Number(q.get('op')));
+      return reply(at, before, { entry: { n: entry.n, t: entry.t, author: entry.author, summary: entry.undoOf ? `撤销 #${entry.undoOf}` : summarize(entry.op) } });
+    }
     const hash = q.get('commit') ?? '';
     if ((q.get('scope') as HistoryScope) === 'repo') {
       const snap = proj.treeAt(hash, s.mountId);
       if (!snap) throw new HttpError(404, '这个提交里没有这个文件夹');
       const ph = gitFirstParent(proj.baseDir, hash);
-      const parent = ph ? proj.treeAt(ph, s.mountId) : null;
-      return { nodes: [...snap.nodes.values()], edges: [...snap.edges.values()], diff: diffUniverses(parent, snap) };
+      return reply(snap, ph ? proj.treeAt(ph, s.mountId) : null);
     }
-    const snap = gitSnapshot(proj.store.file, hash);
-    const diff = diffUniverses(gitParentSnapshot(proj.store.file, hash), snap);
-    return { nodes: [...snap.nodes.values()], edges: [...snap.edges.values()], diff };
+    return reply(gitSnapshot(proj.store.file, hash), gitParentSnapshot(proj.store.file, hash));
+  },
+  // 操作日志(时间线的「操作」):最近 limit 条(before = 只要编号小于它的,往前翻)
+  '/api/oplog': ({ q, proj }) => {
+    const limit = Math.min(20000, Math.max(1, Number(q.get('limit')) || 300)), before = Number(q.get('before')) || Infinity;
+    const all = proj.store.readLog().filter((e) => e.n < before);
+    return { entries: all.slice(-limit).map((e) => ({ n: e.n, t: e.t, author: e.author, summary: e.undoOf ? `撤销 #${e.undoOf}` : summarize(e.op) })), more: all.length > limit };
   },
 };
 

@@ -5,9 +5,10 @@
 import { execFileSync } from 'node:child_process';
 import { basename, dirname } from 'node:path';
 import { parse } from './format.ts';
-import { type Universe, edgeKey } from './model.ts';
+import { StarsError, type Universe, edgeKey } from './model.ts';
 import { apply } from './ops.ts';
 import { isStorage, planScan, selfRel } from './scan.ts';
+import { type LogEntry } from './store.ts';
 
 export interface Commit {
   hash: string;
@@ -145,4 +146,34 @@ export function diffUniverses(a: Universe | null, b: Universe): UniverseDiff {
   for (const [k, e] of b.edges) if (!a?.edges.has(k)) d.addedEdges.push(edgeKey(e.from, e.type, e.to));
   if (a) for (const [k, e] of a.edges) if (!b.edges.has(k)) d.removedEdges.push(edgeKey(e.from, e.type, e.to));
   return d;
+}
+
+/**
+ * 回放时把删掉的节点画出来:a 里有、b 里没有的节点放回 b(连同装着它们的容器边,容器还在的话),返回放回去的 id。
+ * 和草稿预览的 keepRemoved 一样(见 draft.ts):删掉的留在原位,查看器给它们一圈红。
+ */
+export function withGhosts(a: Universe | null, b: Universe, relation = 'contains'): Set<string> {
+  const gone = new Set<string>();
+  if (!a) return gone;
+  for (const [id, n] of a.nodes) if (!b.nodes.has(id)) { gone.add(id); b.nodes.set(id, { ...n, attrs: { ...n.attrs } }); }
+  for (const [k, e] of a.edges) if (e.type === relation && gone.has(e.to) && b.nodes.has(e.from) && !b.edges.has(k)) b.edges.set(k, { ...e, attrs: { ...e.attrs } });
+  return gone;
+}
+
+/**
+ * 操作日志里第 n 条刚做完时的宇宙:从现在的宇宙出发,把 n 之后的每一条倒着撤回去(用日志里存的逆操作)。
+ * before = 第 n 条之前那一刻(再撤一条)。宇宙文件在日志之外被改过(切分支、手改)时可能对不上:抛 StarsError。
+ */
+export function universeAtOp(cur: Universe, log: readonly LogEntry[], n: number): { at: Universe; before: Universe; entry: LogEntry } {
+  const i = log.findIndex((e) => e.n === n);
+  if (i < 0) throw new StarsError(`日志里没有第 ${n} 条`);
+  const u = structuredClone(cur);
+  const undo = (e: LogEntry) => {
+    try { apply(u, e.inverse); }
+    catch (err) { throw new StarsError(`宇宙文件和操作日志对不上(在日志之外被改过,比如切了分支、手改了文件),回放不到 #${n}:#${e.n} ${(err as Error).message}`); }
+  };
+  for (let k = log.length - 1; k > i; k--) undo(log[k]!);
+  const at = structuredClone(u);
+  undo(log[i]!);
+  return { at, before: u, entry: log[i]! };
 }

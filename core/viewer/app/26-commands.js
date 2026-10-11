@@ -441,7 +441,7 @@ defCmd('unbind', {
 });
 
 // ---- 时间线 ----
-const TL_ACTS = { prev: '上一个提交', next: '下一个提交', first: '最早的提交', now: '回到现在', play: '播放 / 暂停', scope: '宇宙文件的历史 ↔ 文件夹的历史', more: '再往前载入一批' };
+const TL_ACTS = { prev: '上一步(提交 / 操作)', next: '下一步', first: '最早的', now: '回到现在', play: '播放 / 暂停', scope: '宇宙文件的历史 ↔ 文件夹的历史', ops: '按提交 ↔ 按操作(每次写入一步)', more: '再往前载入一批' };
 defCmd('timeline', {
   group: '时间线', effect: 'ui', title: '时间线操作(先 panel timeline 打开)', usage: 'timeline <' + Object.keys(TL_ACTS).join('|') + '>', args: [{ name: '动作', values: () => Object.keys(TL_ACTS) }],
   palette: () => Object.entries(TL_ACTS).map(([k, t]) => ({ line: 'timeline ' + k, title: '时间线:' + t })),
@@ -450,7 +450,7 @@ defCmd('timeline', {
     if (!(act in TL_ACTS)) throw new Error('用法:timeline <' + Object.keys(TL_ACTS).join('|') + '>');
     if ($('timeline').hidden) return false;
     if (act === 'prev' || act === 'next') return stepCommit(act === 'prev' ? -1 : 1);
-    return { first: tlFirst, play: tlPlay, scope: tlScope, more: tlMore }[act]();
+    return { first: tlFirst, play: tlPlay, scope: tlScope, ops: tlOps, more: tlMore }[act]();
   },
 });
 

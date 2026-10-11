@@ -14,14 +14,31 @@ function renderLegend() {
 // 泳道用完就回收,不会出现横跨整张图的斜线。
 const laneColor = (i) => ['#7aa7ff', '#ffb347', '#7be0a0', '#d98cff', '#ff7a90', '#5fd4e8'][i % 6];
 let playTimer = null, histLimit = 300, histScope = 'auto';   // auto:宇宙文件有历史就看它,没有就看所在文件夹的
+// 按操作:操作日志里的每一次写入是一步(/api/oplog);点一步 = 回放那一步刚做完时的宇宙(服务端从现在倒着撤回去)
+let tlMode = 'commits', oplog = null;
 async function loadHistory() {
+  $('tl-ops').classList.toggle('on', tlMode === 'ops');
+  $('tl-scope').hidden = tlMode === 'ops';
+  if (tlMode === 'ops') {
+    try { oplog = await api('/api/oplog?limit=' + histLimit); } catch (e) { $('tl-info').textContent = '读取操作日志失败:' + e.message; return false; }
+    $('tl-more').hidden = !oplog.more;
+    return true;
+  }
   try { hist = await api('/api/history?limit=' + histLimit + '&scope=' + histScope); } catch (e) { $('tl-info').textContent = '读取历史失败:' + e.message; return false; }
   $('tl-more').hidden = !hist.more;
   $('tl-scope').textContent = hist.scope === 'repo' ? '📁 文件夹的历史' : '✦ 宇宙文件的历史';
   return true;
 }
+async function tlOps() {   // 按提交 ↔ 按操作
+  stopPlay(); if (replay) exitReplay();
+  tlMode = tlMode === 'ops' ? 'commits' : 'ops'; histLimit = 300;
+  if (!(await loadHistory())) return;
+  renderTimeline();
+  const w = $('tl-wrap'); w.scrollLeft = w.scrollWidth;
+}
 async function tlScope() {   // 宇宙文件的历史 ↔ 所在文件夹的历史
   stopPlay(); if (replay) exitReplay();
+  if (tlMode === 'ops') return false;
   histScope = hist && hist.scope === 'repo' ? 'file' : 'repo'; histLimit = 300;
   if (!(await loadHistory())) return;
   renderTimeline();
@@ -67,7 +84,32 @@ function laneLayout(cs) {
   return { lane, edges, n };
 }
 
+/** 按操作:一条线,一步一个点(颜色按作者;撤销是空心的),新的在右 */
+function renderOps() {
+  const svg = $('tl-svg'), es = oplog.entries;
+  if (!es.length) { svg.innerHTML = ''; svg.setAttribute('width', 0); svg.setAttribute('height', 0); $('tl-info').textContent = '操作日志是空的'; return; }
+  const dx = 14, pad = 26, y = 34, W = pad * 2 + es.length * dx, H = 50;
+  const X = (i) => pad + i * dx;
+  let out = '', lastDay = '', lastX = -1e9;
+  for (let i = 0; i < es.length; i++) {
+    const d = new Date(es[i].t), day = d.toDateString(), x = X(i);
+    if (day === lastDay || x - lastX < 64) continue;
+    out += `<line x1="${x}" y1="14" x2="${x}" y2="${H}" stroke="#ffffff10"/><text x="${x + 3}" y="11" style="fill:#6a6a88">${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}</text>`;
+    lastDay = day; lastX = x;
+  }
+  out += `<line x1="${X(0)}" y1="${y}" x2="${X(es.length - 1)}" y2="${y}" stroke="#ffffff30"/>`;
+  for (let i = 0; i < es.length; i++) {
+    const e = es[i], col = hashColor('author:' + e.author), cur = replay && replay.op === e.n, undo = /^撤销 #/.test(e.summary);
+    out += `<g class="c" data-op="${e.n}"><circle cx="${X(i)}" cy="${y}" r="${cur ? 6 : 4}" fill="${undo ? '#0b0b14' : col}" stroke="${cur ? '#fff' : col}" stroke-width="${cur || undo ? 2 : 1}"/>`
+      + `<title>#${e.n} ${esc(e.author)} · ${new Date(e.t).toLocaleString()}\n${esc(e.summary)}</title></g>`;
+  }
+  svg.setAttribute('width', W); svg.setAttribute('height', H);
+  svg.innerHTML = out;
+  $('tl-info').textContent = replay && replay.op ? `#${replay.entry.n} ${replay.entry.author} · ${replay.entry.summary} · ${new Date(replay.entry.t).toLocaleString()}`
+    : `${es.length}${oplog.more ? '+' : ''} 步操作 · 点任一步回放它刚做完时的宇宙(颜色 = 谁写的)`;
+}
 function renderTimeline() {
+  if (tlMode === 'ops') { if (oplog) renderOps(); return; }
   const svg = $('tl-svg');
   if (!hist) return;
   const cs = hist.commits;
@@ -135,7 +177,7 @@ function renderTimeline() {
 }
 $('tl-svg').addEventListener('click', (ev) => {
   const g = ev.target.closest('.c'); if (!g) return;
-  if (g.dataset.work) exitReplay(); else openCommit(g.dataset.h);
+  if (g.dataset.work) exitReplay(); else if (g.dataset.op) openOp(Number(g.dataset.op)); else openCommit(g.dataset.h);
 });
 
 async function openCommit(hash) {
@@ -146,11 +188,23 @@ async function openCommit(hash) {
   $('tl-info').textContent = '载入中…';
   try { st = await api('/api/state?commit=' + hash + '&scope=' + hist.scope); } catch (e) { $('tl-info').textContent = '读取失败:' + e.message; return; }
   if (!hist || !hist.commits.some((c) => c.hash === hash)) return; // 等待期间切换了范围
-  replay = { hash, commit, added: new Set(st.diff.addedNodes), changed: new Set(st.diff.changedNodes), removed: st.diff.removedNodes.length };
+  showReplay({ hash, commit }, st);
+}
+/** 回放那一刻的宇宙:新增绿、修改橙、删除红(删掉的节点服务端放回了原位) */
+function showReplay(at, st) {
+  replay = { ...at, added: new Set(st.diff.addedNodes), changed: new Set(st.diff.changedNodes), removed: new Set(st.diff.removedNodes) };
   applyData({ ...(liveSnap || data), nodes: st.nodes, edges: st.edges, issues: [], signals: {} }, false);
   const t = performance.now();
   for (const id of replay.added) { const n = sim.get(id); if (n) n.born = t; }
   renderTimeline(); renderReplayBar();
+}
+async function openOp(n) {
+  if (draftOn) exitDraft();
+  let st;
+  $('tl-info').textContent = '载入中…';
+  try { st = await api('/api/state?op=' + n); } catch (e) { $('tl-info').textContent = '回放不了:' + e.message; stopPlay(); return; }
+  if (tlMode !== 'ops') return;   // 等待期间切回了提交
+  showReplay({ op: n, entry: st.entry }, st);
 }
 function exitReplay() {
   stopPlay(); replay = null;
@@ -161,13 +215,21 @@ function renderReplayBar() {
   const el = $('replaybar');
   if (!replay) { el.hidden = true; return; }
   el.hidden = false;
-  el.innerHTML = `<b>回放</b><span>${replay.commit.hash.slice(0, 7)} · ${esc(replay.commit.author)}</span>`
-    + `<span style="color:#7be0a0">+${replay.added.size}</span><span style="color:#ffb347">~${replay.changed.size}</span><span style="color:#ff7a90">−${replay.removed}</span>`
+  const who = replay.op ? `操作 #${replay.entry.n} · ${esc(replay.entry.author)} · ${esc(replay.entry.summary)}` : `${replay.commit.hash.slice(0, 7)} · ${esc(replay.commit.author)}`;
+  el.innerHTML = `<b>回放</b><span>${who}</span>`
+    + `<span style="color:#7be0a0">+${replay.added.size}</span><span style="color:#ffb347">~${replay.changed.size}</span><span style="color:#ff7a90">−${replay.removed.size}</span>`
     + `<span class="btn" id="rb-now">回到现在 (Esc)</span>`;
   $('rb-now').addEventListener('click', () => exec('timeline now', 'ui'));
 }
 // 沿"第一父节点"的主线前进/后退;不在主线上时往后退到父、往前进到任一子
 function stepCommit(dir) {
+  if (tlMode === 'ops') {   // 按操作:一步一步
+    if (!oplog || !oplog.entries.length) return;
+    const es = oplog.entries, i = replay && replay.op ? es.findIndex((e) => e.n === replay.op) : es.length;
+    const j = i + dir;
+    if (j >= 0 && j < es.length) openOp(es[j].n); else if (dir > 0) { stopPlay(); if (replay) exitReplay(); }
+    return;
+  }
   if (!hist || !hist.commits.length) return;
   const byHash = new Map(hist.commits.map((c) => [c.hash, c]));
   const cur = replay ? byHash.get(replay.hash) : null;
@@ -179,13 +241,21 @@ function stepCommit(dir) {
 }
 function stopPlay() { clearInterval(playTimer); playTimer = null; $('tl-play').textContent = '▶'; }
 function tlPlay() {
+  if (tlMode === 'ops') {
+    if (!oplog || !oplog.entries.length) return false;
+    if (playTimer) { stopPlay(); return; }
+    $('tl-play').textContent = '⏸';
+    if (!replay) openOp(oplog.entries[0].n);
+    playTimer = setInterval(() => stepCommit(1), 700);
+    return;
+  }
   if (!hist || !hist.commits.length) return false;
   if (playTimer) { stopPlay(); return; }
   $('tl-play').textContent = '⏸';
   if (!replay) { const oldest = hist.commits.filter((c) => !c.parents.length).sort((a, b) => a.time - b.time)[0] || hist.commits[hist.commits.length - 1]; openCommit(oldest.hash); }
   playTimer = setInterval(() => stepCommit(1), 1300);
 }
-function tlFirst() { if (!hist) return false; const o = hist.commits.filter((c) => !c.parents.length).sort((a, b) => a.time - b.time)[0]; if (o) openCommit(o.hash); }
+function tlFirst() { if (tlMode === 'ops') { if (oplog && oplog.entries.length) openOp(oplog.entries[0].n); return; } if (!hist) return false; const o = hist.commits.filter((c) => !c.parents.length).sort((a, b) => a.time - b.time)[0]; if (o) openCommit(o.hash); }
 
 function toggleExpand(id) {
   const n = sim.get(id);

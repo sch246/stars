@@ -104,6 +104,7 @@ code.qexpr { display: block; white-space: pre-wrap; word-break: break-all; font:
 .btns { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .btn { cursor: pointer; padding: 2px 10px; border-radius: 7px; border: 1px solid var(--line); color: var(--text); background: #12121f; user-select: none; }
 .btn:hover { border-color: var(--accent); } .btn.pri { background: #2a4a9c; border-color: #4a6fd0; color: #fff; }
+#tl-head .btn.on { border-color: var(--accent); color: var(--accent); }   /* 时间线:按操作开着 */
 .btns input { width: 110px; padding: 2px 6px; }
 #ed-ref { font-size: 12px; color: var(--muted); } #ed-ref summary { cursor: pointer; }
 #ed-layers { font-size: 12px; line-height: 1.6; } #ed-layers .ed-hint { color: var(--muted); } #ed-layers code { color: #b8c4ff; }
