@@ -66,6 +66,7 @@ function applyOps(entries) {
     if (e.n <= lastN) continue;                       // 重复(快照已包含)
     if (e.n !== lastN + 1) { resync(); return; }      // 缺口
     try { apply(liveU || uni, e.op); } catch { resync(); return; }
+    if (opChangesStructure(e.op)) structStamp++;
     lastN = e.n; done.push(e);
     data.log.push(e); if (data.log.length > 60) data.log.shift();
     data.proposals = data.proposals || {};

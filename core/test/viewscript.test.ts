@@ -12,6 +12,7 @@ import { apply, type Op } from '../src/ops.ts';
 import { Store } from '../src/store.ts';
 import { compileView } from '../src/view.ts';
 import { resolveView } from '../src/viewlayers.ts';
+import { opChangesStructure } from '../src/viewgraph.ts';
 import { loadViewModules, viewModulesFor } from '../src/viewload.ts';
 import type { NodeRef, ViewModule } from '../src/viewscript.ts';
 import { BUILTIN_VIEWS, validateSpec, type ViewSpec } from '../src/viewspec.ts';
@@ -285,4 +286,27 @@ test('import 边:stars imports on 把相对 import 写成 dependsOn(via=import);
   runKernel('imports', ['off'], {}, ctx);
   assert.deepEqual(deps(), ['src/app.ts>src/auth.ts'], 'off:只删扫描得来的');
   assert.equal(store.load().nodes.get('repo')!.attrs.imports, undefined);
+});
+
+test('图索引:结构没变(只改属性、换规格)时接着用上一次的,结果和重建的一样;opChangesStructure 认得出改结构的操作', () => {
+  const u = world();
+  const sp: ViewSpec = { base: 'galaxy', size: [{ when: { type: 'file' }, attr: 'size', scale: 'linear', range: [1, 10] }] };
+  const c1 = compileView(u, sp);
+  apply(u, { op: 'setNode', id: 'src/a.ts', set: { size: '9000', summary: '大' } });
+  assert.equal(opChangesStructure({ op: 'setNode', id: 'src/a.ts', set: { size: '9000' } }), false);
+  const reused = compileView(u, sp, { graph: c1.graph });
+  assert.equal(reused.graph, c1.graph, '接着用');
+  const fresh = compileView(u, sp);
+  assert.notEqual(fresh.graph, c1.graph);
+  assert.deepEqual(reused.fold(), fresh.fold(), '和重建的一样');
+  assert.notEqual(reused.node('src/b.ts')!.r, c1.node('src/b.ts')!.r, '属性改了看得出来(a 变大,b 相对变小)');
+  const other = compileView(u, { ...BUILTIN_VIEWS.galaxy!, expand: { relation: 'dependsOn' } }, { graph: c1.graph });
+  assert.notEqual(other.graph, c1.graph, '容器关系不同:不用');
+  assert.notEqual(compileView(world(), BUILTIN_VIEWS.galaxy!, { graph: c1.graph }).graph, c1.graph, '宇宙对象不同:不用');
+  for (const op of [
+    { op: 'addNode', id: 'z', label: 'z' }, { op: 'removeEdge', from: 'a', type: 't', to: 'b' }, { op: 'renameNodes', pairs: [['a', 'b']] },
+    { op: 'setNode', id: 'x', set: { type: 'dir' } }, { op: 'setNode', id: 'x', unset: ['file'] }, { op: 'setNode', id: '~related', set: { symmetric: 'false' } },
+    { op: 'setEdge', from: 'a', type: 't', to: 'b', unset: ['status'] }, { op: 'batch', ops: [{ op: 'setNode', id: 'x', set: { k: 'v' } }, { op: 'addNode', id: 'y', label: 'y' }] },
+  ] as Op[]) assert.equal(opChangesStructure(op), true, JSON.stringify(op));
+  assert.equal(opChangesStructure({ op: 'setEdge', from: 'a', type: 't', to: 'b', set: { weight: '2' } }), false);
 });

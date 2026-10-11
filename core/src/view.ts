@@ -60,7 +60,8 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
   const now = opts.now ?? Date.now();
   const R = resolveView(u, spec, opts.modules, opts.name, opts.mapLayer);
   const S = R.spec, layers = R.layers, nL = layers.length;
-  const g = indexGraph(u, S.expand?.relation ?? 'contains');
+  const rel0 = S.expand?.relation ?? 'contains';
+  const g = opts.graph && opts.graph.u === u && opts.graph.relation === rel0 ? opts.graph : indexGraph(u, rel0);
   const { N, nodeList, ids, idx, E, ef, et, ety, typeNames, typeIdx, tSym, relation, parent, depth, order, treeKids } = g;
   const sel = S.select ?? {};
 
@@ -362,7 +363,7 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
       if (Object.keys(sc).length) ex.script = sc;
       return ex;
     },
-    spec: S, layers: layers.map((L) => (L.script ? { name: L.name, script: L.script } : { name: L.name })), scripts: R.scripts, params: R.params, forces, warnings,
+    spec: S, layers: layers.map((L) => (L.script ? { name: L.name, script: L.script } : { name: L.name })), scripts: R.scripts, params: R.params, forces, warnings, graph: g,
   };
 }
 

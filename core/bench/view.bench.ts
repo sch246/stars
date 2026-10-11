@@ -52,6 +52,7 @@ const scriptMods = new Map([['bench.js', scriptMod]]);
 for (let i = 0; i < 2; i++) {
   console.log(i === 0 ? '--- 冷启动 ---' : '--- 预热后 ---');
   const c = time('galaxy 编译(宇宙/规格/信号变了才做一次)', () => compileView(u, galaxy));
+  time('  再编译:结构没变,接着用图索引(信号 / 规格变了)', () => compileView(u, recent, { signals: { fileChanged }, graph: c.graph }));
   time('  fold 收起(默认)', () => c.fold());
   time('  fold 展开一个目录(交互热路径)', () => c.fold({ expanded: ['pkg0/'] }));
   time('  fold 展开到第 3 层', () => c.fold({ depth: 3 }));
