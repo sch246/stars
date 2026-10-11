@@ -36,10 +36,11 @@ test('监听:创建/改名/删除/修改 → 宇宙实时对账;node_modules 被
   const syncs: Array<{ full: boolean; ops: number }> = [];
   const live: Record<string, number> = {};
   const w = new FsWatcher({
-    root: dir, mountId: 'repo', store, debounceMs: 30, pollSec: 0,
+    root: dir, mountId: 'repo', store, debounceMs: 30, pollSec: 0, catchUpMs: 0,
     onSync: (r) => { Object.assign(live, r.live.size); if (r.op) syncs.push({ full: r.full, ops: r.op.op === 'batch' ? r.op.ops.length : 1 }); },
   });
   w.start();
+  await w.ready();   // 递归监听(macOS / Windows)是异步开起来的:开起来之前的事件收不到
   try {
     const has = (id: string) => new Store(store.file).load().nodes.has(id);
     // 新建文件 + 新建整个目录树
@@ -70,8 +71,9 @@ test('监听:创建/改名/删除/修改 → 宇宙实时对账;node_modules 被
 
 test('监听:事件风暴(上千个文件一次落地)合并成很少几次提交', async () => {
   const { dir, store } = project();
-  const w = new FsWatcher({ root: dir, mountId: 'repo', store, debounceMs: 50, pollSec: 0 });
+  const w = new FsWatcher({ root: dir, mountId: 'repo', store, debounceMs: 50, pollSec: 0, catchUpMs: 0 });
   w.start();
+  await w.ready();
   try {
     const before = store.logCount();
     for (let d = 0; d < 20; d++) {
@@ -83,6 +85,7 @@ test('监听:事件风暴(上千个文件一次落地)合并成很少几次提�
     const commits = store.logCount() - before;
     assert.ok(commits <= 12, `1200 个文件应当只触发很少几次提交,实际 ${commits} 次`);
     assert.equal(w.stats.fullSyncs, 1, '只有启动时那一次全量对账');
+    assert.equal(w.stats.storms, 0);
   } finally { w.stop(); }
 });
 
@@ -108,7 +111,7 @@ test('监听:不是 git 仓库时,宇宙自己的存储文件(.stars/.log/.tmp/.
   apply(u, planScan(u, listFiles(dir), 'repo', 'proj', statMeta(dir)));
   store.save(u);
   let syncs = 0;
-  const w = new FsWatcher({ root: dir, mountId: 'repo', store, debounceMs: 30, pollSec: 0, onSync: () => { syncs++; } });
+  const w = new FsWatcher({ root: dir, mountId: 'repo', store, debounceMs: 30, pollSec: 0, catchUpMs: 0, onSync: () => { syncs++; } });
   w.start();
   try {
     const ids = () => [...new Store(store.file).load().nodes.keys()];
@@ -137,8 +140,9 @@ test('监听:开着 import 边时,改了代码文件 / 新建的文件,dependsOn
   apply(u, planScan(u, listFiles(dir), 'repo', 'proj', statMeta(dir)));
   apply(u, { op: 'setNode', id: 'repo', set: { imports: 'true' } });
   store.save(u);
-  const w = new FsWatcher({ root: dir, mountId: 'repo', store, debounceMs: 30, pollSec: 0 });
+  const w = new FsWatcher({ root: dir, mountId: 'repo', store, debounceMs: 30, pollSec: 0, catchUpMs: 0 });
   w.start();
+  await w.ready();
   const dep = (a: string, b: string) => store.load().edges.get(edgeKey(a, 'dependsOn', b));
   try {
     writeFileSync(join(dir, 'src/a.ts'), "import { b } from './b';\nexport const a = b;\n");
@@ -147,5 +151,17 @@ test('监听:开着 import 边时,改了代码文件 / 新建的文件,dependsOn
     await until(() => !!dep('src/c.ts', 'src/a.ts'));
     writeFileSync(join(dir, 'src/a.ts'), 'export const a = 1;\n');
     await until(() => !dep('src/a.ts', 'src/b.ts'));
+  } finally { w.stop(); }
+});
+
+test('监听:启动后过一会儿再全量对一次账,补上监听开起来之前(收不到事件的那一小段)的变化', async () => {
+  const { dir, store } = project();
+  const w = new FsWatcher({ root: dir, mountId: 'repo', store, debounceMs: 30, pollSec: 0, catchUpMs: 200 });
+  w.start();
+  try {
+    assert.equal(w.stats.fullSyncs, 1);
+    await until(() => w.stats.fullSyncs === 2, 3000);
+    writeFileSync(join(dir, 'later.md'), 'x\n');   // 之后的照常靠事件
+    await until(() => new Store(store.file).load().nodes.has('later.md'));
   } finally { w.stop(); }
 });
