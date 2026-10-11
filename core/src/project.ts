@@ -101,7 +101,7 @@ export class Project {
       if (r.entries.length > 0) {
         this.lastSig = sig;
         this.delivered = r.entries[r.entries.length - 1]!.n;
-        this.send({ type: 'ops', entries: r.entries, n: this.delivered });
+        this.send({ type: 'change', entries: r.entries, n: this.delivered });   // 事件名见 events.ts
         this.scheduleIssues();
         this.agent?.onOps(r.entries);
         return;
@@ -157,7 +157,7 @@ export class Project {
     Object.assign(this.pending.size, l.size); Object.assign(this.pending.changed, l.changed);
     this.liveTimer ??= setTimeout(() => {
       this.liveTimer = undefined;
-      if (this.pending) { this.send({ type: 'signals', ...this.pending }); this.pending = null; }
+      if (this.pending) { this.send({ type: 'file', ...this.pending }); this.pending = null; }
     }, 100);
   }
 
@@ -166,7 +166,7 @@ export class Project {
     invalidateSignals(this.baseDir);
     clearTimeout(this.gitTimer);
     this.gitTimer = setTimeout(() => {
-      try { this.send({ type: 'signals', replace: true, ...loadSignals(this.store.readLog(), this.store.peek(), this.baseDir, 0, this.live) }); } catch { /* ignore */ }
+      try { this.send({ type: 'file', replace: true, ...loadSignals(this.store.readLog(), this.store.peek(), this.baseDir, 0, this.live) }); } catch { /* ignore */ }
     }, 300);
   }
 

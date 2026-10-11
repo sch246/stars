@@ -164,12 +164,12 @@ test('增量协议:提交只推新增的日志条目;延迟写入落盘不推快
     assert.equal(msgs[0]!.n, 0);
     // 1) 一次普通提交 → 一条 ops,不是快照
     store.commit({ op: 'addNode', id: 'k1', label: 'k1' }, { author: 'human' });
-    await waitFor(() => msgs.some((m) => m.type === 'ops'));
-    const ops = msgs.find((m) => m.type === 'ops') as { entries: Array<{ n: number; author: string }>; n: number };
+    await waitFor(() => msgs.some((m) => m.type === 'change'));
+    const ops = msgs.find((m) => m.type === 'change') as { entries: Array<{ n: number; author: string }>; n: number };
     assert.deepEqual([ops.entries.length, ops.entries[0]!.n, ops.entries[0]!.author, ops.n], [1, 1, 'human', 1]);
     // 2) 延迟写入:日志先到(ops),之后文件落盘不应触发整份快照
     store.commit({ op: 'addNode', id: 'k2', label: 'k2' }, { author: 'fs' }, undefined, { defer: true });
-    await waitFor(() => msgs.filter((m) => m.type === 'ops').length === 2);
+    await waitFor(() => msgs.filter((m) => m.type === 'change').length === 2);
     const snapsBefore = msgs.filter((m) => m.type === 'snapshot').length;
     store.flush();
     await new Promise((r) => setTimeout(r, 250));
@@ -179,8 +179,8 @@ test('增量协议:提交只推新增的日志条目;延迟写入落盘不推快
     await waitFor(() => msgs.filter((m) => m.type === 'snapshot').length === snapsBefore + 1);
     // 4) 监听器报告的实时信号:合并后单独推送
     srv.pushLive({ size: { k1: 123 }, changed: { k1: 456 } });
-    await waitFor(() => msgs.some((m) => m.type === 'signals'));
-    assert.deepEqual((msgs.find((m) => m.type === 'signals') as { size: object }).size, { k1: 123 });
+    await waitFor(() => msgs.some((m) => m.type === 'file'));
+    assert.deepEqual((msgs.find((m) => m.type === 'file') as { size: object }).size, { k1: 123 });
   } finally { ctl.abort(); srv.close(); }
 });
 

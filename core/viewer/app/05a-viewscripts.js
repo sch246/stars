@@ -45,6 +45,7 @@ function viewScriptsReady(spec) {
   return false;
 }
 /** 这些文件(项目里的路径)变了:用到它们的脚本整串重新加载(加载完重算;失败了留着上一次的) */
+onEvent('file', ({ paths }) => viewFilesChanged(paths));   // 实时同步发现的(视图脚本或它 import 的改了)
 function viewFilesChanged(paths) {
   const set = new Set(paths), hit = [];
   for (const [entry, d] of viewDeps) if (set.has(entry) || d.files.some((f) => set.has(f))) hit.push(entry);

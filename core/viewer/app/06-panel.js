@@ -208,7 +208,7 @@ function liftedSection(id) {
 
 /** keep = true:只换主节点,不动选中的集合(多选时用,见 setSelection) */
 function select(id, center, keep = false) {
-  if (id !== selected) bridgeEmit('select', id || null);
+  if (id !== selected) emitEvent('select', id || null);
   if (!keep) { selection.clear(); if (id) selection.add(id); selVer++; selEdge = null; }
   selected = id;
   const follow = selection.size > 1 ? null : id;   // 多选时不跟随:每点一个镜头就跳一下太晕

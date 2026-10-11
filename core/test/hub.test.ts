@@ -25,8 +25,8 @@ test('进程内:localApi 和 HTTP 同一张表;subscribe 先收到快照,之后�
     const r = await api.post('/api/cmd', { name: 'add', args: ['x', '想法'], author: 'host' }) as { out: string; n: number };
     assert.match(r.out, /\+ x/);
     assert.equal(store.readLog().at(-1)!.author, 'host');
-    for (let i = 0; i < 100 && !events.some(([, d]) => d.type === 'ops' && d.entries?.some((e) => e.op.id === 'x')); i++) await new Promise((ok) => setTimeout(ok, 30));
-    assert.ok(events.some(([, d]) => d.type === 'ops'), '写入之后收到增量');
+    for (let i = 0; i < 100 && !events.some(([, d]) => d.type === 'change' && d.entries?.some((e) => e.op.id === 'x')); i++) await new Promise((ok) => setTimeout(ok, 30));
+    assert.ok(events.some(([, d]) => d.type === 'change'), '写入之后收到增量');
     const projects = await api.get('/api/projects') as { open: Array<{ dir: string }> };
     assert.equal(projects.open[0]!.dir, dir);
     await assert.rejects(api.post('/api/cmd', { name: 'nope' }), (e: unknown) => e instanceof HttpError && e.status === 400);

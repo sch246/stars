@@ -14,6 +14,7 @@ import { cmdLine, cmdTokenize } from './cmdline.ts';
 import { KERNEL_COMMANDS, execKernel, type KernelCtx } from './commands.ts';
 import { configDir, pickServer } from './config.ts';
 import { StarsError } from './model.ts';
+import { STARS_EVENTS, eventsFor } from './events.ts';
 
 export interface UiResult { ok?: boolean; out?: string; data?: unknown; error?: string }
 
@@ -71,7 +72,7 @@ export function scriptApi(ctx: ScriptCtx) {
     if (v) for (const f of [...subs]) { try { f(v); } catch (err) { console.error(err); } }
   };
   const on = (event: string, f: (v: unknown) => void) => {
-    if (event !== 'change') throw new StarsError(`Node 里的脚本只能订阅 change(${event} 只在查看器里有)`);
+    if (!eventsFor('node').includes(event)) throw new StarsError(`Node 里的脚本能订阅的:${eventsFor('node').join('、')}(${event}${STARS_EVENTS[event] ? ' 只在查看器里有' : ' 不是事件名'};查看器里的:${eventsFor('page').join('、')})`);
     if (!subs.size) { offset = store.readLogSince(0).offset; timer = setInterval(poll, 300); }
     subs.add(f);
     return () => { subs.delete(f); if (!subs.size) clearInterval(timer); };

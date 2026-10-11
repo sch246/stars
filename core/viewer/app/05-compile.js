@@ -8,7 +8,7 @@ function ingest(snap) {
   renderDraftBar();
   if (replay) return;
   applyData(snap);
-  bridgeEmit('change', { n: lastN, reset: true });   // 整份重新载入(重连、切项目……)
+  emitEvent('change', { n: lastN, reset: true });   // 整份重新载入(重连、切项目……)
   wakeApplied();
   if (!$('editor').hidden && !editorDirty) loadEditor(false);
 }

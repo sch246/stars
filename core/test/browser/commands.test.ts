@@ -55,4 +55,21 @@ test('命令:写命令走内核、--draft、选项检查、CLI 才有的命令�
   assert.equal(s.store.load().nodes.get('idea/a')!.label, '想法A', '别人的没被改');
   assert.ok(s.store.readLog().some((e) => e.author === 'script:tools/p.js'));
   assert.doesNotMatch(readFileSync(join(s.dir, 'universe.stars'), 'utf8'), /改别人的/);
+
+  // 事件:脚本订阅的名字和服务端推的、脚本节点的触发是同一套(file、draft …,见 core/src/events.ts)
+  writeFileSync(join(s.dir, 'tools/w.js'), `export default async (stars) => {
+  stars.on('file', async (v) => { if (v.paths.includes('src/app.ts')) await stars.cmd.set('w1', { summary: 'saw ' + v.paths.join(',') }); });
+  stars.on('draft', async (v) => { await stars.cmd.set('w1', { label: 'draft ' + v.entries.length }); });
+  await stars.cmd.add('w1', 'watcher');
+  return 'listening';
+};\n`);
+  await s.ui('connect write tools/w.js');
+  assert.match((await s.ui('run tools/w.js')).out, /listening/);
+  writeFileSync(join(s.dir, 'src/app.ts'), 'export const app = 2; // 改了\n');
+  for (let i = 0; i < 50 && !/saw/.test(s.store.load().nodes.get('w1')?.attrs.summary ?? ''); i++) await sleep(150);
+  assert.match(s.store.load().nodes.get('w1')!.attrs.summary ?? '', /saw .*src\/app\.ts/, '脚本收到 file 事件');
+  await s.ui('add z1 --draft');
+  for (let i = 0; i < 50 && s.store.load().nodes.get('w1')!.label !== 'draft 1'; i++) await sleep(150);
+  assert.equal(s.store.load().nodes.get('w1')!.label, 'draft 1', '脚本收到 draft 事件');
+  await s.ui('stop tools/w.js');
 }));
