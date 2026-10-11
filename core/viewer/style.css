@@ -309,6 +309,8 @@ code.qexpr { display: block; white-space: pre-wrap; word-break: break-all; font:
 #tray .tr-e .acts { display: none; gap: 2px; flex: none; } #tray .tr-e:hover .acts, #tray .tr-e.top .acts { display: flex; }
 #tray .tr-e .acts span { padding: 0 4px; border-radius: 4px; color: var(--muted); } #tray .tr-e .acts span:hover { color: #fff; background: #7aa7ff33; }
 #tray .tr-f { color: var(--muted); font-size: 10.5px; margin-top: 4px; line-height: 1.4; }
+#tray .tr-f kbd { font-size: 9.5px; padding: 0 3px; margin-right: 2px; } #tray .tr-f .no { color: #ff8aa0; } #tray .tr-f .tr-n { opacity: .8; }
+#tray .tr-e.ext .ico { color: #9ef0c0; } #tray .tr-e.ext .lb { color: #cfeedd; }
 /* 新建节点的小框 */
 #creator { position: fixed; z-index: 40; width: 300px; padding: 7px 8px; border-radius: 10px; box-shadow: 0 8px 28px #0008; }
 #creator .cr-row { display: flex; gap: 6px; }
