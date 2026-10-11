@@ -23,7 +23,12 @@ function renderEdLayers() {
     : `<span class="ed-l">${esc(l.name || '这个视图')}</span>`)).join(' → ')
     + (compiled.scripts.length ? ` <span class="link" data-cmd="view-reload" title="连同它们 import 的文件">重新载入脚本</span>` : '');
 }
-function layoutPanels() { const b = $('tools').getBoundingClientRect().bottom + 10; for (const id of ['editor', 'review', 'projects', 'physics']) { $(id).style.top = b + 'px'; $(id).style.maxHeight = `calc(100vh - ${b + 30}px)`; } }
+/** 左边那一摞(规则 / 审阅 / 项目 / 设置)接在工具栏下面,往下到剪贴板为止(剪贴板在左下角,别把它整个盖住) */
+function layoutPanels() {
+  const b = $('tools').getBoundingClientRect().bottom + 10, tr = $('tray');
+  const below = tr && !panelMoved('tray') && tr.getClientRects().length ? innerHeight - tr.getBoundingClientRect().top + 8 : 30;
+  for (const id of ['editor', 'review', 'projects', 'physics']) { if (panelMoved(id)) continue; $(id).style.top = b + 'px'; $(id).style.maxHeight = `calc(100vh - ${b + below}px)`; }
+}
 addEventListener('resize', () => { layoutPanels(); updateCrumbWidth(); });
 // 面板的开关都是命令(panel <名字>),键位见「命令」一节的 KEYMAP
 function togglePanel(id, on) {

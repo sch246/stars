@@ -43,7 +43,7 @@ stars serve --watch            # 打开 http://localhost:4321;磁盘上的变化
 |---|---|
 | [`core/`](core/) | 现在的星罗:内核、命令行、实时查看器 |
 | `universe.stars` | 用星罗描述星罗自己 |
-| `src/`、`webapp/`、`index.html` | 旧版:VS Code 扩展和网页版([stars.sch246.com](https://stars.sch246.com)),说明见 [`LEGACY.md`](LEGACY.md) |
+| `index.html` | 旧版的网页([stars.sch246.com](https://stars.sch246.com)),单文件;旧版的 VS Code 扩展等代码已删,要看翻 git 历史(提交 `662d34c` 及以前) |
 
 ## 开发
 

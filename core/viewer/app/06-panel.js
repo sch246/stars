@@ -8,6 +8,7 @@ function setView(v) {
   currentView = v; setHash(); fresh = true; selected = null; selection.clear(); selVer++; selEdge = null; hiddenTypes.clear(); manual.clear(); auto.clear();
   curSpaceId = null; expandedSet.clear(); fade = null; spaces.clear(); activeTags.clear(); zoomFocusId = null;
   restorePlace();   // 每个视图记着自己的位置
+  navNote();
   for (const n of sim.values()) n.born = 0;
   recompute();
   fresh = false; userMoved = false; setTimeout(fit, 900); setTimeout(() => { if (!userMoved) fit(); }, 3600);
@@ -211,6 +212,7 @@ function select(id, center, keep = false) {
   if (id !== selected) emitEvent('select', id || null);
   if (!keep) { selection.clear(); if (id) selection.add(id); selVer++; selEdge = null; }
   selected = id;
+  navNote();
   const follow = selection.size > 1 ? null : id;   // 多选时不跟随:每点一个镜头就跳一下太晕
   if (isSpaces()) {
     // 跟随时不自己抢镜头:只保证它在画面里,居中交给(带延迟的)跟随,免得两段动画打架

@@ -1,19 +1,12 @@
-stars 1 rev=26
+stars 1 rev=28
 
 node .gitattributes ".gitattributes" type=file file=.gitattributes size=66
+node .github/ ".github" type=dir file=.github/
+node .github/workflows/ "workflows" type=dir file=.github/workflows/
+node .github/workflows/core.yml "core.yml" type=file file=.github/workflows/core.yml ext=yml size=1909
 node .gitignore ".gitignore" type=file file=.gitignore size=70
-node .npmrc ".npmrc" type=file file=.npmrc size=30
-node .vscode-test.mjs ".vscode-test.mjs" type=file file=.vscode-test.mjs ext=mjs size=117
-node .vscode/ ".vscode" type=dir file=.vscode/
-node .vscode/extensions.json "extensions.json" type=file file=.vscode/extensions.json ext=json size=241
-node .vscode/launch.json "launch.json" type=file file=.vscode/launch.json ext=json size=592
-node .vscode/settings.json "settings.json" type=file file=.vscode/settings.json ext=json size=626
-node .vscode/tasks.json "tasks.json" type=file file=.vscode/tasks.json ext=json size=1485
-node .vscodeignore ".vscodeignore" type=file file=.vscodeignore size=310
-node CHANGELOG.md "CHANGELOG.md" type=file file=CHANGELOG.md ext=md size=232
 node LICENSE "LICENSE" type=file file=LICENSE size=1063
 node README.md "README.md" type=file file=README.md ext=md size=10774
-node code_export.md "code_export.md" type=file file=code_export.md ext=md size=194121
 node core "内核 core/" type=module file=core/ summary=节点+带类型的边、文本格式、操作日志、lint、查询、CLI、实时查看器。零依赖。
 node core/ "core" type=dir file=core/
 node core/DESIGN.md "DESIGN.md" type=file file=core/DESIGN.md ext=md size=5013
@@ -25,107 +18,155 @@ node core/demo/history.sh "history.sh" type=file file=core/demo/history.sh ext=s
 node core/demo/live-fs.sh "live-fs.sh" type=file file=core/demo/live-fs.sh ext=sh size=2119
 node core/demo/live.sh "live.sh" type=file file=core/demo/live.sh ext=sh size=1539
 node core/genesis.stars "genesis.stars" type=file file=core/genesis.stars ext=stars size=765
+node core/grants.llf "grants.llf" type=file file=core/grants.llf ext=llf size=919
+node core/keys.llf "keys.llf" type=file file=core/keys.llf ext=llf size=1851
+node core/package-lock.json "package-lock.json" type=file file=core/package-lock.json ext=json size=13329
 node core/package.json "package.json" type=file file=core/package.json ext=json size=392
+node core/settings.llf "settings.llf" type=file file=core/settings.llf ext=llf size=5576
 node core/src/ "src" type=dir file=core/src/
 node core/src/activity.ts "activity.ts" type=file file=core/src/activity.ts ext=ts size=5752
+node core/src/agent.ts "agent.ts" type=file file=core/src/agent.ts ext=ts size=17269
+node core/src/api.ts "api.ts" type=file file=core/src/api.ts ext=ts size=22272
+node core/src/arrange.ts "arrange.ts" type=file file=core/src/arrange.ts ext=ts size=21372
+node core/src/bridge.ts "bridge.ts" type=file file=core/src/bridge.ts ext=ts size=9912
 node core/src/cli.ts "cli.ts" type=file file=core/src/cli.ts ext=ts size=11548
+node core/src/cmdline.ts "cmdline.ts" type=file file=core/src/cmdline.ts ext=ts size=2811
+node core/src/cmdread.ts "cmdread.ts" type=file file=core/src/cmdread.ts ext=ts size=3622
+node core/src/cmdspec.ts "cmdspec.ts" type=file file=core/src/cmdspec.ts ext=ts size=22243
+node core/src/commands.ts "commands.ts" type=file file=core/src/commands.ts ext=ts size=32960
+node core/src/config.ts "config.ts" type=file file=core/src/config.ts ext=ts size=6353
+node core/src/draft.ts "draft.ts" type=file file=core/src/draft.ts ext=ts size=4522
+node core/src/events.ts "events.ts" type=file file=core/src/events.ts ext=ts size=2340
 node core/src/exporter.ts "exporter.ts" type=file file=core/src/exporter.ts ext=ts size=2157
 node core/src/expr.ts "expr.ts" type=file file=core/src/expr.ts ext=ts size=5214
+node core/src/files.ts "files.ts" type=file file=core/src/files.ts ext=ts size=9618
 node core/src/format.ts "format.ts" type=file file=core/src/format.ts ext=ts size=5476
+node core/src/fsops.ts "fsops.ts" type=file file=core/src/fsops.ts ext=ts size=8562
 node core/src/fssync.ts "fssync.ts" type=file file=core/src/fssync.ts ext=ts size=12191
 node core/src/history.ts "history.ts" type=file file=core/src/history.ts ext=ts size=3598
+node core/src/hub.ts "hub.ts" type=file file=core/src/hub.ts ext=ts size=4931
+node core/src/imports.ts "imports.ts" type=file file=core/src/imports.ts ext=ts size=4409
+node core/src/jsonc.ts "jsonc.ts" type=file file=core/src/jsonc.ts ext=ts size=15130
 node core/src/lint.ts "lint.ts" type=file file=core/src/lint.ts ext=ts size=5829
+node core/src/llf.ts "llf.ts" type=file file=core/src/llf.ts ext=ts size=35013
+node core/src/mcp.ts "mcp.ts" type=file file=core/src/mcp.ts ext=ts size=11146
 node core/src/merge.ts "merge.ts" type=file file=core/src/merge.ts ext=ts size=3996
 node core/src/model.ts "model.ts" type=file file=core/src/model.ts ext=ts size=2226
 node core/src/nodefs.ts "nodefs.ts" type=file file=core/src/nodefs.ts ext=ts size=3023
 node core/src/ops.ts "ops.ts" type=file file=core/src/ops.ts ext=ts size=4397
+node core/src/page.ts "page.ts" type=file file=core/src/page.ts ext=ts size=3584
+node core/src/project.ts "project.ts" type=file file=core/src/project.ts ext=ts size=10587
 node core/src/proposals.ts "proposals.ts" type=file file=core/src/proposals.ts ext=ts size=1574
 node core/src/query.ts "query.ts" type=file file=core/src/query.ts ext=ts size=3509
+node core/src/runlog.ts "runlog.ts" type=file file=core/src/runlog.ts ext=ts size=2964
 node core/src/scan.ts "scan.ts" type=file file=core/src/scan.ts ext=ts size=3163
+node core/src/script.ts "script.ts" type=file file=core/src/script.ts ext=ts size=7800
+node core/src/scriptnode.ts "scriptnode.ts" type=file file=core/src/scriptnode.ts ext=ts size=6337
 node core/src/serve.ts "serve.ts" type=file file=core/src/serve.ts ext=ts size=2948
 node core/src/snapshot.ts "snapshot.ts" type=file file=core/src/snapshot.ts ext=ts size=921
+node core/src/stale.ts "stale.ts" type=file file=core/src/stale.ts ext=ts size=7067
 node core/src/store.ts "store.ts" type=file file=core/src/store.ts ext=ts size=2825
+node core/src/styles.ts "styles.ts" type=file file=core/src/styles.ts ext=ts size=5890
+node core/src/textsync.ts "textsync.ts" type=file file=core/src/textsync.ts ext=ts size=2837
+node core/src/toml.ts "toml.ts" type=file file=core/src/toml.ts ext=ts size=23230
 node core/src/view.ts "view.ts" type=file file=core/src/view.ts ext=ts size=10789
+node core/src/viewexpr.ts "viewexpr.ts" type=file file=core/src/viewexpr.ts ext=ts size=9703
+node core/src/viewfold.ts "viewfold.ts" type=file file=core/src/viewfold.ts ext=ts size=12881
+node core/src/viewgraph.ts "viewgraph.ts" type=file file=core/src/viewgraph.ts ext=ts size=9701
+node core/src/viewlayers.ts "viewlayers.ts" type=file file=core/src/viewlayers.ts ext=ts size=5393
+node core/src/viewload.ts "viewload.ts" type=file file=core/src/viewload.ts ext=ts size=3406
+node core/src/viewscript.ts "viewscript.ts" type=file file=core/src/viewscript.ts ext=ts size=16808
+node core/src/viewspec.ts "viewspec.ts" type=file file=core/src/viewspec.ts ext=ts size=23260
 node core/src/watch.ts "watch.ts" type=file file=core/src/watch.ts ext=ts size=8156
 node core/test/ "test" type=dir file=core/test/
+node core/test/agent.test.ts "agent.test.ts" type=file file=core/test/agent.test.ts ext=ts size=8974
+node core/test/arrange.test.ts "arrange.test.ts" type=file file=core/test/arrange.test.ts ext=ts size=14453
+node core/test/bridge.test.ts "bridge.test.ts" type=file file=core/test/bridge.test.ts ext=ts size=12385
+node core/test/browser/ "browser" type=dir file=core/test/browser/
+node core/test/browser/cdp.ts "cdp.ts" type=file file=core/test/browser/cdp.ts ext=ts size=14494
+node core/test/browser/commands.test.ts "commands.test.ts" type=file file=core/test/browser/commands.test.ts ext=ts size=4672
+node core/test/browser/create.test.ts "create.test.ts" type=file file=core/test/browser/create.test.ts ext=ts size=6442
+node core/test/browser/dialogs.test.ts "dialogs.test.ts" type=file file=core/test/browser/dialogs.test.ts ext=ts size=3234
+node core/test/browser/drag.test.ts "drag.test.ts" type=file file=core/test/browser/drag.test.ts ext=ts size=3177
+node core/test/browser/edit.test.ts "edit.test.ts" type=file file=core/test/browser/edit.test.ts ext=ts size=4504
+node core/test/browser/export.test.ts "export.test.ts" type=file file=core/test/browser/export.test.ts ext=ts size=2798
+node core/test/browser/orbit.test.ts "orbit.test.ts" type=file file=core/test/browser/orbit.test.ts ext=ts size=1594
+node core/test/browser/reader.test.ts "reader.test.ts" type=file file=core/test/browser/reader.test.ts ext=ts size=3841
+node core/test/browser/select.test.ts "select.test.ts" type=file file=core/test/browser/select.test.ts ext=ts size=4522
+node core/test/browser/stage.ts "stage.ts" type=file file=core/test/browser/stage.ts ext=ts size=9909
+node core/test/browser/timeline.test.ts "timeline.test.ts" type=file file=core/test/browser/timeline.test.ts ext=ts size=1920
+node core/test/browser/tray.test.ts "tray.test.ts" type=file file=core/test/browser/tray.test.ts ext=ts size=6469
+node core/test/browser/viewscript.test.ts "viewscript.test.ts" type=file file=core/test/browser/viewscript.test.ts ext=ts size=5428
+node core/test/cmdspec.test.ts "cmdspec.test.ts" type=file file=core/test/cmdspec.test.ts ext=ts size=4111
 node core/test/core.test.ts "core.test.ts" type=file file=core/test/core.test.ts ext=ts size=7465
+node core/test/draft.test.ts "draft.test.ts" type=file file=core/test/draft.test.ts ext=ts size=9907
+node core/test/fixtures/ "fixtures" type=dir file=core/test/fixtures/
+node core/test/fixtures/llf-vectors.json "llf-vectors.json" type=file file=core/test/fixtures/llf-vectors.json ext=json size=19508
+node core/test/forms.test.ts "forms.test.ts" type=file file=core/test/forms.test.ts ext=ts size=17955
 node core/test/fssync.test.ts "fssync.test.ts" type=file file=core/test/fssync.test.ts ext=ts size=8688
+node core/test/hub.test.ts "hub.test.ts" type=file file=core/test/hub.test.ts ext=ts size=4929
+node core/test/llf.test.ts "llf.test.ts" type=file file=core/test/llf.test.ts ext=ts size=35030
+node core/test/lock.test.ts "lock.test.ts" type=file file=core/test/lock.test.ts ext=ts size=2907
+node core/test/mcp.test.ts "mcp.test.ts" type=file file=core/test/mcp.test.ts ext=ts size=9698
 node core/test/merge.test.ts "merge.test.ts" type=file file=core/test/merge.test.ts ext=ts size=4852
+node core/test/queries.test.ts "queries.test.ts" type=file file=core/test/queries.test.ts ext=ts size=6461
+node core/test/script.test.ts "script.test.ts" type=file file=core/test/script.test.ts ext=ts size=4487
 node core/test/server.test.ts "server.test.ts" type=file file=core/test/server.test.ts ext=ts size=13810
+node core/test/stale.test.ts "stale.test.ts" type=file file=core/test/stale.test.ts ext=ts size=9039
+node core/test/styles.test.ts "styles.test.ts" type=file file=core/test/styles.test.ts ext=ts size=9192
+node core/test/textsync.test.ts "textsync.test.ts" type=file file=core/test/textsync.test.ts ext=ts size=1956
+node core/test/viewer-src.test.ts "viewer-src.test.ts" type=file file=core/test/viewer-src.test.ts ext=ts size=1037
+node core/test/viewscript.test.ts "viewscript.test.ts" type=file file=core/test/viewscript.test.ts ext=ts size=23100
 node core/test/watch.test.ts "watch.test.ts" type=file file=core/test/watch.test.ts ext=ts size=5099
+node core/tsconfig.json "tsconfig.json" type=file file=core/tsconfig.json ext=json size=880
 node core/viewer/ "viewer" type=dir file=core/viewer/
+node core/viewer/app/ "app" type=dir file=core/viewer/app/
+node core/viewer/app/00-state.js "00-state.js" type=file file=core/viewer/app/00-state.js ext=js size=4319
+node core/viewer/app/01-settings-model.js "01-settings-model.js" type=file file=core/viewer/app/01-settings-model.js ext=js size=7545
+node core/viewer/app/02-forces.js "02-forces.js" type=file file=core/viewer/app/02-forces.js ext=js size=7520
+node core/viewer/app/03-protocol.js "03-protocol.js" type=file file=core/viewer/app/03-protocol.js ext=js size=6785
+node core/viewer/app/04-draft.js "04-draft.js" type=file file=core/viewer/app/04-draft.js ext=js size=5790
+node core/viewer/app/05-compile.js "05-compile.js" type=file file=core/viewer/app/05-compile.js ext=js size=12425
+node core/viewer/app/05a-viewscripts.js "05a-viewscripts.js" type=file file=core/viewer/app/05a-viewscripts.js ext=js size=5519
+node core/viewer/app/06-panel.js "06-panel.js" type=file file=core/viewer/app/06-panel.js ext=js size=20786
+node core/viewer/app/06a-types.js "06a-types.js" type=file file=core/viewer/app/06a-types.js ext=js size=14035
+node core/viewer/app/07-camera.js "07-camera.js" type=file file=core/viewer/app/07-camera.js ext=js size=3791
+node core/viewer/app/08-interaction.js "08-interaction.js" type=file file=core/viewer/app/08-interaction.js ext=js size=9956
+node core/viewer/app/08a-select.js "08a-select.js" type=file file=core/viewer/app/08a-select.js ext=js size=13683
+node core/viewer/app/08b-link.js "08b-link.js" type=file file=core/viewer/app/08b-link.js ext=js size=20013
+node core/viewer/app/08c-arrange.js "08c-arrange.js" type=file file=core/viewer/app/08c-arrange.js ext=js size=11632
+node core/viewer/app/09-server.js "09-server.js" type=file file=core/viewer/app/09-server.js ext=js size=3583
+node core/viewer/app/10-view-editor.js "10-view-editor.js" type=file file=core/viewer/app/10-view-editor.js ext=js size=9826
+node core/viewer/app/11-projects.js "11-projects.js" type=file file=core/viewer/app/11-projects.js ext=js size=6538
+node core/viewer/app/12-scripts.js "12-scripts.js" type=file file=core/viewer/app/12-scripts.js ext=js size=4121
+node core/viewer/app/12a-agent.js "12a-agent.js" type=file file=core/viewer/app/12a-agent.js ext=js size=10012
+node core/viewer/app/13-files.js "13-files.js" type=file file=core/viewer/app/13-files.js ext=js size=14723
+node core/viewer/app/14-markdown-html.js "14-markdown-html.js" type=file file=core/viewer/app/14-markdown-html.js ext=js size=17684
+node core/viewer/app/15-bridge.js "15-bridge.js" type=file file=core/viewer/app/15-bridge.js ext=js size=7393
+node core/viewer/app/16-forms.js "16-forms.js" type=file file=core/viewer/app/16-forms.js ext=js size=11295
+node core/viewer/app/17-file-io.js "17-file-io.js" type=file file=core/viewer/app/17-file-io.js ext=js size=9168
+node core/viewer/app/18-chrome.js "18-chrome.js" type=file file=core/viewer/app/18-chrome.js ext=js size=2164
+node core/viewer/app/19-settings-panel.js "19-settings-panel.js" type=file file=core/viewer/app/19-settings-panel.js ext=js size=19691
+node core/viewer/app/20-timeline.js "20-timeline.js" type=file file=core/viewer/app/20-timeline.js ext=js size=15933
+node core/viewer/app/21-spaces.js "21-spaces.js" type=file file=core/viewer/app/21-spaces.js ext=js size=12436
+node core/viewer/app/22-filter.js "22-filter.js" type=file file=core/viewer/app/22-filter.js ext=js size=4132
+node core/viewer/app/23-space-draw.js "23-space-draw.js" type=file file=core/viewer/app/23-space-draw.js ext=js size=14892
+node core/viewer/app/23a-orbit.js "23a-orbit.js" type=file file=core/viewer/app/23a-orbit.js ext=js size=3691
+node core/viewer/app/24-navigation.js "24-navigation.js" type=file file=core/viewer/app/24-navigation.js ext=js size=13671
+node core/viewer/app/25-draw.js "25-draw.js" type=file file=core/viewer/app/25-draw.js ext=js size=23964
+node core/viewer/app/26-commands.js "26-commands.js" type=file file=core/viewer/app/26-commands.js ext=js size=36969
+node core/viewer/app/27-commands-universe.js "27-commands-universe.js" type=file file=core/viewer/app/27-commands-universe.js ext=js size=18132
+node core/viewer/app/27a-tray.js "27a-tray.js" type=file file=core/viewer/app/27a-tray.js ext=js size=27345
+node core/viewer/app/27b-create.js "27b-create.js" type=file file=core/viewer/app/27b-create.js ext=js size=25964
+node core/viewer/app/28-keys-console.js "28-keys-console.js" type=file file=core/viewer/app/28-keys-console.js ext=js size=10220
+node core/viewer/app/29-boot.js "29-boot.js" type=file file=core/viewer/app/29-boot.js ext=js size=6266
 node core/viewer/d3.v7.min.js "d3.v7.min.js" type=file file=core/viewer/d3.v7.min.js ext=js size=279706
 node core/viewer/index.html "index.html" type=file file=core/viewer/index.html ext=html size=26127
-node esbuild.js "esbuild.js" type=file file=esbuild.js ext=js size=1175
-node eslint.config.mjs "eslint.config.mjs" type=file file=eslint.config.mjs ext=mjs size=586
+node core/viewer/style.css "style.css" type=file file=core/viewer/style.css ext=css size=39140
 node goal "关系编辑器" type=concept summary="重新定位:关系的编辑器与维护工具。内核(库+CLI)是本体,UI 只是视图;人和 AI 共用同一套接口。"
 node index.html "index.html" type=file file=index.html ext=html size=146191
-node media/ "media" type=dir file=media/
-node media/atom-one-dark.min.css "atom-one-dark.min.css" type=file file=media/atom-one-dark.min.css ext=css size=856
-node media/d3.v7.min.js "d3.v7.min.js" type=file file=media/d3.v7.min.js ext=js size=279706
-node media/highlight.min.js "highlight.min.js" type=file file=media/highlight.min.js ext=js size=121727
-node media/i18n.js "i18n.js" type=file file=media/i18n.js ext=js size=12008
-node media/main.js "main.js" type=file file=media/main.js ext=js size=120327
-node media/marked.min.js "marked.min.js" type=file file=media/marked.min.js ext=js size=39903
-node media/styles.css "styles.css" type=file file=media/styles.css ext=css size=12009
-node media/uuid.min.js "uuid.min.js" type=file file=media/uuid.min.js ext=js size=8160
-node old-ext "VS Code 扩展(旧)" type=module file=src/extension.ts summary="旧架构:扩展宿主 + webview,数据存 .stars/main.graph.json。"
-node old-media "原生 JS 前端(最旧)" type=module file=media/main.js summary="已被 webapp 取代,扩展不再加载。"
-node old-webapp "Svelte webapp(旧)" type=module file=webapp/ summary="旧架构:渲染 + 输入路由树 + 偏好面板,与新内核尚未对接。"
-node package.json "package.json" type=file file=package.json ext=json size=5973
-node pic.png "pic.png" type=file file=pic.png ext=png size=133865
-node pnpm-lock.yaml "pnpm-lock.yaml" type=file file=pnpm-lock.yaml ext=yaml size=105741
 node repo "stars" type=dir
-node src/ "src" type=dir file=src/
-node src/extension.ts "extension.ts" type=file file=src/extension.ts ext=ts size=30995
-node src/graph/ "graph" type=dir file=src/graph/
-node src/graph/operations.ts "operations.ts" type=file file=src/graph/operations.ts ext=ts size=8686
-node src/graph/schema.ts "schema.ts" type=file file=src/graph/schema.ts ext=ts size=2150
-node src/utilities/ "utilities" type=dir file=src/utilities/
-node src/utilities/getUri.ts "getUri.ts" type=file file=src/utilities/getUri.ts ext=ts size=196
-node src/utilities/nonce.ts "nonce.ts" type=file file=src/utilities/nonce.ts ext=ts size=259
-node stars.png "stars.png" type=file file=stars.png ext=png size=1193546
-node stars_v4.json "stars_v4.json" type=file file=stars_v4.json ext=json size=21388
-node tsconfig.json "tsconfig.json" type=file file=tsconfig.json ext=json size=673
 node universe "宇宙" kind=root summary=一切的起点。类型、规则、视图都将从这里长出来。
-node webapp/ "webapp" type=dir file=webapp/
-node webapp/index.html "index.html" type=file file=webapp/index.html ext=html size=275
-node webapp/package.json "package.json" type=file file=webapp/package.json ext=json size=534
-node webapp/pnpm-lock.yaml "pnpm-lock.yaml" type=file file=webapp/pnpm-lock.yaml ext=yaml size=27748
-node webapp/src/ "src" type=dir file=webapp/src/
-node webapp/src/App.svelte "App.svelte" type=file file=webapp/src/App.svelte ext=svelte size=7863
-node webapp/src/app.css "app.css" type=file file=webapp/src/app.css ext=css size=1028
-node webapp/src/lib/ "lib" type=dir file=webapp/src/lib/
-node webapp/src/lib/core/ "core" type=dir file=webapp/src/lib/core/
-node webapp/src/lib/core/defaults.ts "defaults.ts" type=file file=webapp/src/lib/core/defaults.ts ext=ts size=3161
-node webapp/src/lib/core/markdown.ts "markdown.ts" type=file file=webapp/src/lib/core/markdown.ts ext=ts size=1454
-node webapp/src/lib/core/operations.ts "operations.ts" type=file file=webapp/src/lib/core/operations.ts ext=ts size=8686
-node webapp/src/lib/core/preferences.ts "preferences.ts" type=file file=webapp/src/lib/core/preferences.ts ext=ts size=3011
-node webapp/src/lib/core/schema.ts "schema.ts" type=file file=webapp/src/lib/core/schema.ts ext=ts size=5801
-node webapp/src/lib/input/ "input" type=dir file=webapp/src/lib/input/
-node webapp/src/lib/input/inputConstraints.ts "inputConstraints.ts" type=file file=webapp/src/lib/input/inputConstraints.ts ext=ts size=10424
-node webapp/src/lib/input/inputTree.ts "inputTree.ts" type=file file=webapp/src/lib/input/inputTree.ts ext=ts size=16392
-node webapp/src/lib/persistence/ "persistence" type=dir file=webapp/src/lib/persistence/
-node webapp/src/lib/persistence/defaultrepository.ts "defaultrepository.ts" type=file file=webapp/src/lib/persistence/defaultrepository.ts ext=ts size=362
-node webapp/src/lib/persistence/indexeddb.ts "indexeddb.ts" type=file file=webapp/src/lib/persistence/indexeddb.ts ext=ts size=2400
-node webapp/src/lib/persistence/repository.ts "repository.ts" type=file file=webapp/src/lib/persistence/repository.ts ext=ts size=1210
-node webapp/src/lib/persistence/vscoderepository.ts "vscoderepository.ts" type=file file=webapp/src/lib/persistence/vscoderepository.ts ext=ts size=3568
-node webapp/src/lib/runtime/ "runtime" type=dir file=webapp/src/lib/runtime/
-node webapp/src/lib/runtime/graphRuntime.ts "graphRuntime.ts" type=file file=webapp/src/lib/runtime/graphRuntime.ts ext=ts size=47795
-node webapp/src/lib/stores/ "stores" type=dir file=webapp/src/lib/stores/
-node webapp/src/lib/stores/graph.ts "graph.ts" type=file file=webapp/src/lib/stores/graph.ts ext=ts size=24708
-node webapp/src/lib/ui/ "ui" type=dir file=webapp/src/lib/ui/
-node webapp/src/lib/ui/CanvasStage.svelte "CanvasStage.svelte" type=file file=webapp/src/lib/ui/CanvasStage.svelte ext=svelte size=2927
-node webapp/src/lib/ui/CreatePanel.svelte "CreatePanel.svelte" type=file file=webapp/src/lib/ui/CreatePanel.svelte ext=svelte size=2556
-node webapp/src/lib/ui/DismissibleOverlay.svelte "DismissibleOverlay.svelte" type=file file=webapp/src/lib/ui/DismissibleOverlay.svelte ext=svelte size=1435
-node webapp/src/lib/ui/Hud.svelte "Hud.svelte" type=file file=webapp/src/lib/ui/Hud.svelte ext=svelte size=1692
-node webapp/src/lib/ui/InputTreeNodeRow.svelte "InputTreeNodeRow.svelte" type=file file=webapp/src/lib/ui/InputTreeNodeRow.svelte ext=svelte size=14923
-node webapp/src/lib/ui/PreferencesPanel.svelte "PreferencesPanel.svelte" type=file file=webapp/src/lib/ui/PreferencesPanel.svelte ext=svelte size=26343
-node webapp/src/lib/ui/Sidebar.svelte "Sidebar.svelte" type=file file=webapp/src/lib/ui/Sidebar.svelte ext=svelte size=7365
-node webapp/src/main.ts "main.ts" type=file file=webapp/src/main.ts ext=ts size=177
-node webapp/src/vite-env.d.ts "vite-env.d.ts" type=file file=webapp/src/vite-env.d.ts ext=ts size=37
-node webapp/tsconfig.json "tsconfig.json" type=file file=webapp/tsconfig.json ext=json size=450
-node webapp/vite.config.ts "vite.config.ts" type=file file=webapp/vite.config.ts ext=ts size=163
 node ~concept "概念" kind=nodeType color=#4facfe
 node ~contains "包含" kind=edgeType summary="A 包含 B。不能有环;包含的是什么(文件夹包含文件、模块包含文件、主题包含概念……)由视图决定,B 可以同时在几个 A 里。" acyclic=true
 node ~dependsOn "依赖" kind=edgeType summary="A 需要 B 才能工作。"
@@ -135,20 +176,22 @@ node ~file "文件" kind=nodeType color=#33ffff
 node ~module "模块" kind=nodeType color=#bd00ff
 node ~note "笔记" kind=nodeType color=#ffaa00
 node ~related "关联" kind=edgeType summary="A 与 B 有关,不分方向。" symmetric=true
-node 知识网络-域聚合力导向图.html "知识网络-域聚合力导向图.html" type=file file=知识网络-域聚合力导向图.html ext=html size=26804
 
-.vscode/ -contains-> .vscode/extensions.json
-.vscode/ -contains-> .vscode/launch.json
-.vscode/ -contains-> .vscode/settings.json
-.vscode/ -contains-> .vscode/tasks.json
+.github/ -contains-> .github/workflows/
+.github/workflows/ -contains-> .github/workflows/core.yml
 core -describes-> core/src/model.ts
 core/ -contains-> core/DESIGN.md
 core/ -contains-> core/bench/
 core/ -contains-> core/demo/
 core/ -contains-> core/genesis.stars
+core/ -contains-> core/grants.llf
+core/ -contains-> core/keys.llf
+core/ -contains-> core/package-lock.json
 core/ -contains-> core/package.json
+core/ -contains-> core/settings.llf
 core/ -contains-> core/src/
 core/ -contains-> core/test/
+core/ -contains-> core/tsconfig.json
 core/ -contains-> core/viewer/
 core/bench/ -contains-> core/bench/view.bench.ts
 core/bench/ -contains-> core/bench/watch.bench.ts
@@ -156,113 +199,147 @@ core/demo/ -contains-> core/demo/history.sh
 core/demo/ -contains-> core/demo/live-fs.sh
 core/demo/ -contains-> core/demo/live.sh
 core/src/ -contains-> core/src/activity.ts
+core/src/ -contains-> core/src/agent.ts
+core/src/ -contains-> core/src/api.ts
+core/src/ -contains-> core/src/arrange.ts
+core/src/ -contains-> core/src/bridge.ts
 core/src/ -contains-> core/src/cli.ts
+core/src/ -contains-> core/src/cmdline.ts
+core/src/ -contains-> core/src/cmdread.ts
+core/src/ -contains-> core/src/cmdspec.ts
+core/src/ -contains-> core/src/commands.ts
+core/src/ -contains-> core/src/config.ts
+core/src/ -contains-> core/src/draft.ts
+core/src/ -contains-> core/src/events.ts
 core/src/ -contains-> core/src/exporter.ts
 core/src/ -contains-> core/src/expr.ts
+core/src/ -contains-> core/src/files.ts
 core/src/ -contains-> core/src/format.ts
+core/src/ -contains-> core/src/fsops.ts
 core/src/ -contains-> core/src/fssync.ts
 core/src/ -contains-> core/src/history.ts
+core/src/ -contains-> core/src/hub.ts
+core/src/ -contains-> core/src/imports.ts
+core/src/ -contains-> core/src/jsonc.ts
 core/src/ -contains-> core/src/lint.ts
+core/src/ -contains-> core/src/llf.ts
+core/src/ -contains-> core/src/mcp.ts
 core/src/ -contains-> core/src/merge.ts
 core/src/ -contains-> core/src/model.ts
 core/src/ -contains-> core/src/nodefs.ts
 core/src/ -contains-> core/src/ops.ts
+core/src/ -contains-> core/src/page.ts
+core/src/ -contains-> core/src/project.ts
 core/src/ -contains-> core/src/proposals.ts
 core/src/ -contains-> core/src/query.ts
+core/src/ -contains-> core/src/runlog.ts
 core/src/ -contains-> core/src/scan.ts
+core/src/ -contains-> core/src/script.ts
+core/src/ -contains-> core/src/scriptnode.ts
 core/src/ -contains-> core/src/serve.ts
 core/src/ -contains-> core/src/snapshot.ts
+core/src/ -contains-> core/src/stale.ts
 core/src/ -contains-> core/src/store.ts
+core/src/ -contains-> core/src/styles.ts
+core/src/ -contains-> core/src/textsync.ts
+core/src/ -contains-> core/src/toml.ts
 core/src/ -contains-> core/src/view.ts
+core/src/ -contains-> core/src/viewexpr.ts
+core/src/ -contains-> core/src/viewfold.ts
+core/src/ -contains-> core/src/viewgraph.ts
+core/src/ -contains-> core/src/viewlayers.ts
+core/src/ -contains-> core/src/viewload.ts
+core/src/ -contains-> core/src/viewscript.ts
+core/src/ -contains-> core/src/viewspec.ts
 core/src/ -contains-> core/src/watch.ts
+core/test/ -contains-> core/test/agent.test.ts
+core/test/ -contains-> core/test/arrange.test.ts
+core/test/ -contains-> core/test/bridge.test.ts
+core/test/ -contains-> core/test/browser/
+core/test/ -contains-> core/test/cmdspec.test.ts
 core/test/ -contains-> core/test/core.test.ts
+core/test/ -contains-> core/test/draft.test.ts
+core/test/ -contains-> core/test/fixtures/
+core/test/ -contains-> core/test/forms.test.ts
 core/test/ -contains-> core/test/fssync.test.ts
+core/test/ -contains-> core/test/hub.test.ts
+core/test/ -contains-> core/test/llf.test.ts
+core/test/ -contains-> core/test/lock.test.ts
+core/test/ -contains-> core/test/mcp.test.ts
 core/test/ -contains-> core/test/merge.test.ts
+core/test/ -contains-> core/test/queries.test.ts
+core/test/ -contains-> core/test/script.test.ts
 core/test/ -contains-> core/test/server.test.ts
+core/test/ -contains-> core/test/stale.test.ts
+core/test/ -contains-> core/test/styles.test.ts
+core/test/ -contains-> core/test/textsync.test.ts
+core/test/ -contains-> core/test/viewer-src.test.ts
+core/test/ -contains-> core/test/viewscript.test.ts
 core/test/ -contains-> core/test/watch.test.ts
+core/test/browser/ -contains-> core/test/browser/cdp.ts
+core/test/browser/ -contains-> core/test/browser/commands.test.ts
+core/test/browser/ -contains-> core/test/browser/create.test.ts
+core/test/browser/ -contains-> core/test/browser/dialogs.test.ts
+core/test/browser/ -contains-> core/test/browser/drag.test.ts
+core/test/browser/ -contains-> core/test/browser/edit.test.ts
+core/test/browser/ -contains-> core/test/browser/export.test.ts
+core/test/browser/ -contains-> core/test/browser/orbit.test.ts
+core/test/browser/ -contains-> core/test/browser/reader.test.ts
+core/test/browser/ -contains-> core/test/browser/select.test.ts
+core/test/browser/ -contains-> core/test/browser/stage.ts
+core/test/browser/ -contains-> core/test/browser/timeline.test.ts
+core/test/browser/ -contains-> core/test/browser/tray.test.ts
+core/test/browser/ -contains-> core/test/browser/viewscript.test.ts
+core/test/fixtures/ -contains-> core/test/fixtures/llf-vectors.json
+core/viewer/ -contains-> core/viewer/app/
 core/viewer/ -contains-> core/viewer/d3.v7.min.js
 core/viewer/ -contains-> core/viewer/index.html
+core/viewer/ -contains-> core/viewer/style.css
+core/viewer/app/ -contains-> core/viewer/app/00-state.js
+core/viewer/app/ -contains-> core/viewer/app/01-settings-model.js
+core/viewer/app/ -contains-> core/viewer/app/02-forces.js
+core/viewer/app/ -contains-> core/viewer/app/03-protocol.js
+core/viewer/app/ -contains-> core/viewer/app/04-draft.js
+core/viewer/app/ -contains-> core/viewer/app/05-compile.js
+core/viewer/app/ -contains-> core/viewer/app/05a-viewscripts.js
+core/viewer/app/ -contains-> core/viewer/app/06-panel.js
+core/viewer/app/ -contains-> core/viewer/app/06a-types.js
+core/viewer/app/ -contains-> core/viewer/app/07-camera.js
+core/viewer/app/ -contains-> core/viewer/app/08-interaction.js
+core/viewer/app/ -contains-> core/viewer/app/08a-select.js
+core/viewer/app/ -contains-> core/viewer/app/08b-link.js
+core/viewer/app/ -contains-> core/viewer/app/08c-arrange.js
+core/viewer/app/ -contains-> core/viewer/app/09-server.js
+core/viewer/app/ -contains-> core/viewer/app/10-view-editor.js
+core/viewer/app/ -contains-> core/viewer/app/11-projects.js
+core/viewer/app/ -contains-> core/viewer/app/12-scripts.js
+core/viewer/app/ -contains-> core/viewer/app/12a-agent.js
+core/viewer/app/ -contains-> core/viewer/app/13-files.js
+core/viewer/app/ -contains-> core/viewer/app/14-markdown-html.js
+core/viewer/app/ -contains-> core/viewer/app/15-bridge.js
+core/viewer/app/ -contains-> core/viewer/app/16-forms.js
+core/viewer/app/ -contains-> core/viewer/app/17-file-io.js
+core/viewer/app/ -contains-> core/viewer/app/18-chrome.js
+core/viewer/app/ -contains-> core/viewer/app/19-settings-panel.js
+core/viewer/app/ -contains-> core/viewer/app/20-timeline.js
+core/viewer/app/ -contains-> core/viewer/app/21-spaces.js
+core/viewer/app/ -contains-> core/viewer/app/22-filter.js
+core/viewer/app/ -contains-> core/viewer/app/23-space-draw.js
+core/viewer/app/ -contains-> core/viewer/app/23a-orbit.js
+core/viewer/app/ -contains-> core/viewer/app/24-navigation.js
+core/viewer/app/ -contains-> core/viewer/app/25-draw.js
+core/viewer/app/ -contains-> core/viewer/app/26-commands.js
+core/viewer/app/ -contains-> core/viewer/app/27-commands-universe.js
+core/viewer/app/ -contains-> core/viewer/app/27a-tray.js
+core/viewer/app/ -contains-> core/viewer/app/27b-create.js
+core/viewer/app/ -contains-> core/viewer/app/28-keys-console.js
+core/viewer/app/ -contains-> core/viewer/app/29-boot.js
 goal -dependsOn-> core
 goal -related- repo
-media/ -contains-> media/atom-one-dark.min.css
-media/ -contains-> media/d3.v7.min.js
-media/ -contains-> media/highlight.min.js
-media/ -contains-> media/i18n.js
-media/ -contains-> media/main.js
-media/ -contains-> media/marked.min.js
-media/ -contains-> media/styles.css
-media/ -contains-> media/uuid.min.js
-old-ext -dependsOn-> old-webapp status=proposed
-old-ext -describes-> src/extension.ts
-old-media -describes-> media/
-old-media -related- old-webapp status=proposed
-old-webapp -dependsOn-> core status=proposed
-old-webapp -describes-> webapp/
 repo -contains-> .gitattributes
+repo -contains-> .github/
 repo -contains-> .gitignore
-repo -contains-> .npmrc
-repo -contains-> .vscode-test.mjs
-repo -contains-> .vscode/
-repo -contains-> .vscodeignore
-repo -contains-> CHANGELOG.md
 repo -contains-> LICENSE
 repo -contains-> README.md
-repo -contains-> code_export.md
 repo -contains-> core/
-repo -contains-> esbuild.js
-repo -contains-> eslint.config.mjs
 repo -contains-> index.html
-repo -contains-> media/
-repo -contains-> package.json
-repo -contains-> pic.png
-repo -contains-> pnpm-lock.yaml
-repo -contains-> src/
-repo -contains-> stars.png
-repo -contains-> stars_v4.json
-repo -contains-> tsconfig.json
-repo -contains-> webapp/
-repo -contains-> 知识网络-域聚合力导向图.html
-src/ -contains-> src/extension.ts
-src/ -contains-> src/graph/
-src/ -contains-> src/utilities/
-src/graph/ -contains-> src/graph/operations.ts
-src/graph/ -contains-> src/graph/schema.ts
-src/utilities/ -contains-> src/utilities/getUri.ts
-src/utilities/ -contains-> src/utilities/nonce.ts
-webapp/ -contains-> webapp/index.html
-webapp/ -contains-> webapp/package.json
-webapp/ -contains-> webapp/pnpm-lock.yaml
-webapp/ -contains-> webapp/src/
-webapp/ -contains-> webapp/tsconfig.json
-webapp/ -contains-> webapp/vite.config.ts
-webapp/src/ -contains-> webapp/src/App.svelte
-webapp/src/ -contains-> webapp/src/app.css
-webapp/src/ -contains-> webapp/src/lib/
-webapp/src/ -contains-> webapp/src/main.ts
-webapp/src/ -contains-> webapp/src/vite-env.d.ts
-webapp/src/lib/ -contains-> webapp/src/lib/core/
-webapp/src/lib/ -contains-> webapp/src/lib/input/
-webapp/src/lib/ -contains-> webapp/src/lib/persistence/
-webapp/src/lib/ -contains-> webapp/src/lib/runtime/
-webapp/src/lib/ -contains-> webapp/src/lib/stores/
-webapp/src/lib/ -contains-> webapp/src/lib/ui/
-webapp/src/lib/core/ -contains-> webapp/src/lib/core/defaults.ts
-webapp/src/lib/core/ -contains-> webapp/src/lib/core/markdown.ts
-webapp/src/lib/core/ -contains-> webapp/src/lib/core/operations.ts
-webapp/src/lib/core/ -contains-> webapp/src/lib/core/preferences.ts
-webapp/src/lib/core/ -contains-> webapp/src/lib/core/schema.ts
-webapp/src/lib/input/ -contains-> webapp/src/lib/input/inputConstraints.ts
-webapp/src/lib/input/ -contains-> webapp/src/lib/input/inputTree.ts
-webapp/src/lib/persistence/ -contains-> webapp/src/lib/persistence/defaultrepository.ts
-webapp/src/lib/persistence/ -contains-> webapp/src/lib/persistence/indexeddb.ts
-webapp/src/lib/persistence/ -contains-> webapp/src/lib/persistence/repository.ts
-webapp/src/lib/persistence/ -contains-> webapp/src/lib/persistence/vscoderepository.ts
-webapp/src/lib/runtime/ -contains-> webapp/src/lib/runtime/graphRuntime.ts
-webapp/src/lib/stores/ -contains-> webapp/src/lib/stores/graph.ts
-webapp/src/lib/ui/ -contains-> webapp/src/lib/ui/CanvasStage.svelte
-webapp/src/lib/ui/ -contains-> webapp/src/lib/ui/CreatePanel.svelte
-webapp/src/lib/ui/ -contains-> webapp/src/lib/ui/DismissibleOverlay.svelte
-webapp/src/lib/ui/ -contains-> webapp/src/lib/ui/Hud.svelte
-webapp/src/lib/ui/ -contains-> webapp/src/lib/ui/InputTreeNodeRow.svelte
-webapp/src/lib/ui/ -contains-> webapp/src/lib/ui/PreferencesPanel.svelte
-webapp/src/lib/ui/ -contains-> webapp/src/lib/ui/Sidebar.svelte

@@ -108,6 +108,15 @@ defCmd('panel', {
     d.set(onOff(v, d.open()));
   },
 });
+defCmd('panel-reset', {
+  group: '面板', effect: 'ui', title: '把拖到别处的面板放回原位(不带参数 = 全部;双击面板的边框也行)', usage: 'panel-reset [名字]',
+  args: [{ name: '名字', values: () => [...Object.keys(PANEL_DEFS), 'tray', 'legend'] }],
+  run: ([name]) => {
+    const ids = name ? [PM_NAMES[name] || name] : Object.keys(pmPos);
+    if (name && !pmOrder.includes(ids[0])) throw new Error(`没有这个面板:${name}`);
+    for (const id of ids) pmReset(id);
+  },
+});
 
 // ---- 视图与导航 ----
 defCmd('view', {
@@ -276,6 +285,8 @@ defCmd('jump', {
   group: '空间', effect: 'ui', title: '跳到某个空间(不带参数 = 最外层)', usage: 'jump [id]', args: [nodeArg()],
   run: ([id]) => { if (id && !raw.has(id)) throw new Error(`节点不存在:${id}`); jumpTo(id || null); },
 });
+defCmd('back', { group: '空间', effect: 'ui', title: '后退:回到上一个去过的地方(视图 + 空间 + 选中;Alt ←、鼠标侧键)', run: () => { navStep(-1); return { out: '', data: navHere() }; } });   // 走不了也吞掉按键:不然浏览器自己的 Alt ← 会离开这个页面
+defCmd('forward', { group: '空间', effect: 'ui', title: '前进:后退之后再走回去(Alt →)', run: () => { navStep(1); return { out: '', data: navHere() }; } });
 
 // ---- 文件 ----
 defCmd('open', {

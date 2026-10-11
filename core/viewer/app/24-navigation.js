@@ -58,7 +58,7 @@ function jumpTo(id, focusId) {
   else fitSpace(false);
   afterSwitch();
 }
-function afterSwitch() { renderStatus(); renderCrumbs(); savePlace(); }
+function afterSwitch() { renderStatus(); renderCrumbs(); savePlace(); navNote(); }
 // ---- 记住所在的位置:刷新后回到同一个空间、同样的展开(按项目目录 + 视图,存在浏览器里;选中不记,免得一刷新就打开文件)----
 const placeKey = () => 'stars.place:' + (project ? project.dir : '_') + ':' + currentView;
 function savePlace() {

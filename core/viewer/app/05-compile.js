@@ -101,6 +101,7 @@ function recompute(structural = true) {
     computeMatches();
     renderViews(); renderChips(); renderSide(); renderLegend(); renderReview();
     layoutPanels(); renderStatus(); renderCrumbs(); $('tagbar').hidden = true;
+    navSeed();
     return;
   }
   zoom.scaleExtent([0.08, 10]);
@@ -148,6 +149,7 @@ function recompute(structural = true) {
   renderViews(); renderChips(); renderSide(); renderLegend(); renderReview(); renderTagbar();
   layoutPanels();
   renderStatus();
+  navSeed();
 }
 
 const selTail = () => (selection.size > 1 ? ` · <span data-cmd="select" style="cursor:pointer" title="点一下取消选择">已选 <b>${selection.size}</b></span>` : '');

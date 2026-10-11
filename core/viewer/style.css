@@ -63,6 +63,11 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 body.resizing, body.resizing * { cursor: ew-resize !important; user-select: none; }
 #toast { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); background: #10223a; border: 1px solid #2a4a7a; color: #cfe0ff; border-radius: 8px; padding: 6px 12px; font-size: 12px; display: flex; gap: 8px; align-items: center; z-index: 30; }
 #toast[hidden] { display: none; }
+/* 浮动面板:拖边框(内边距那一圈)挪位置;里面的东西照旧(:where 不加权重,谁写了自己的光标就用谁的) */
+.panel.movable { cursor: move; } :where(.panel.movable) > * { cursor: auto; }
+body.moving, body.moving * { cursor: move !important; user-select: none; }
+#hover-tip { position: fixed; left: 0; top: 0; z-index: 35; pointer-events: none; padding: 3px 7px; border-radius: 5px; background: rgba(8,10,24,0.92); border: 1px solid rgba(122,142,220,0.75); color: #e8e8f6; font-size: 12px; line-height: 16px; white-space: nowrap; max-width: 60vw; overflow: hidden; text-overflow: ellipsis; }
+#hover-tip[hidden] { display: none; }
 #ask { position: fixed; inset: 0; z-index: 40; background: #02020a88; } #ask[hidden] { display: none; }
 #ask-box { left: 50%; top: 22vh; transform: translateX(-50%); width: min(460px, calc(100vw - 32px)); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; background: #0b0b14f4; }
 #ask-t { white-space: pre-wrap; line-height: 1.5; max-height: 50vh; overflow: auto; }
