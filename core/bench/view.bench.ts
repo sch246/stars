@@ -5,6 +5,7 @@ import { apply } from '../src/ops.ts';
 import { planScan } from '../src/scan.ts';
 import { compileView, evaluateView } from '../src/view.ts';
 import { BUILTIN_VIEWS } from '../src/viewspec.ts';
+import type { ViewModule } from '../src/viewscript.ts';
 
 const N = Number(process.argv[2] ?? 100_000);
 const time = <T>(label: string, fn: () => T): T => {
@@ -38,6 +39,16 @@ const exprView = {
   color: [{ expr: 'recent(fileChanged, 14)', from: '#2f3b6e', to: '#ffcf70' }],
   style: [{ expr: "size > 30000 ? 'pulsar' : 'star'" }],
 };
+// 视图脚本:galaxy 垫底,5 个逐节点函数(每个节点都建 n、读几列)
+const scriptMod: ViewModule = {
+  spec: { base: 'galaxy' },
+  select: (n, _v, b) => b && n.id !== 'nope',
+  size: (n, _v, r) => (n.type === 'dir' ? r * 1.1 : r),
+  color: (n, v, c) => ((n.fileChanged as number) > 0 && v.days(n.fileChanged as number) < 30 ? '#ffcf70' : c),
+  shape: (n, _v, s) => ((n.size as number) > 30000 ? 'pulsar' : s),
+  label: (n, _v, t) => (n.type === 'file' ? t : t.toUpperCase()),
+};
+const scriptMods = new Map([['bench.js', scriptMod]]);
 for (let i = 0; i < 2; i++) {
   console.log(i === 0 ? '--- 冷启动 ---' : '--- 预热后 ---');
   const c = time('galaxy 编译(宇宙/规格/信号变了才做一次)', () => compileView(u, galaxy));
@@ -49,4 +60,7 @@ for (let i = 0; i < 2; i++) {
   time('evaluateView 一步到位(galaxy)', () => evaluateView(u, galaxy));
   const x = time('表达式视图 编译(size/color/style/where 全是表达式)', () => compileView(u, exprView as never, { signals: { fileChanged } }));
   time('  fold', () => x.fold());
+  const sc = time('脚本视图 编译(galaxy + 5 个逐节点函数)', () => compileView(u, { script: 'bench.js' }, { signals: { fileChanged }, modules: scriptMods }));
+  if (sc.warnings.length) console.log(sc.warnings);
+  time('  fold', () => sc.fold());
 }

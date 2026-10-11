@@ -35,7 +35,7 @@ const RESERVED = new Set([
 export const HELPER_NAMES = ['log', 'log1p', 'log2', 'sqrt', 'pow', 'min', 'max', 'abs', 'floor', 'ceil', 'round', 'clamp', 'mix', 'hsl', 'hash', 'days', 'recent', 'now', 'fn',
   'from', 'to', 'near', 'out', 'into', 'query'];
 
-function hslHex(h: number, s: number, l: number): string {
+export function hslHex(h: number, s: number, l: number): string {
   const a = s * Math.min(l, 1 - l);
   const f = (n: number) => {
     const k = (n + h / 30) % 12;
@@ -43,12 +43,12 @@ function hslHex(h: number, s: number, l: number): string {
   };
   return `#${f(0)}${f(8)}${f(4)}`;
 }
-function mixHexColors(a: string, b: string, t: number): string {
+export function mixHexColors(a: string, b: string, t: number): string {
   const p = (h: string) => { const v = parseInt(h.replace('#', ''), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
   const [x, y] = [p(a), p(b)];
   return '#' + [0, 1, 2].map((i) => Math.round(x[i]! + (y[i]! - x[i]!) * Math.max(0, Math.min(1, t))).toString(16).padStart(2, '0')).join('');
 }
-function hashHex(s: string): string {
+export function hashHex(s: string): string {
   let h = 0;
   for (const ch of String(s)) h = (h * 31 + ch.codePointAt(0)!) >>> 0;
   return hslHex(h % 360, 0.8, 0.62);
@@ -57,7 +57,8 @@ function hashHex(s: string): string {
 const noGraph = (name: string) => (): never => { throw new Error(`这里不能用 ${name}()(只能在视图规则和查询里用)`); };
 const depthOf = (d: unknown): number => (d === undefined || d === null ? Infinity : Math.max(1, Number(d) || 1));
 
-function helpers(env: ExprEnv): Record<string, unknown> {
+/** 表达式里的辅助函数(视图脚本的 v 上也是这一套,同名同义) */
+export function helpers(env: ExprEnv): Record<string, unknown> {
   const g = env.graph;
   const path = g ? {
     /** 从 root 顺着 type 边(省略 = 任何边)走得到当前节点,最多 depth 步(省略 = 不限) */

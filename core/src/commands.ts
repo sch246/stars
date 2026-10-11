@@ -18,8 +18,11 @@ import { planStamp, seenDiff, seenPath, seenState, stampOnSummary } from './stal
 import { applyDraft, readDraft, Store, updateDraft } from './store.ts';
 import { draftPreview, draftSummary } from './draft.ts';
 import { styleKindOf, styleOp, styleTypes, type StyleKind, type StyleTypeInfo } from './styles.ts';
-import { compileView, evaluateView } from './view.ts';
-import { BUILTIN_VIEWS, listViews, validateSpec } from './viewspec.ts';
+import { compileView } from './view.ts';
+import { resolveView } from './viewlayers.ts';
+import { writeViewSkeleton } from './viewload.ts';
+import type { ViewModule } from './viewscript.ts';
+import { BUILTIN_VIEWS, listViews, validateSpec, type ViewSpec } from './viewspec.ts';
 
 /** CLI 的全部选项(全局选项 + 各命令的选项);脚本里的 stars.exec 也按它解析 */
 export const CLI_OPTIONS = {
@@ -53,6 +56,9 @@ export const CLI_OPTIONS = {
   host: { type: 'string' },
   'allow-host': { type: 'string', multiple: true },
   spec: { type: 'string' },
+  script: { type: 'string' },
+  params: { type: 'string' },
+  base: { type: 'string' },
   code: { type: 'string' },
   expr: { type: 'string' },
   from: { type: 'string' },
@@ -72,7 +78,11 @@ export type CliOpts = {
     : (typeof CLI_OPTIONS)[K]['type'] extends 'boolean' ? boolean : string
 };
 
-export interface KernelCtx { store: Store; author: string; /** 项目根目录(体检查文件、扫描、信号) */ root: string }
+export interface KernelCtx {
+  store: Store; author: string; /** 项目根目录(体检查文件、扫描、信号) */ root: string;
+  /** view 命令用到的视图脚本(调用方先异步加载好,见 viewload.ts 的 viewModulesFor) */
+  modules?: ReadonlyMap<string, ViewModule | Error>;
+}
 export interface CmdOut { out: string; data?: unknown; exitCode?: number }
 
 export const KERNEL_COMMANDS = new Set(['add', 'set', 'rm', 'mv', 'cp', 'ln', 'group', 'ungroup', 'link', 'unlink', 'relink', 'accept', 'stamp', 'scan', 'undo', 'ls', 'show', 'nb', 'path', 'lint', 'stale', 'log', 'views', 'view', 'view-set', 'fn-set', 'query', 'query-set', 'queries', 'draft', 'types', 'type-set', 'rule-set', 'rules', 'script-set', 'scripts']);
@@ -292,21 +302,25 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
       return { out: log.map((e) => `#${e.n} ${e.t.slice(11, 19)} ${e.author.padEnd(8)} ${e.undoOf ? `undo #${e.undoOf}` : summarize(e.op)}`).join('\n') || '(无记录)', data: log };
     }
     case 'views': {
-      const { specs, errors } = listViews(store.load());
+      const u = store.load(), { specs, errors } = listViews(u);
+      const note = (sp: ViewSpec) => [sp.base && `基于 ${sp.base}`, sp.script && `脚本 ${sp.script}`].filter(Boolean).join(' · ');
       return {
-        out: Object.keys(specs).map((n) => `${n}  (${specs[n]!.look ?? 'galaxy'})`).join('\n') + Object.values(errors).map((e) => `\n错误: ${e}`).join(''),
+        out: Object.keys(specs).map((n) => `${n}  (${specs[n]!.look ?? 'galaxy'}${note(specs[n]!) ? ' · ' + note(specs[n]!) : ''})`).join('\n') + Object.values(errors).map((e) => `\n错误: ${e}`).join(''),
         data: { views: Object.keys(specs), errors },
       };
     }
     case 'view': {
       need(1, 'view <name>');
-      const { specs } = listViews(store.load());
+      const u0 = store.load(), { specs } = listViews(u0);
       const spec = specs[args[0]!];
       if (!spec) throw new StarsError(`没有视图 "${args[0]}"(stars views 查看列表)`);
       if (o.spec !== undefined && o.json === undefined) return { out: JSON.stringify(spec, null, 2), data: spec };
-      const u0 = store.load();
-      const scene = evaluateView(u0, spec, {
-        signals: signalsFor(JSON.stringify(spec) + listQueries(u0).map((q) => q.expr).join('\n'), store, ctx.root, u0),
+      let text = JSON.stringify(spec) + listQueries(u0).map((q) => q.expr).join('\n');
+      for (const p of ctx.modules?.keys() ?? []) { try { text += readFileSync(resolve(ctx.root, p), 'utf8'); } catch { /* 加载时已经报过 */ } }
+      let cv;
+      try { cv = compileView(u0, spec, { signals: signalsFor(text, store, ctx.root, u0), modules: ctx.modules, name: args[0] }); }
+      catch (err) { throw new StarsError(`视图 ${args[0]} 算不出来: ${(err as Error).message}`); }
+      const scene = cv.fold({
         depth: o.depth !== undefined ? Number(o.depth) : undefined,
         maxNodes: o['max-nodes'] !== undefined ? Number(o['max-nodes']) : undefined,
         expanded: o.expand?.split(',').filter(Boolean),
@@ -317,23 +331,34 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
       const folded = scene.nodes.filter((n) => n.container && !n.expanded);
       return {
         out: [`${args[0]}: ${scene.nodes.length} 节点 · ${scene.edges.length} 边 ${JSON.stringify(modes)}`,
+          ...(cv.layers.length > 1 ? [`  层(从下往上): ${cv.layers.map((l) => l.name || '(这个视图)').join(' → ')}`] : []),
           `  收起的容器 ${folded.length} 个;提升(汇总)的边 ${lifted.length} 条`,
           ...top.map((n) => `  ${n.r.toFixed(1).padStart(5)}  ${n.shape.padEnd(6)} ${n.color}  ${n.id}${n.container ? (n.expanded ? '  [展开]' : `  [收起 ×${n.descendants}]`) : ''}${n.value !== undefined ? `  (值 ${n.value})` : ''}`),
-          ...lifted.slice(0, 6).map((e) => `  ↑ ${e.from} -${e.type}-> ${e.to}  ×${e.count}`)].join('\n'),
-        data: scene,
+          ...lifted.slice(0, 6).map((e) => `  ↑ ${e.from} -${e.type}-> ${e.to}  ×${e.count}`),
+          ...cv.warnings.map((w) => `  ⚠ ${w}`)].join('\n'),
+        data: o.json !== undefined ? { ...scene, warnings: cv.warnings, layers: cv.layers } : scene,
       };
     }
     case 'view-set': {
-      need(1, "view-set <name> --spec '<JSON>' | --from <文件>");
+      need(1, "view-set <name> --spec '<JSON>' | --from <文件> | --script <视图脚本.js> [--base 视图] [--params '<JSON>']");
       const text = o.from !== undefined ? readFileSync(resolve(o.from), 'utf8') : o.spec;
-      if (text === undefined) throw new StarsError('需要 --spec 或 --from');
-      let spec: unknown;
-      try { spec = JSON.parse(text); } catch (err) { throw new StarsError(`规格不是合法 JSON: ${(err as Error).message}`); }
-      const problems = validateSpec(spec, store.load());
+      if (text === undefined && o.script === undefined && o.base === undefined) throw new StarsError('需要 --spec、--from、--script 或 --base');
+      let spec: Record<string, unknown> = {};
+      if (text !== undefined) { try { spec = JSON.parse(text); } catch (err) { throw new StarsError(`规格不是合法 JSON: ${(err as Error).message}`); } }
+      let made = '';
+      if (o.script !== undefined) {
+        const path = o.script.replace(/\\/g, '/').replace(/^\.\//, '');
+        spec = { ...spec, script: path };
+        if (/\.m?js$/.test(path) && !existsSync(resolve(ctx.root, path))) { writeViewSkeleton(ctx.root, path, o.base ?? 'galaxy'); made = `\n  新建了骨架 ${path}(base: ${o.base ?? 'galaxy'}),打开它改`; }
+        else if (o.base !== undefined) spec.base = o.base;
+      } else if (o.base !== undefined) spec = { base: o.base, ...spec };
+      if (o.params !== undefined) { try { spec.params = JSON.parse(o.params); } catch (err) { throw new StarsError(`--params 不是合法 JSON: ${(err as Error).message}`); } }
+      const u = store.load(), problems = validateSpec(spec, u);
       if (problems.length > 0) throw new StarsError(`规格有问题:\n  - ${problems.join('\n  - ')}`);
-      const id = `~view/${args[0]}`, compact = JSON.stringify(spec), u = store.load(), had = u.nodes.has(id);
+      try { resolveView(u, spec as ViewSpec, undefined, args[0]); } catch (err) { throw new StarsError((err as Error).message); }   // base 写错、循环引用
+      const id = `~view/${args[0]}`, compact = JSON.stringify(spec), had = u.nodes.has(id);
       const n = store.commit(had ? { op: 'setNode', id, label: o.label, set: { spec: compact } } : { op: 'addNode', id, label: o.label ?? args[0]!, attrs: { kind: 'view', spec: compact } }, c).entry.n;
-      return { out: `${had ? '~' : '+'} 视图 ${args[0]}${BUILTIN_VIEWS[args[0]!] ? '(覆盖同名内置视图)' : ''}`, data: { n } };
+      return { out: `${had ? '~' : '+'} 视图 ${args[0]}${BUILTIN_VIEWS[args[0]!] ? '(覆盖同名内置视图)' : ''}${made}`, data: { n } };
     }
     case 'fn-set': {
       need(1, "fn-set <name> --code '(x, y) => ...' | --from <文件>");

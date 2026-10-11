@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { execFileSync } from 'node:child_process';
 import { CLI_OPTIONS, KERNEL_COMMANDS, runKernel } from './commands.ts';
+import { viewModulesFor } from './viewload.ts';
 import { parse, serialize } from './format.ts';
 import { mergeUniverses } from './merge.ts';
 import { StarsError } from './model.ts';
@@ -62,6 +63,7 @@ const HELP = `stars —— 关系编辑器(内核 CLI)
   views                              列出视图(内置 + 宇宙里 kind=view 的节点)
   view <name>                        计算一个视图并输出场景摘要   [--depth N 展开层数] [--max-nodes N 节点预算] [--expand id,id 强制展开] [--json 完整场景]
   view-set <name>                    新建/覆盖一个视图(规格会先校验)   --spec '<JSON>' 或 --from <文件>   [--label 显示名]
+                                     --base <视图> 从另一个视图起步 · --script <文件.js> 用视图脚本当模板(文件不在就写一份骨架)· --params '<JSON>' 参数
   fn-set <name>                      新建/覆盖一个函数节点,供视图表达式里 fn.<name>(...) 调用   --code '<函数表达式>' 或 --from <文件>
   rule-set <名字>                    自定义体检规则(存成节点 ~rule/<名字>):命中表达式的节点在 lint / 查看器里各报一条
                                      --expr '<表达式>' [-s 提示] [-a level=warn|error|info]   例:--expr "type == 'file' && !summary" -s 文件没有说明
@@ -136,11 +138,16 @@ function run(): void {
     return;
   }
   if (KERNEL_COMMANDS.has(cmd)) {   // add / link / ls / show …:见 commands.ts(脚本里的 stars.exec 也走它)
-    const r = runKernel(cmd, args, o, { store, author: ctx.author, root: root() });
-    if (o.json && r.data !== undefined) console.log(JSON.stringify(r.data, null, 2));
-    else if (r.out) console.log(r.out);
-    if (r.exitCode) process.exitCode = r.exitCode;
-    if (o.draft && cmd !== 'draft') draftNote();
+    const go = (modules?: Awaited<ReturnType<typeof viewModulesFor>>) => {
+      const r = runKernel(cmd, args, o, { store, author: ctx.author, root: root(), modules });
+      if (o.json && r.data !== undefined) console.log(JSON.stringify(r.data, null, 2));
+      else if (r.out) console.log(r.out);
+      if (r.exitCode) process.exitCode = r.exitCode;
+      if (o.draft && cmd !== 'draft') draftNote();
+    };
+    if (cmd !== 'view' || !args[0]) { go(); return; }
+    viewModulesFor(store.load(), args[0], root()).then(go)   // 视图脚本要先异步 import 进来
+      .catch((err: Error) => { console.error(err instanceof StarsError ? `错误: ${err.message}` : err); process.exitCode = err instanceof StarsError ? 2 : 1; });
     return;
   }
   switch (cmd) {

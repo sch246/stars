@@ -1,11 +1,13 @@
 // 视图规格:写法(规则的类型)、内置视图、校验、从宇宙里列出视图。
 // 视图 = 一份规格 + 宇宙 → 场景;规格存在宇宙里(kind=view 的节点,spec 属性是 JSON),所以改规格就是改图。
-// 怎么算出场景在 view.ts(外观)、viewgraph.ts(图的索引)、viewexpr.ts(表达式)、viewfold.ts(折叠与空间)。
+// 一份规格可以从另一个视图起步(base)、带一个视图脚本(script,一个 JS 模块):它们叠成几层,见 viewlayers.ts。
+// 怎么算出场景在 view.ts(外观)、viewgraph.ts(图的索引)、viewexpr.ts(表达式)、viewfold.ts(折叠与空间)、viewscript.ts(脚本)。
 // Node 和浏览器里都跑。
 
 import { type Universe, SCHEMA_PREFIX } from './model.ts';
 import { checkExpr } from './expr.ts';
 import type { QueryResult } from './query.ts';
+import type { ViewModule } from './viewscript.ts';
 
 export type Shape = 'dot' | 'star' | 'nebula' | 'ringed' | 'pulsar';
 export const SHAPES: Shape[] = ['dot', 'star', 'nebula', 'ringed', 'pulsar'];
@@ -83,6 +85,12 @@ export interface ExpandRule {
 }
 
 export interface ViewSpec {
+  /** 从另一个视图起步(内置的或 ~view/ 的名字):它垫在下面,这里写的盖在上面(见 viewlayers.ts) */
+  base?: string;
+  /** 视图脚本:项目里的 .js 模块,导出的函数接管某几步(见 viewscript.ts);它导出的 spec 是它那一层的规则 */
+  script?: string;
+  /** 参数:盖掉脚本里 export const params 的默认值,脚本里用 v.params 读 */
+  params?: Record<string, unknown>;
   look?: 'galaxy' | 'plain';
   /**
    * flat:一个物理世界,所有可见节点一起受力(展开 = 把子节点放进同一个世界)。
@@ -164,6 +172,10 @@ export interface CompileOptions {
   signals?: Record<string, SignalMap>;
   /** 当前时间(毫秒),默认 Date.now();测试里固定它 */
   now?: number;
+  /** 已加载的视图脚本:路径(相对项目根)→ 模块,加载失败 = Error。规格里引用了、这里没有的当作没加载:只用规则算,warnings 里说明 */
+  modules?: ReadonlyMap<string, ViewModule | Error>;
+  /** 这个视图自己的名字:~view/galaxy 里写 base: "galaxy" 时指向内置的 galaxy(不然是循环引用) */
+  name?: string;
 }
 /** 折叠选项:决定"现在显示哪些"(每次展开/收起都变,必须很便宜)。 */
 export interface FoldOptions {
@@ -216,9 +228,26 @@ export interface CompiledView {
   matches(expr: string): string[];
   /** 保存的查询(~query/<名字>)的结果:算一次缓存;某条算不出来就带 error */
   queryResults(): QueryResult[];
-  /** 这个节点的大小 / 颜色 / 形状由哪条规则决定(下标;-1 = 没有规则管它,用的是类型节点或默认) */
-  explain(id: string): { size: number; color: number; style: number } | undefined;
+  /**
+   * 这个节点的大小 / 颜色 / 形状由哪条规则决定(下标;-1 = 没有规则管它,用的是类型节点或默认)。
+   * 有几层时(base / script)多给 layer:那条规则在哪一层;脚本函数改过的多给 script:最后改它的脚本。
+   */
+  explain(id: string): Explain | undefined;
+  /** 合并好的规格:base 链 + 脚本的 spec + 自己写的(size / color / style 除外:它们按层算) */
+  readonly spec: ViewSpec;
+  /** 参与计算的各层,从下往上 */
+  readonly layers: ReadonlyArray<{ name: string; script?: string }>;
+  /** 用到的视图脚本(从下往上,含没加载的):调用方先加载好,放进 CompileOptions.modules */
+  readonly scripts: string[];
+  /** 合并好的参数 */
+  readonly params: Record<string, unknown>;
+  /** 脚本导出的 forces(查看器每一帧调用,和 spec.forces 里的函数节点一起) */
+  readonly forces: Array<NonNullable<ViewModule['forces']>>;
+  /** 脚本没加载、加载失败、函数出错、返回值不对……(不影响出图:出错的那一步退回规则) */
+  readonly warnings: string[];
 }
+export type StepName = 'size' | 'color' | 'style';
+export type Explain = Record<StepName, number> & { layer?: Record<StepName, string>; script?: Partial<Record<StepName | 'label', string>> };
 
 const GALAXY_SIZE: SizeRule[] = [
   { when: { type: 'dir' }, attr: 'size', rollup: { relation: 'contains', op: 'sum' }, scale: 'log', range: [5, 17] },
@@ -343,7 +372,7 @@ export function listViews(u: Universe): { specs: Record<string, ViewSpec>; error
 }
 
 const KEYS = {
-  spec: ['look', 'layout', 'space', 'tags', 'select', 'expand', 'size', 'color', 'style', 'relations', 'forces'],
+  spec: ['base', 'script', 'params', 'look', 'layout', 'space', 'tags', 'select', 'expand', 'size', 'color', 'style', 'relations', 'forces'],
   select: ['onlyTypes', 'hideTypes', 'withRelations', 'schema', 'where'],
   expand: ['relation', 'depth', 'maxNodes', 'auto'],
   size: ['when', 'attr', 'expr', 'signal', 'recency', 'by', 'rollup', 'scale', 'range'],
@@ -368,6 +397,11 @@ export function validateSpec(spec: unknown, u?: Universe): string[] {
   };
   if (!isObj(spec)) return ['规格必须是一个 JSON 对象'];
   unknownKeys(spec, KEYS.spec, '规格');
+  if (spec.base !== undefined && (typeof spec.base !== 'string' || !spec.base)) bad.push('base 必须是视图名(内置的或 ~view/ 的)');
+  else if (typeof spec.base === 'string' && u && !BUILTIN_VIEWS[spec.base] && !u.nodes.has(`${SCHEMA_PREFIX}view/${spec.base}`)) bad.push(`base: 没有视图 "${spec.base}"`);
+  if (spec.script !== undefined && !(typeof spec.script === 'string' && /\.m?js$/.test(spec.script))) bad.push('script 必须是项目里的 .js 文件路径(如 "views/热力.js")');
+  if (spec.params !== undefined && !isObj(spec.params)) bad.push('params 必须是对象');
+  const layered = spec.base !== undefined || spec.script !== undefined;   // 下面还有层:没写全的关系规则由下面补
   if (spec.forces !== undefined && (!Array.isArray(spec.forces) || !spec.forces.every((f) => typeof f === 'string'))) bad.push('forces 必须是函数名字符串数组(如 ["~fn/名字"])');
   if (spec.look !== undefined && !['galaxy', 'plain'].includes(spec.look as string)) bad.push('look 只能是 galaxy 或 plain');
   if (spec.layout !== undefined && !['flat', 'spaces'].includes(spec.layout as string)) bad.push('layout 只能是 flat 或 spaces');
@@ -400,7 +434,7 @@ export function validateSpec(spec: unknown, u?: Universe): string[] {
     else for (const [t, r] of Object.entries(spec.relations)) {
       if (!isObj(r)) { bad.push(`relations.${t} 必须是对象`); continue; }
       unknownKeys(r, KEYS.relation, `relations.${t}`);
-      if (!MODES.includes(r.mode as string)) bad.push(`relations.${t}.mode 必须是 ${MODES.join('/')}`);
+      if (!(layered && r.mode === undefined) && !MODES.includes(r.mode as string)) bad.push(`relations.${t}.mode 必须是 ${MODES.join('/')}`);
     }
   }
   return bad;

@@ -13,6 +13,7 @@ import { parseArgs } from 'node:util';
 import { proposalsFromLog } from './activity.ts';
 import { cmdLine, cmdTokenize } from './cmdline.ts';
 import { CLI_OPTIONS, KERNEL_COMMANDS, runKernel, type CliOpts, type KernelCtx } from './commands.ts';
+import { viewModulesFor } from './viewload.ts';
 import { configDir, pickServer } from './config.ts';
 import { StarsError } from './model.ts';
 
@@ -57,7 +58,8 @@ export function scriptApi(ctx: ScriptCtx) {
     let parsed;
     try { parsed = parseArgs({ args: rest, options: CLI_OPTIONS, allowPositionals: true }); }
     catch (err) { throw new StarsError(`${name}:${(err as Error).message}`); }
-    const r = runKernel(name, parsed.positionals, parsed.values as CliOpts, ctx);
+    const k = name === 'view' && parsed.positionals[0] ? { ...ctx, modules: await viewModulesFor(store.load(), parsed.positionals[0], ctx.root) } : ctx;
+    const r = runKernel(name, parsed.positionals, parsed.values as CliOpts, k);
     return { out: r.out, data: r.data };
   };
   const cmd = new Proxy({}, {

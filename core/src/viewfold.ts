@@ -27,6 +27,8 @@ export interface Looks {
   /** 驱动大小的原始数值(提示框里显示);NaN = 没有规则管它的大小 */
   value: Float64Array;
   edge: EdgeLook[];
+  /** 显示的名字(视图脚本的 label() 改过才有;没有 = 节点自己的 label) */
+  label?: string[];
 }
 
 export interface Folder {
@@ -41,7 +43,7 @@ export interface Folder {
 /** spec 只用到 look、expand(depth / maxNodes / auto)、tags */
 export function viewFolder(g: ViewGraph, looks: Looks, spec: ViewSpec): Folder {
   const { N, nodeList, ids, idx, E, ef, et, ety, eprop, typeNames, typeIdx, tSym, relation, parent, depth, order, treeKids, desc, second, chainOf } = g;
-  const { selected, rad, color, shape, value, edge: tEdge } = looks;
+  const { selected, rad, color, shape, value, edge: tEdge, label } = looks;
   const nT = typeNames.length;
   const tShown = tEdge.map((l) => l.mode !== 'hidden');
   const expandAuto = spec.expand?.auto;
@@ -62,7 +64,7 @@ export function viewFolder(g: ViewGraph, looks: Looks, spec: ViewSpec): Folder {
     return kids;
   };
   const baseNode = (i: number): SceneNode => {
-    const sn: SceneNode = { id: ids[i]!, label: nodeList[i]!.label, r: Math.round(rad[i]! * 100) / 100, color: color[i]!, shape: SHAPES[shape[i]!]! };
+    const sn: SceneNode = { id: ids[i]!, label: label ? label[i]! : nodeList[i]!.label, r: Math.round(rad[i]! * 100) / 100, color: color[i]!, shape: SHAPES[shape[i]!]! };
     const v = value[i]!;
     if (v === v) sn.value = v;
     return sn;
