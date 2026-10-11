@@ -123,7 +123,7 @@ test('预览:/preview 用单独的预览 token(拿它进不了 /api);?bridge=<�
     const H = { 'x-stars-token': srv.token, 'content-type': 'application/json' };
     const cfg = JSON.parse(/<script type="application\/json" id="stars-config">([\s\S]*?)<\/script>/.exec(page)![1]!) as { defaults: Record<string, string> };
     assert.match(cfg.defaults.grants!, /^pages \{\}$/m);
-    const text = `pages {}\n  "${dir}" {}\n    web/index.html - propose\n--LLF-END\n`;
+    const text = `pages {}\n  ${JSON.stringify(dir)} {}\n    web/index.html - propose\n--LLF-END\n`;   // Windows 的路径里有反斜杠,要转义
     const w = await fetch(`${base}/api/config`, { method: 'POST', headers: H, body: JSON.stringify({ name: 'grants', content: text, mtime: null }) });
     assert.equal(w.status, 200);
     assert.equal(readFileSync(join(process.env.XDG_CONFIG_HOME!, 'stars', 'grants.llf'), 'utf8'), text);

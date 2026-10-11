@@ -18,17 +18,25 @@ export const viewerDir = resolve(here, '..', 'viewer');
 /** 浏览器能直接 import 的共享模块(都不依赖 Node),按依赖顺序(静态导出按这个顺序拼)。 */
 export const BROWSER_MODULES = ['model', 'expr', 'styles', 'query', 'viewspec', 'viewgraph', 'viewexpr', 'viewfold', 'viewscript', 'viewlayers', 'imports', 'view', 'ops', 'proposals', 'llf', 'format', 'textsync', 'bridge', 'cmdline', 'jsonc', 'toml', 'draft', 'scriptnode', 'arrange'];
 const BROWSER_SET = new Set(BROWSER_MODULES);
+/** 读自己的源码:换行统一成 LF(Windows 上 git 可能检出成 CRLF,下面按行拼接 / 去掉 import 的正则都按 LF 写) */
+const readSrc = (path: string) => readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
 export const isBrowserModule = (name: string) => BROWSER_SET.has(name);
+
+/** 项目里的 .ts / .mts(视图脚本、预览页引用的模块)给浏览器之前去掉类型;只能去掉"擦掉就行"的语法(enum、namespace 这类报错) */
+export const isTsModule = (path: string) => /\.m?ts$/i.test(path);
+export function stripTs(src: string): string {
+  return stripTypeScriptTypes(src);
+}
 
 /** /core/<名>.js:去掉类型,import 路径改成 .js */
 export function browserModule(name: string): string {
-  const ts = readFileSync(resolve(here, `${name}.ts`), 'utf8');
+  const ts = readSrc(resolve(here, `${name}.ts`));
   return stripTypeScriptTypes(ts).replace(/from '\.\/(\w+)\.ts'/g, "from './$1.js'");
 }
 
 /** 静态导出:几个 ES 模块拼成同一作用域里的代码(去掉 import / export) */
 export function inlineModules(): string {
-  return BROWSER_MODULES.map((name) => stripTypeScriptTypes(readFileSync(resolve(here, `${name}.ts`), 'utf8'))
+  return BROWSER_MODULES.map((name) => stripTypeScriptTypes(readSrc(resolve(here, `${name}.ts`)))
     .replace(/^import[\s\S]*?from\s+'[^']+';\n/gm, '')
     .replace(/^export\s+(?=(?:async\s+)?(?:function|const|class|let)\b)/gm, '')).join('\n');
 }
@@ -42,8 +50,8 @@ const indent = (s: string) => s.replace(/^(?=.)/gm, '  ');
 
 /** 拼好的页面(占位符 __STARS_TOKEN__ 等留给调用方替换)。每次都读盘:改了查看器的源码,刷新就生效。 */
 export function viewerHtml(): string {
-  const shell = readFileSync(resolve(viewerDir, 'index.html'), 'utf8');
-  const style = readFileSync(resolve(viewerDir, 'style.css'), 'utf8');
-  const app = viewerParts().map((f) => `  // ==== app/${f} ====\n${indent(readFileSync(resolve(viewerDir, 'app', f), 'utf8'))}`).join('');
+  const shell = readSrc(resolve(viewerDir, 'index.html'));
+  const style = readSrc(resolve(viewerDir, 'style.css'));
+  const app = viewerParts().map((f) => `  // ==== app/${f} ====\n${indent(readSrc(resolve(viewerDir, 'app', f)))}`).join('');
   return shell.replace('/*@STYLE@*/\n', () => indent(style)).replace('/*@APP@*/\n', () => app);
 }

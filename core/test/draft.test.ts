@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { runKernel, type CliOpts } from '../src/commands.ts';
 import { draftPreview, draftSummary } from '../src/draft.ts';
@@ -15,7 +16,7 @@ import { DraftStore, draftPath, readDraft, Store } from '../src/store.ts';
 
 const genesis = readFileSync(new URL('../genesis.stars', import.meta.url), 'utf8');
 process.env.XDG_CONFIG_HOME = mkdtempSync(join(tmpdir(), 'stars-cfg-'));
-const cli = new URL('../src/cli.ts', import.meta.url).pathname;
+const cli = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
 
 function project() {
   const dir = mkdtempSync(join(tmpdir(), 'stars-draft-'));

@@ -1,4 +1,5 @@
-# 星罗内核(core/):类型检查 + 单元测试(Linux 上 Node 22 / 24,macOS、Windows 上 Node 22:各家原生的文件监听都跑一遍);
+# 星罗内核(core/):类型检查 + 单元测试(Linux 上 Node 22 / 24,macOS、Windows 上 Node 22:各家原生的文件监听都跑一遍;
+# Windows 上 .gitattributes 的 text=auto 会检出成 CRLF,正好测到用户 clone 下来的样子);
 # 浏览器测试单独一个任务(慢一些,约 3 分钟)
 name: core
 
@@ -31,8 +32,6 @@ jobs:
           - { os: macos-latest, node: '22' }
           - { os: windows-latest, node: '22' }
     steps:
-      - run: git config --global core.autocrlf false   # Windows 上也按仓库里的原样(LF)检出:测试比对的是字节
-        working-directory: .
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
