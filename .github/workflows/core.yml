@@ -1,4 +1,5 @@
-# 星罗内核(core/):类型检查 + 单元测试;浏览器测试单独一个任务(慢一些,约 3 分钟)
+# 星罗内核(core/):类型检查 + 单元测试(Linux 上 Node 22 / 24,macOS、Windows 上 Node 22:各家原生的文件监听都跑一遍);
+# 浏览器测试单独一个任务(慢一些,约 3 分钟)
 name: core
 
 on:
@@ -20,12 +21,18 @@ jobs:
   check:
     # 同仓库分支的 PR 已经有 push 触发的那次了,只给外部 fork 的 PR 跑
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         node: ['22', '24']
+        include:
+          - { os: macos-latest, node: '22' }
+          - { os: windows-latest, node: '22' }
     steps:
+      - run: git config --global core.autocrlf false   # Windows 上也按仓库里的原样(LF)检出:测试比对的是字节
+        working-directory: .
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
