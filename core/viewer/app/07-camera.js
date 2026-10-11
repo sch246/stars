@@ -23,7 +23,7 @@ function screenOffset(id) {
   for (; i < chain.length; i++) {
     const n = sp.byId.get(chain[i]);
     if (!n) return null;
-    const x = ox + n.x * s, y = oy + n.y * s;
+    const q = dispOf(n), x = ox + q.x * s, y = oy + q.y * s;   // 画在哪(开普勒轨道上的位置)就是哪
     if (chain[i] === id) return { x, y, s };
     if (!expandedSet.has(chain[i])) return null;      // 中间层没展开,后代根本没画出来
     const child = getSpace(chain[i]), sc = scOf(n, child);

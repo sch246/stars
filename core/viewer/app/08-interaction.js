@@ -88,6 +88,7 @@ d3.select(canvas).call(d3.drag()
     if (d.gpw) { d.gpw.dragging = false; d.gpw.sim.alphaTarget(heated.has(d.gpw) ? heatLevel() : 0); }
   }));
 canvas.addEventListener('mousemove', (ev) => { pointerXY = [ev.offsetX, ev.offsetY]; hovered = find(ev.offsetX, ev.offsetY) || null; canvas.style.cursor = hovered ? 'pointer' : 'default'; });
+canvas.addEventListener('mouseleave', () => { hovered = null; });   // 移到面板上了:不再指着画布上的谁
 // 点击统一入口(选中 + 原地双击)。canvas 的 click 只在"没有真正拖动"时触发,所以拖动不会被误当成点击。
 let lastTap = null;                        // 第一次点击:{ id, domain, x, y, t }(x, y 是 client 坐标)
 const TAP_MS = 500, TAP_PX = 10;           // 原地双击:同一屏幕位置,500ms 以内(和系统双击阈值一致)

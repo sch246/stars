@@ -1,8 +1,1 @@
-out
-dist
 node_modules
-.vscode-test/
-*.vsix
-.stars.json
-web/
-web copy*/

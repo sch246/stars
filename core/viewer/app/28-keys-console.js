@@ -30,7 +30,8 @@ function conLog(text, cls) {
   while (conOutEl.childNodes.length > 600) conOutEl.firstChild.remove();
   if (atEnd) conOutEl.scrollTop = conOutEl.scrollHeight;
 }
-function layoutConsole() {   // 时间线开着时,控制台叠在它上面
+function layoutConsole() {   // 时间线开着时,控制台叠在它上面(拖到别处了就不管)
+  if (panelMoved('console')) return;
   const tl = $('timeline');
   $('console').style.bottom = (34 + (tl.hidden ? 0 : tl.offsetHeight + 8)) + 'px';
 }

@@ -27,7 +27,7 @@ function enterSpace(id, fly = false) {
   const path = pathWithin(curSpaceId, id);
   if (!path) return false;
   let ox = 0, oy = 0;
-  for (const n of path) { ox += n.x; oy += n.y; } // 穿过就地展开的祖先,尺度都是 1
+  for (const n of path) { const q = dispOf(n); ox += q.x; oy += q.y; } // 穿过就地展开的祖先,尺度都是 1(开普勒轨道:画在哪就从哪进)
   const target = path[path.length - 1], child = getSpace(id), sc = scOf(target, child);
   const { x, y, k } = transform;
   fade = fadeOn() && path.length > 1 ? { kind: 'jump', fromId: curSpaceId, oldT: transform, t0: performance.now() } : null; // 穿过就地展开的几层:几何不连续,用淡入淡出
@@ -41,10 +41,10 @@ function exitSpace(fly = false) {
   if (curSpaceId === null) return false;
   const ps = holderOf(curSpaceId), n = ps.byId.get(curSpaceId), cur = getSpace(curSpaceId);
   if (!n) { jumpTo(ps.id); return true; }
-  const sc = scOf(n, cur), { x, y, k } = transform, k2 = k / sc;
+  const sc = scOf(n, cur), { x, y, k } = transform, k2 = k / sc, q = dispOf(n);
   fade = null;
   curSpaceId = ps.id; lastSwitchAt = performance.now(); stickyFocus = n.id; zoomFocusId = n.id; hovered = null; // 刚出来:它的内部继续按 ρ 淡出,不因指针不在它上面而突然消失
-  setTransformNow(x - k2 * n.x, y - k2 * n.y, k2);
+  setTransformNow(x - k2 * q.x, y - k2 * q.y, k2);
   afterSwitch();
   if (fly) fitSpace(true);
   return true;
@@ -58,7 +58,7 @@ function jumpTo(id, focusId) {
   else fitSpace(false);
   afterSwitch();
 }
-function afterSwitch() { renderStatus(); renderCrumbs(); savePlace(); }
+function afterSwitch() { renderStatus(); renderCrumbs(); savePlace(); navNote(); }
 // ---- 记住所在的位置:刷新后回到同一个空间、同样的展开(按项目目录 + 视图,存在浏览器里;选中不记,免得一刷新就打开文件)----
 const placeKey = () => 'stars.place:' + (project ? project.dir : '_') + ':' + currentView;
 function savePlace() {
@@ -88,15 +88,15 @@ function fitSpace(animate) {
   if (animate) d3.select(canvas).transition().duration(600).call(zoom.transform, t); else d3.select(canvas).call(zoom.transform, t);
 }
 function centerOn(n, sp) {
-  const k = Math.max(transform.k, 10 / Math.max(n.r, 1));
-  const t = d3.zoomIdentity.translate(innerWidth / 2 - 20, innerHeight / 2).scale(k).translate(-n.x, -n.y);
+  const k = Math.max(transform.k, 10 / Math.max(n.r, 1)), q = dispOf(n);
+  const t = d3.zoomIdentity.translate(innerWidth / 2 - 20, innerHeight / 2).scale(k).translate(-q.x, -q.y);
   d3.select(canvas).transition().duration(500).call(zoom.transform, t);
 }
 /** 让一个节点出现在画面里:必要时切换到它所在的空间 */
 function reveal(id) {
   const holder = holderOf(id), holderId = holder.id;
   const path = pathWithin(curSpaceId, id);
-  if (path) { let ox = 0, oy = 0; for (const n of path) { ox += n.x; oy += n.y; } centerOn({ x: ox, y: oy, r: path[path.length - 1].r }, null); return; }
+  if (path) { let ox = 0, oy = 0; for (const n of path) { const q = dispOf(n); ox += q.x; oy += q.y; } centerOn({ x: ox, y: oy, r: path[path.length - 1].r }, null); return; }
   jumpTo(holderId, id);
 }
 
@@ -151,6 +151,7 @@ function drawSpacesFrame(now) {
   frameHits = []; frameLabels = []; frameEdges = [];
   drawnSpaces.clear();
   if (!compiled) return;
+  orbitBegin();
   const k = transform.k;
   const x = transform.x, y = transform.y;
   const p = fade ? Math.min(1, (now - fade.t0) / 420) : 1, ease = p * p * (3 - 2 * p);
@@ -168,7 +169,9 @@ function drawSpacesFrame(now) {
     const ps = holderOf(curSpaceId), c = ps.byId.get(curSpaceId);
     if (c && !expandedSet.has(c.id)) {
       const r = cur.E * k / 0.92 / enterT(), sc = scOf(c, cur), kP = k / sc, e = innerAlpha(r);
-      if (outerAlpha(r) > 0.01 || e < 0.999) { drawSpace(ps, x - kP * c.x, y - kP * c.y, kP, 1, 0, now, null, 'context', { focusId: c.id }); frameLabels = frameLabels.filter((L) => (L.fade ?? 1) >= 0.25); }
+      orbitStep(ps, now);   // 父空间也在走开普勒轨道时:按当前空间(容器)此刻画在哪对齐
+      const cq = dispOf(c);
+      if (outerAlpha(r) > 0.01 || e < 0.999) { drawSpace(ps, x - kP * cq.x, y - kP * cq.y, kP, 1, 0, now, null, 'context', { focusId: c.id }); frameLabels = frameLabels.filter((L) => (L.fade ?? 1) >= 0.25); }
       if (e < 0.999 && fadeOn()) morphC = { host: c, hs: kP, e };
     }
   }

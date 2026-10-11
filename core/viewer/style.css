@@ -63,6 +63,11 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 body.resizing, body.resizing * { cursor: ew-resize !important; user-select: none; }
 #toast { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); background: #10223a; border: 1px solid #2a4a7a; color: #cfe0ff; border-radius: 8px; padding: 6px 12px; font-size: 12px; display: flex; gap: 8px; align-items: center; z-index: 30; }
 #toast[hidden] { display: none; }
+/* 浮动面板:拖边框(内边距那一圈)挪位置;里面的东西照旧(:where 不加权重,谁写了自己的光标就用谁的) */
+.panel.movable { cursor: move; } :where(.panel.movable) > * { cursor: auto; }
+body.moving, body.moving * { cursor: move !important; user-select: none; }
+#hover-tip { position: fixed; left: 0; top: 0; z-index: 35; pointer-events: none; padding: 3px 7px; border-radius: 5px; background: rgba(8,10,24,0.92); border: 1px solid rgba(122,142,220,0.75); color: #e8e8f6; font-size: 12px; line-height: 16px; white-space: nowrap; max-width: 60vw; overflow: hidden; text-overflow: ellipsis; }
+#hover-tip[hidden] { display: none; }
 #ask { position: fixed; inset: 0; z-index: 40; background: #02020a88; } #ask[hidden] { display: none; }
 #ask-box { left: 50%; top: 22vh; transform: translateX(-50%); width: min(460px, calc(100vw - 32px)); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; background: #0b0b14f4; }
 #ask-t { white-space: pre-wrap; line-height: 1.5; max-height: 50vh; overflow: auto; }
@@ -259,6 +264,14 @@ code.qexpr { display: block; white-space: pre-wrap; word-break: break-all; font:
 #fp-form .fm-addtype { font-size: 11px; background: #0b0b14; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 2px; }
 #fp-form .sg-h .fm-addtype { opacity: 0; transition: opacity .12s; } #fp-form .sg-h:hover .fm-addtype, #fp-form .sg-h .fm-addtype:focus { opacity: 1; }
 #fp-uni .chip { cursor: default; }
+/* 大窗:双击 / 回车打开的文件。和侧栏是同一个文件面板(#side-file),挪进来而已 —— 编辑、保存、预览都一样;侧栏只做预览 */
+#reader { position: fixed; inset: 0; z-index: 12; background: #02020aa8; } #reader[hidden] { display: none; }
+#reader-box { left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(1180px, calc(100vw - 48px)); height: calc(100vh - 56px); display: flex; flex-direction: column; background: #0b0b14f4; }
+#reader-box #side-file { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 6px; }
+#fp-title { display: none; } #reader #fp-title { display: block; flex: 0 1 auto; min-width: 0; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#reader #fp-state { flex: 1 1 0; } #fp-big { flex: none; font-size: 12px; }
+#reader #fp-md, #reader #fp-form, #reader #fp-uni { padding: 18px 28px; } #reader #fp-md { font-size: 14.5px; }
+#console, #keys { z-index: 15; }
 #lightbox { position: fixed; inset: 0; z-index: 30; background: #000000d8; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
 #lightbox[hidden] { display: none; } #lightbox img { max-width: 94vw; max-height: 94vh; box-shadow: 0 0 60px #000; }
 /* 预览的开关条、并排编辑、HTML 预览 */

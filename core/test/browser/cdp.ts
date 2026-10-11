@@ -48,7 +48,7 @@ class Cdp {
   close(): void { this.ws.close(); }
 }
 
-const BUTTON = { left: 1, right: 2, middle: 4 } as const;
+const BUTTON = { left: 1, right: 2, middle: 4, back: 8, forward: 16 } as const;
 type Button = keyof typeof BUTTON;
 const MODIFIER: Record<string, number> = { Alt: 1, Control: 2, Meta: 4, Shift: 8 };
 const KEYS: Record<string, [code: string, vk: number, text?: string]> = {

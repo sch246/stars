@@ -13,7 +13,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { extname, join, relative, resolve } from 'node:path';
 import { type LiveSignals } from './activity.ts';
 import { handleApi, type HttpCtx } from './api.ts';
-import { bridgeInject, bridgeNonceOk, bridgeShim } from './bridge.ts';
+import { bridgeInject, bridgeNonceOk, bridgeShim, bridgeStorageShim } from './bridge.ts';
 import { pageConfig, registerServer, unregisterServer } from './config.ts';
 import { PREVIEW_TYPES, resolveInside } from './files.ts';
 import { StarsError } from './model.ts';
@@ -82,7 +82,7 @@ export function startServer(
     // 预览(侧栏的 HTML 预览、新标签页打开):/preview/<预览 token>/<项目 id 或 _>/<路径>。iframe 带不了请求头,token 放在路径里,
     // 页面里的相对路径(css / js / 图片)自然落在同一个前缀下。预览 token 和 /api 的 token 是两个:页面能从自己的地址读到它,
     // 但它只能读项目里的文件。HTML / SVG 带 CSP sandbox:就算在新标签页里直接打开也是不同源的,碰不到查看器;
-    // 允许跨源读(预览里的脚本 fetch 同目录的 json)。?bridge=<暗号>:往 HTML 里注入 window.stars(页面桥,见 bridge.ts)。
+    // 允许跨源读(预览里的脚本 fetch 同目录的 json)。HTML 里垫上 localStorage 等的替身;?bridge=<暗号>:再注入 window.stars(页面桥,见 bridge.ts)。
     // 视图脚本从 /preview/…/~v<版本>/<路径> 加载:版本那一段只是让浏览器换个地址重新加载整串模块,这里去掉。
     // .ts / .mts 去掉类型再给(浏览器只认 JS);去不掉(enum 这类)就给一个抛出原因的模块,import() 的报错里看得到
     const pv = /^\/preview\/([0-9a-f]+)\/([0-9a-f]+|_)\/(?:~v[0-9a-f]+\/)?(.*)$/.exec(path);
@@ -105,7 +105,8 @@ export function startServer(
         }
         if (/html|svg|xml/.test(type)) headers['content-security-policy'] = 'sandbox allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox';
         const body = readFileSync(abs), nonce = url.searchParams.get('bridge');
-        res.writeHead(200, headers).end(type.startsWith('text/html') && bridgeNonceOk(nonce) ? bridgeInject(body.toString('utf8'), bridgeShim(nonce)) : body);
+        // HTML 都垫上存储的替身(沙箱里没有 localStorage,很多页面一读就整段脚本挂掉,见 bridgeStorageShim)
+        res.writeHead(200, headers).end(type.startsWith('text/html') ? bridgeInject(body.toString('utf8'), bridgeStorageShim() + (bridgeNonceOk(nonce) ? bridgeShim(nonce) : '')) : body);
       } catch { res.writeHead(404).end('not found'); }
       return;
     }

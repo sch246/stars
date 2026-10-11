@@ -8,6 +8,7 @@ function setView(v) {
   currentView = v; setHash(); fresh = true; selected = null; selection.clear(); selVer++; selEdge = null; hiddenTypes.clear(); manual.clear(); auto.clear();
   curSpaceId = null; expandedSet.clear(); fade = null; spaces.clear(); activeTags.clear(); zoomFocusId = null;
   restorePlace();   // 每个视图记着自己的位置
+  navNote();
   for (const n of sim.values()) n.born = 0;
   recompute();
   fresh = false; userMoved = false; setTimeout(fit, 900); setTimeout(() => { if (!userMoved) fit(); }, 3600);
@@ -55,7 +56,7 @@ function renderSide() {
   const el = $('side-info');
   if (el.querySelector('.nd-editing:focus')) return;   // 正在侧栏里改名 / 改说明 / 改属性:别把输入框重画掉(改完会再画)
   const n = selected && raw.get(selected);
-  syncFile(n || null);
+  syncFile(selection.size > 1 ? null : n || null);   // 多选时没有一个特定的目标:不预览哪个文件(固定了的照旧留着)
   const sn = selected && (isSpaces() ? compiled.node(selected) : sim.get(selected));
   if (selection.size > 1) { el.innerHTML = multiPanel(); return; }
   if (selEdge) { el.innerHTML = edgePanel(selEdge); return; }
@@ -211,6 +212,7 @@ function select(id, center, keep = false) {
   if (id !== selected) emitEvent('select', id || null);
   if (!keep) { selection.clear(); if (id) selection.add(id); selVer++; selEdge = null; }
   selected = id;
+  navNote();
   const follow = selection.size > 1 ? null : id;   // 多选时不跟随:每点一个镜头就跳一下太晕
   if (isSpaces()) {
     // 跟随时不自己抢镜头:只保证它在画面里,居中交给(带延迟的)跟随,免得两段动画打架

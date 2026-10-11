@@ -31,6 +31,7 @@ function decorate(n, old) {
   n.phase = old ? old.phase : Math.random() * TAU; n.tilt = (n.phase - 3) * 0.3;
   n.D = n.container ? n.r * BODY : 0;
   n.born = old ? old.born : 0;
+  if (old) { n.om = old.om; n.oa = old.oa; n.ot = old.ot; }   // 开普勒轨道走到哪了(见 23a-orbit.js)
 }
 function measure(sp) {
   let E = 24;

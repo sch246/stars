@@ -30,7 +30,7 @@ function switchProject(info) {
   $('timeline').hidden = true; $('btn-time').classList.remove('on');
   draftSpec = null; editorDirty = false; toggleEditor(false);
   selected = null; selection.clear(); selVer++; selEdge = null; hovered = null; hiddenTypes.clear(); manual.clear(); auto.clear(); activeTags.clear();
-  curSpaceId = null; expandedSet.clear(); fade = null; spaces.clear(); spaceVer++; zoomFocusId = null;
+  curSpaceId = null; expandedSet.clear(); fade = null; spaces.clear(); spaceVer++; zoomFocusId = null; navReset();
   sim.clear(); known = new Set(); fresh = true; lastN = 0; compiled = null; uni = null;
   links = []; drawNodes = []; regions = []; labelNodes = [];
   simulation.nodes([]); simulation.force('link').links([]);

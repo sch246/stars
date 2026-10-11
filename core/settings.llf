@@ -31,6 +31,9 @@ motion {}
   # 公转
   # 子节点绕所在空间/父节点公转的速度(视图里 contains 的 spin 再乘这个倍率)
   spin !range(0,4,0.05) - 1
+  # 开普勒轨道
+  # 星系展开后旋转不停:进入(或就地展开)的星系里,成员绕中心沿椭圆轨道公转 —— 中心是焦点,远点是它在布局里的位置;越靠近中心越快(开普勒第二定律),轨道越大周期越长(第三定律)。数值是离心率:越大越扁、越贴着中心掠过。指着的、选中的停下;速度也乘「公转」。只改画的位置,布局不变。最外层的宇宙不转。0 = 关
+  orbit !range(0,0.95,0.05,关) - 0
   # 斥力
   # 节点之间互相推开的力
   charge !range(0.2,4,0.05) - 1
@@ -81,7 +84,7 @@ preview {}
   mdHtml !bool - true
   # HTML 允许脚本
   # 新打开的 HTML 预览默认运行 JavaScript(在沙箱里,碰不到查看器本身);每个预览上还能单独开关
-  htmlScripts !bool - false
+  htmlScripts !bool - true
   # HTML 实时预览
   # 新打开的 HTML 预览默认跟着编辑器里还没保存的改动走(像 VS Code 的 Live Preview);关掉则只显示保存了的版本
   htmlLive !bool - true

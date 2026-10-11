@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import vm from 'node:vm';
-import { bridgeAllows, bridgeInject, bridgeShim } from '../src/bridge.ts';
+import { bridgeAllows, bridgeInject, bridgeShim, bridgeStorageShim } from '../src/bridge.ts';
 import { parse } from '../src/format.ts';
 import { lint } from '../src/lint.ts';
 import { apply } from '../src/ops.ts';
@@ -113,9 +113,11 @@ test('预览:/preview 用单独的预览 token(拿它进不了 /api);?bridge=<�
     const plain = await pv(srv.previewToken, 'web/index.html');
     assert.equal(plain.status, 200);
     assert.match(plain.headers.get('content-security-policy') ?? '', /^sandbox /);
-    assert.ok(!(await plain.text()).includes('window.stars'), '不带 bridge 不注入');
-    const html = await (await pv(srv.previewToken, `web/index.html?bridge=${nonce}`)).text();
-    assert.ok(html.startsWith(`<!doctype html><html><head><script>(function () {\n  var N = "${nonce}"`), '注入在 <head> 之后、页面自己的东西之前');
+    const body = await plain.text();
+    assert.ok(!body.includes('window.stars'), '不带 bridge 不注入');
+    assert.ok(body.startsWith('<!doctype html><html><head><script>') && body.includes("put('localStorage', store({}, false))"), '存储的替身垫在最前面;服务端给的只在内存里');
+    const html = await (await pv(srv.previewToken, `web/index.html?bridge=${nonce}`)).text(), at = html.indexOf(`var N = "${nonce}"`);
+    assert.ok(html.startsWith('<!doctype html><html><head><script>') && at > 0 && at < html.indexOf('<title>'), '注入在 <head> 之后、页面自己的东西之前');
     assert.ok(!(await (await pv(srv.previewToken, 'web/index.html?bridge=nope')).text()).includes('window.stars'), '暗号格式不对不注入');
     assert.equal(await (await pv(srv.previewToken, `web/style.css?bridge=${nonce}`)).text(), 'body{color:red}', '只注入 HTML');
     assert.equal((await fetch(`${base}/api/raw?t=${srv.previewToken}&path=web/style.css`)).status, 403, '预览 token 进不了 /api');
@@ -128,4 +130,50 @@ test('预览:/preview 用单独的预览 token(拿它进不了 /api);?bridge=<�
     assert.equal(w.status, 200);
     assert.equal(readFileSync(join(process.env.XDG_CONFIG_HOME!, 'stars', 'grants.llf'), 'utf8'), text);
   } finally { srv.close(); }
+});
+
+test('存储的替身:沙箱里 localStorage / cookie 一碰就抛错时换上;读写、Object.keys、key(i) 照常;改了把整份发给查看器', () => {
+  const script = /<script>([\s\S]*)<\/script>/.exec(bridgeStorageShim({ old: '1', '</script>': 'x' }))![1]!;
+  const posted: unknown[] = [], timers: Array<() => void> = [];
+  const deny = () => { throw new Error('SecurityError'); };
+  const win: Record<string, unknown> = {};
+  Object.defineProperty(win, 'localStorage', { get: deny, configurable: true });
+  Object.defineProperty(win, 'sessionStorage', { get: deny, configurable: true });
+  const doc = {};
+  Object.defineProperty(doc, 'cookie', { get: deny, set: deny, configurable: true });
+  win.parent = { postMessage: (m: unknown) => posted.push(m) };
+  const ctx = vm.createContext({ window: win, document: doc, setTimeout: (f: () => void) => { timers.push(f); return timers.length; }, clearTimeout: () => {}, addEventListener: () => {} });
+  vm.runInContext(script, ctx);
+  const ls = win.localStorage as Storage & Record<string, string>;
+  assert.equal(ls.getItem('old'), '1', 'seed 里的接着用');
+  assert.equal(ls.getItem('</script>'), 'x', '内容里的 </script> 没把脚本截断');
+  ls.setItem('n', '2'); ls.extra = 'y';
+  assert.deepEqual([ls.length, ls.key(0), ls.n, Object.keys(ls).sort().join(',')], [4, 'old', '2', '</script>,extra,n,old']);
+  ls.removeItem('old');
+  assert.equal(ls.getItem('old'), null);
+  assert.equal(posted.length, 0, '攒一下再发');
+  timers.at(-1)!();
+  assert.deepEqual(JSON.parse(JSON.stringify(posted.at(-1))), { starsStorage: { '</script>': 'x', n: '2', extra: 'y' } }, '整份发给查看器');   // 别的 vm 里造的对象,原型不同:按 JSON 比
+  const ss = win.sessionStorage as Storage;
+  ss.setItem('a', 'b');
+  assert.equal(ss.getItem('a'), 'b');
+  const d = doc as { cookie: string };
+  d.cookie = 'a=1; path=/'; d.cookie = 'b=2';
+  assert.equal(d.cookie, 'a=1; b=2');
+  d.cookie = 'a=; max-age=0';
+  assert.equal(d.cookie, 'b=2', '过期的删掉');
+
+  // 本来就能用(没进沙箱)就不动;seed = null 时只在内存里,不发
+  const real = { getItem: () => null }, win2: Record<string, unknown> = { localStorage: real, sessionStorage: real, parent: { postMessage: (m: unknown) => posted.push(m) } };
+  const n0 = posted.length;
+  vm.runInContext(/<script>([\s\S]*)<\/script>/.exec(bridgeStorageShim())![1]!, vm.createContext({ window: win2, document: { cookie: '' }, setTimeout, clearTimeout, addEventListener: () => {} }));
+  assert.equal(win2.localStorage, real, '能用就不换');
+  const win3: Record<string, unknown> = { parent: { postMessage: (m: unknown) => posted.push(m) } };
+  Object.defineProperty(win3, 'localStorage', { get: deny, configurable: true });
+  Object.defineProperty(win3, 'sessionStorage', { get: deny, configurable: true });
+  const t3: Array<() => void> = [];
+  vm.runInContext(/<script>([\s\S]*)<\/script>/.exec(bridgeStorageShim())![1]!, vm.createContext({ window: win3, document: { cookie: '' }, setTimeout: (f: () => void) => t3.push(f), clearTimeout: () => {}, addEventListener: () => {} }));
+  (win3.localStorage as Storage).setItem('k', 'v');
+  for (const f of t3) f();
+  assert.equal(posted.length, n0, '服务端给的(seed = null)不发给查看器');
 });

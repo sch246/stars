@@ -30,6 +30,8 @@ bindings !map<command> {}
   , - panel settings
   arrowleft - timeline prev
   arrowright - timeline next
+  alt+arrowleft - back
+  alt+arrowright - forward
   ` - panel console
   ? - panel keys
   ctrl+k - palette

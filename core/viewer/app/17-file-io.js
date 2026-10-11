@@ -5,17 +5,32 @@ function syncFile(n) {
   if (fp && fp.id === id) return;
   if (fp && fp.pinned) return;
   if (fp) releaseFile();
-  $('side').classList.toggle('file', !!id);
-  if (id) loadFile(id);
+  if (id) loadFile(id); else fpPlace();
 }
+/** 文件面板放在哪:双击 / 回车 / open 打开的在居中的大窗里(fp.big),单击选中的在侧栏下半预览。两处是同一个面板,挪过去而已。
+ *  iframe 挪动后会重新载入,所以 HTML 预览重画一次(换一个新的暗号,页面桥接着用) */
+function fpPlace() {
+  const big = !!(fp && fp.big), host = big ? $('reader-box') : $('side'), el = $('side-file'), moved = el.parentElement !== host;
+  if (moved) host.appendChild(el);
+  $('reader').hidden = !big;
+  $('side').classList.toggle('file', !!fp && !big);
+  $('fp-title').textContent = fp ? fp.path : '';
+  $('fp-big').textContent = big ? '⤡ 收回侧栏' : '⤢ 大窗';
+  $('fp-big').title = big ? '收回侧栏里预览(Esc、点大窗外面也行)' : '在居中的大窗里看 / 改(双击、回车打开文件就是大窗)';
+  if (moved && fp && fp.info && fp.handler === 'html' && fp.renderView) fp.renderView();
+}
+let readerDown = false;   // 按下也在大窗外面才算「点外面」:在编辑框里拖选、松手落在外面不关
+$('reader').addEventListener('mousedown', (ev) => { readerDown = ev.target === $('reader'); });
+$('reader').addEventListener('click', (ev) => { if (ev.target === $('reader') && readerDown && fp && fp.big) { fp.big = false; fpPlace(); } });
 let fpNext = null;   // open 命令给下一次载入的要求:{ id, want, focus }
 async function loadFile(id) {
   const path = fileOf(raw.get(id));
   const req = fpNext && fpNext.id === id ? fpNext : null; fpNext = null;
-  const cur = fp = { id, path, info: null, text: '', base: '', full: false, indent: '  ', want: req && req.want, handler: null,
+  const cur = fp = { id, path, info: null, text: '', base: '', full: false, indent: '  ', want: req && req.want, handler: null, big: !!(req && req.big),
     opts: { html: !!P.mdHtml, scripts: !!P.htmlScripts || ![null, 'off'].includes(grantOf(path)), live: !!P.htmlLive, split: false } };   // 这个预览自己的开关,默认来自设置 → 文件预览;单独授权过连接的页面打开就跑脚本
   $('fp-body').innerHTML = '<div id="fp-media">载入中…</div>'; $('fp-state').textContent = ''; $('fp-more').hidden = true; fpBar(null);
   $('fp-save').style.display = 'none'; $('fp-with').innerHTML = ''; $('fp-remember').hidden = true;
+  fpPlace();
   let info;
   try { info = await api('/api/file?head=' + HEAD + '&path=' + enc(path)); }
   catch (e) { if (fp === cur) $('fp-body').innerHTML = `<div id="fp-media">打不开:${esc(e.message)}</div>`; return; }
@@ -49,7 +64,7 @@ async function loadFull() {
 /** 收起文件;有未保存的修改就在后台保存,失败了把修改留下来,提示你回去处理 */
 function releaseFile() {
   const cur = fp; fp = null; clearInterval(fpPoll); clearTimeout(formSaveTimer);
-  $('side').classList.remove('file'); $('fp-body').innerHTML = ''; fpBar(null);
+  $('fp-body').innerHTML = ''; fpBar(null); fpPlace();
   if (!fpDirty(cur)) return;
   const content = cur.text;
   api('/api/file', saveBody(cur, content, false))

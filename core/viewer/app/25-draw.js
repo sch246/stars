@@ -228,29 +228,19 @@ function drawTagGroups(k, TX, TY, VW, VH) {
 }
 
 // 悬浮标签用光标气泡,不进入图谱标签的避让重排,所以鼠标移动时别的标签不会跳。
+// 指着的节点的名字:跟着光标的小气泡。放在页面最上层(DOM),画在画布上会被旁边的面板(剪贴板、侧栏、状态栏)盖住
+const tipEl = $('hover-tip');
+let tipText = '', tipW = 0, tipH = 0, tipXY = '';
 function drawHoverTip() {
-  if (!hovered || !pointerXY || !compiled) return;
-  const label = hovered.label || hovered.id;
-  if (!label) return;
-  const dpr = devicePixelRatio || 1;
-  ctx.save();
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1; ctx.setLineDash([]);
-  ctx.font = '12px -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
-  const pad = 6, h = 17, w = ctx.measureText(label).width;
+  const label = hovered && pointerXY && compiled ? hovered.label || hovered.id : '';
+  if (!label) { if (!tipEl.hidden) tipEl.hidden = true; return; }
+  if (tipEl.hidden) tipEl.hidden = false;
+  if (label !== tipText) { tipEl.textContent = tipText = label; tipW = tipEl.offsetWidth; tipH = tipEl.offsetHeight; }
   let bx = pointerXY[0] + 14, by = pointerXY[1] + 16;
-  if (bx + w + pad * 2 > innerWidth) bx = pointerXY[0] - 14 - w - pad * 2;
-  if (by + h + pad > innerHeight) by = pointerXY[1] - 16 - h - pad;
-  const bw = w + pad * 2, rr = 5;
-  ctx.beginPath();
-  ctx.moveTo(bx + rr, by); ctx.arcTo(bx + bw, by, bx + bw, by + h + pad, rr);
-  ctx.arcTo(bx + bw, by + h + pad, bx, by + h + pad, rr); ctx.arcTo(bx, by + h + pad, bx, by, rr);
-  ctx.arcTo(bx, by, bx + bw, by, rr); ctx.closePath();
-  ctx.fillStyle = 'rgba(8,10,24,0.92)'; ctx.fill();
-  ctx.strokeStyle = 'rgba(122,142,220,0.75)'; ctx.lineWidth = 1; ctx.stroke();
-  ctx.fillStyle = '#e8e8f6'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  ctx.fillText(label, bx + pad, by + (h + pad) / 2);
-  ctx.restore();
+  if (bx + tipW > innerWidth - 4) bx = Math.max(4, pointerXY[0] - 14 - tipW);
+  if (by + tipH > innerHeight - 4) by = pointerXY[1] - 12 - tipH;
+  const xy = `translate(${Math.round(bx)}px,${Math.round(by)}px)`;
+  if (xy !== tipXY) tipEl.style.transform = tipXY = xy;
 }
 
 function draw(now) {

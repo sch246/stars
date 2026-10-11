@@ -26,7 +26,7 @@ const pullTo = (sim) => (alpha) => {
   const n = drag.n, k = 0.35 * P.dragForce * heatScale(alpha);
   const off = screenOffset(n.id);   // 节点所在空间的屏幕原点 + 累计缩放(就地展开的祖先也算在内)
   let tx, ty;
-  if (off) { const ox = transform.x + off.x - n.x * off.s, oy = transform.y + off.y - n.y * off.s; tx = (drag.px - ox) / off.s; ty = (drag.py - oy) / off.s; }
+  if (off) { const q = dispOf(n), ox = transform.x + off.x - q.x * off.s, oy = transform.y + off.y - q.y * off.s; tx = (drag.px - ox) / off.s; ty = (drag.py - oy) / off.s; }   // 空间原点 = 节点画的位置往回推
   else { tx = (drag.px - transform.x) / transform.k; ty = (drag.py - transform.y) / transform.k; }
   const gg = drag.g, dsp = drag.h && drag.h.sp;   // dsp = 被拖节点所在的空间(就地展开的,或已经"进入"的)
   let cap = Infinity, sCap = 1;
