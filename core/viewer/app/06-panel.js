@@ -162,13 +162,16 @@ async function showSeenDiff(id) {
   mine.html = html; renderSide();
 }
 async function stampNodes(ids, author = 'viewer') {
-  const r = await api('/api/stamp', { ids, author });
-  if (r.stamped.length && r.n) await waitApplied(r.n);
-  // 体检结果要等一会儿才推回来:先在本地把这几条过期去掉,面板马上就对
-  const done = new Set(r.stamped);
+  const r = (await kernelCmd('stamp', ids, {}, { author })).data;
+  stampedLocally(r.stamped);
+  return r;
+}
+/** 体检结果要等一会儿才推回来:先在本地把这几条过期去掉,面板马上就对 */
+function stampedLocally(ids) {
+  const done = new Set(ids || []);
+  if (!done.size) return;
   if (seenOpen && done.has(seenOpen.id)) seenOpen = null;
   if (data.issues.some((i) => i.rule === 'stale' && done.has(i.nodes[0]))) { data.issues = data.issues.filter((i) => !(i.rule === 'stale' && done.has(i.nodes[0]))); onIssues(); }
-  return r;
 }
 $('side').addEventListener('click', (ev) => {
   const tg = ev.target.closest('[data-sidetag]'); if (tg) { toggleTag(tg.dataset.sidetag); return; }

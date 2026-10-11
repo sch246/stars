@@ -159,7 +159,7 @@ function startRename(id) {
 }
 
 defCmd('new', {
-  group: '宇宙', effect: 'write', title: '新建节点(空格):不带参数 = 在指针处(或画面中间)弹出新建框;带名字 = 直接建,--in 放进容器(默认当前空间)',
+  group: '写入', effect: 'write', title: '新建节点(空格):不带参数 = 在指针处(或画面中间)弹出新建框;带名字 = 直接建,--in 放进容器(默认当前空间)',
   usage: 'new [名字] [-t 类型] [--in 容器]', flags: { t: 'type', type: 'type', in: 'in' }, args: [{ name: '名字' }],
   run: async (a, o) => {
     if (o.in && !raw.has(o.in)) throw new Error(`节点不存在:${o.in}`);
@@ -174,7 +174,7 @@ defCmd('new', {
   },
 });
 defCmd('rename', {
-  group: '宇宙', effect: 'write', title: '改名(改的是标签;id 和文件名不变):不带新名字 = 在侧栏里改(F2)', usage: 'rename [id] [新名字]', args: [nodeArg()],
+  group: '写入', effect: 'write', title: '改名(改的是标签;id 和文件名不变):不带新名字 = 在侧栏里改(F2)', usage: 'rename [id] [新名字]', args: [nodeArg()],
   run: ([id, ...rest]) => {
     id = id || selected; if (!id || !raw.has(id)) return false;
     if (rest.length) return CMDS.get('set').run([id], { label: rest.join(' ') }, { src: 'ui', author: 'viewer' });
@@ -323,8 +323,8 @@ async function ungroupNow(id, force = false) {
   return r;
 }
 defCmd('group', {
-  group: '宇宙', effect: 'write', title: '新建域 / 打包(Tab):选中了东西 = 把它们(同一层的)打包成一个域,在文件夹里就是新文件夹、文件真的搬进去;没选 = 在指针处新建一个空域;给 --name 就不弹框',
-  usage: 'group [id…] [--name 名字] [--in 上一层]', flags: { name: 'name', in: 'in' }, args: [nodeArg()],
+  group: '写入', effect: 'write', title: '新建域 / 打包(Tab):选中了东西 = 把它们(同一层的)打包成一个域,在文件夹里就是新文件夹、文件真的搬进去;没选 = 在指针处新建一个空域;给 --name 就不弹框',
+  usage: 'group [id…] [--name 名字] [--from 上一层]', flags: { name: 'name', in: 'in', from: 'in' }, args: [nodeArg()],   // --from 和 CLI 一样;--in 是旧写法
   run: (a, o, c) => {
     if (window.__STARS_STATIC__ || replay || !compiled) return false;
     noProposing(c, '打包');
@@ -349,7 +349,7 @@ defCmd('group', {
   },
 });
 defCmd('ungroup', {
-  group: '宇宙', effect: 'write', title: '解散(Shift+Tab):域里的东西放回上一层,再删掉这个域;重名、磁盘上有图里没有的文件就不做,会丢说明 / 关系时先问(--force 不问)',
+  group: '写入', effect: 'write', title: '解散(Shift+Tab):域里的东西放回上一层,再删掉这个域;重名、磁盘上有图里没有的文件就不做,会丢说明 / 关系时先问(--force 不问)',
   usage: 'ungroup [域] [--force]', bools: ['force'], args: [nodeArg()],
   run: async (a, o, c) => {
     if (window.__STARS_STATIC__ || replay || !compiled) return false;

@@ -9,11 +9,9 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { parseArgs } from 'node:util';
 import { proposalsFromLog } from './activity.ts';
 import { cmdLine, cmdTokenize } from './cmdline.ts';
-import { CLI_OPTIONS, KERNEL_COMMANDS, runKernel, type CliOpts, type KernelCtx } from './commands.ts';
-import { viewModulesFor } from './viewload.ts';
+import { KERNEL_COMMANDS, execKernel, type KernelCtx } from './commands.ts';
 import { configDir, pickServer } from './config.ts';
 import { StarsError } from './model.ts';
 
@@ -55,11 +53,7 @@ export function scriptApi(ctx: ScriptCtx) {
     const [name, ...rest] = cmdTokenize(String(line));
     if (!name) throw new StarsError('空命令');
     if (!KERNEL_COMMANDS.has(name)) return ui(String(line));
-    let parsed;
-    try { parsed = parseArgs({ args: rest, options: CLI_OPTIONS, allowPositionals: true }); }
-    catch (err) { throw new StarsError(`${name}:${(err as Error).message}`); }
-    const k = name === 'view' && parsed.positionals[0] ? { ...ctx, modules: await viewModulesFor(store.load(), parsed.positionals[0], ctx.root) } : ctx;
-    const r = runKernel(name, parsed.positionals, parsed.values as CliOpts, k);
+    const r = await execKernel(name, rest, ctx);
     return { out: r.out, data: r.data };
   };
   const cmd = new Proxy({}, {

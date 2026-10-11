@@ -59,7 +59,11 @@ function exec(line, src = 'console', report = null, from = '', level = 'off') {
   }
   if (page && spec.effect !== 'read') { conLog(line + `   ← ${from}`, 'remote'); echoed = true; }   // 页面做的界面操作和写入,控制台里都看得到
   let r;
-  try { const { a, o } = parseArgs(spec, toks.slice(1)); r = spec.run(a, o, { src, from, level, author: page ? from : 'viewer' }); }
+  try {
+    // 内核命令按命令表切选项(和 CLI 一样);别的按各自声明的 flags / bools
+    const { a, o } = spec.kernel ? (({ positionals, values }) => ({ a: positionals, o: values }))(cmdParse(spec.name, toks.slice(1))) : parseArgs(spec, toks.slice(1));
+    r = spec.run(a, o, { src, from, level, author: page ? from : 'viewer' });
+  }
   catch (e) { fail(e); return null; }
   if (r === false) { if (typed || src === 'remote') conLog('(此时不适用)', 'dim'); if (report) report({ ok: false, error: '此时不适用' }); return false; }
   if (!typed && src !== 'remote' && !page) conLog(line, 'echo');

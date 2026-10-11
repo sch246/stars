@@ -10,13 +10,15 @@ import { draftPreview } from './draft.ts';
 import { FileConflict, IMAGE_TYPES, patchProjectFile, readProjectFile, resolveInside, writeProjectFile } from './files.ts';
 import { diffUniverses, gitFirstParent, gitHistory, gitParentSnapshot, gitSnapshot, type HistoryScope } from './history.ts';
 import { moduleGraph } from './imports.ts';
+import { KERNEL_NAMES } from './cmdspec.ts';
+import { execKernel } from './commands.ts';
 import { StarsError } from './model.ts';
 import { apply, type Op } from './ops.ts';
 import { expandHome, readRecent, type Project } from './project.ts';
-import { planImportsToggle, selfRel } from './scan.ts';
-import { planStamp, seenDiff, stampOnSummary } from './stale.ts';
-import { applyDraft, updateDraft } from './store.ts';
-import { arrange, saveUploads, undoWithFs } from './fsops.ts';
+import { selfRel } from './scan.ts';
+import { seenDiff, stampOnSummary } from './stale.ts';
+import { updateDraft } from './store.ts';
+import { arrange, saveUploads } from './fsops.ts';
 import { readRuns } from './runlog.ts';
 
 /** 服务的共享状态(serve.ts 建好后交给接口) */
@@ -37,7 +39,7 @@ export interface ServerCtx {
 export interface Body {
   op?: Op; author?: string; dir?: string; create?: boolean; path?: string; content?: string; mtime?: number | null;
   name?: string; line?: string; file?: string; from?: string; id?: string; wait?: number; ids?: string[];
-  action?: string; indices?: number[]; args?: string[]; draft?: boolean; on?: boolean;
+  action?: string; args?: string[]; draft?: boolean;
   patch?: { start: number; end: number; insert: string }; baseHash?: string;
   /** 整理(/api/arrange) */
   mode?: string; target?: string | null; rel?: string; fromMap?: Record<string, string | null>;
@@ -204,13 +206,6 @@ export const POST: Record<string, Handler> = {
     if (typeof body.dir !== 'string' || !body.dir) throw new HttpError(400, '需要 dir');
     return s.openProject(body.dir, !!body.create).info();
   },
-  '/api/undo': ({ proj, author }) => ({ ok: true, n: undoWithFs(proj.store, proj.baseDir, author).n }),
-  // import 边开 / 关(和 stars imports on / off 一样)
-  '/api/imports': ({ body, s, proj, author }) => {
-    const op = planImportsToggle(proj.store.peek(), proj.baseDir, s.mountId, body.on === true);
-    const n = op.op === 'batch' && op.ops.length ? proj.store.commit(op, { author }).entry.n : proj.store.logCount();
-    return { ok: true, n, changed: op.op === 'batch' ? op.ops.length : 0 };
-  },
   // 外面来的文件(粘贴、拖进查看器):存进 dir 这个文件夹(不给 = 项目根),建好节点;container 也装着它们
   '/api/upload': ({ body, s, proj, author }) => {
     const files = Array.isArray(body.files) ? body.files.filter((f) => f && typeof f.name === 'string' && typeof f.b64 === 'string').map((f) => ({ name: f.name, data: Buffer.from(f.b64, 'base64'), dir: f.dir === true })) : [];
@@ -230,23 +225,22 @@ export const POST: Record<string, Handler> = {
     }, author);
     return { ok: true, n: r.entry?.n ?? null, summary: r.plan.summary, result: r.plan.result, skipped: r.plan.skipped, fs: r.plan.fs, conflicts: r.plan.conflicts ?? null };
   },
+  // 一行内核命令(和 CLI 同名同参数,见 cmdspec.ts):查看器里的写命令都走这里,作者是请求里的 author;--draft 写进草稿。
+  // 返回命令的 { out, data, exitCode },外加 n(执行完日志的条数:页面等推送追到它再算完成)
+  '/api/cmd': async ({ body, proj, author }) => {
+    if (typeof body.name !== 'string' || !KERNEL_NAMES.has(body.name)) throw new HttpError(400, `不是内核命令: ${String(body.name)}`);
+    const args = Array.isArray(body.args) ? body.args.map(String) : [];
+    const r = await execKernel(body.name, args, { store: proj.store, author, root: proj.baseDir, cwd: proj.baseDir });
+    if (args.includes('--draft') || body.name === 'draft') proj.sendDraft();
+    return { ok: true, out: r.out, data: r.data ?? null, exitCode: r.exitCode ?? 0, n: proj.store.logCount() };
+  },
   '/api/op': ({ body, proj, author }) => {
     if (!validOp(body.op)) throw new HttpError(400, '无效的操作');
     const op = stampOnSummary(proj.store.peek(), body.op, proj.baseDir);   // 写了 summary 的节点顺手记下文件版本
     return { ok: true, n: proj.store.commit(op, { author }).entry.n };
   },
-  // 草稿:apply 整批落进宇宙(一次提交)· drop 丢弃(indices 从 1 数;不给 = 全部)· add 追加一条
+  // 草稿里追加一条操作(界面上的写入进草稿用;整批应用 / 丢弃是 draft apply / drop 命令,走 /api/cmd)
   '/api/draft': ({ body, proj, author }) => {
-    if (body.action === 'apply') { const r = applyDraft(proj.store, { author }); proj.sendDraft(); return { ok: true, ...r }; }
-    if (body.action === 'drop') {
-      const dropped = updateDraft(proj.store.file, (entries) => {
-        const idx = new Set(Array.isArray(body.indices) ? body.indices : entries.map((_, i) => i + 1));
-        const kept = entries.filter((_, i) => !idx.has(i + 1));
-        return { entries: kept, result: entries.length - kept.length };
-      });
-      proj.sendDraft();
-      return { ok: true, dropped };
-    }
     if (body.action === 'add') {
       const op0 = body.op;
       if (!validOp(op0)) throw new HttpError(400, '无效的操作');
@@ -259,7 +253,7 @@ export const POST: Record<string, Handler> = {
       proj.sendDraft();
       return { ok: true, draft };
     }
-    throw new HttpError(400, 'action 应为 apply / drop / add');
+    throw new HttpError(400, 'action 应为 add(应用、丢弃用 draft apply / drop 命令)');
   },
   // 跑一个脚本节点(子进程,和触发的一样);跑完返回运行记录
   '/api/run': async ({ body, proj, author }) => {
@@ -267,13 +261,6 @@ export const POST: Record<string, Handler> = {
     const agent = proj.agent ?? proj.startAgent(() => {});
     const args = Array.isArray(body.args) ? body.args.map(String) : [];
     return { ok: true, record: await agent.runNow(body.name, { kind: 'manual', by: author }, args) };
-  },
-  '/api/stamp': ({ body, proj, author }) => {   // 说明仍然有效:记下这些节点指向的文件现在的版本
-    if (!Array.isArray(body.ids) || !body.ids.every((x) => typeof x === 'string')) throw new HttpError(400, '需要 ids');
-    const p = planStamp(proj.store.peek(), body.ids, proj.baseDir);
-    const n = p.op ? proj.store.commit(p.op, { author }).entry.n : proj.store.logCount();
-    if (!p.op) proj.scheduleIssues();
-    return { ok: true, n, stamped: p.stamped, skipped: p.skipped };
   },
 };
 

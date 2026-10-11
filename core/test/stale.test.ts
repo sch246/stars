@@ -116,7 +116,7 @@ test('过期检测:stampOnSummary 只补写了 summary、指向文件、自己�
   assert.equal(stampOnSummary(u, same, dir), same, '没写 summary:原样返回');
 });
 
-test('过期检测:服务端 —— 查看器写说明自动记版本;/api/stamp、/api/seen-diff;保存文件后体检推送 stale', async () => {
+test('过期检测:服务端 —— 查看器写说明自动记版本;stamp(/api/cmd)、/api/seen-diff;保存文件后体检推送 stale', async () => {
   const { dir, store, staleIds } = project(true);
   writeFileSync(join(dir, 'm.ts'), 'a\n');
   const port = await new Promise<number>((ok) => { const s = createServer().listen(0, () => { const p = (s.address() as { port: number }).port; s.close(() => ok(p)); }); });
@@ -150,8 +150,9 @@ test('过期检测:服务端 —— 查看器写说明自动记版本;/api/stamp
     const d = await call('/api/seen-diff?id=m');
     assert.equal(d.j.old, true);
     assert.match(String(d.j.diff), /^\+b$/m);
-    const s = await call('/api/stamp', { ids: ['m', 'zz'], author: 'tester' });
-    assert.deepEqual([s.j.stamped, s.j.skipped], [['m'], ['zz']]);
+    const s = await call('/api/cmd', { name: 'stamp', args: ['m', 'zz'], author: 'tester' });
+    const sd = s.j.data as { stamped: string[]; skipped: string[] };
+    assert.deepEqual([sd.stamped, sd.skipped], [['m'], ['zz']]);
     assert.deepEqual(staleIds(), []);
     assert.equal(store.readLog().at(-1)!.author, 'tester');
     assert.equal((await call('/api/seen-diff?id=nope')).status, 404);
