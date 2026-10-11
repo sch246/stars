@@ -13,7 +13,7 @@ import { listFiles, planScan, statMeta } from '../src/scan.ts';
 import { diffUniverses, gitHistory, gitParentSnapshot, gitSnapshot } from '../src/history.ts';
 import { BROWSER_MODULES } from '../src/page.ts';
 import { startServer } from '../src/serve.ts';
-import { exportHtml } from '../src/exporter.ts';
+import { exportHtml, viewImportMap } from '../src/exporter.ts';
 import { Store } from '../src/store.ts';
 import { viewSources } from '../src/viewload.ts';
 
@@ -454,7 +454,10 @@ test('视图脚本:/api/viewdeps 给整串依赖和版本(改了依赖版本就�
   assert.deepEqual(Object.keys(src).sort(), ['views/heat.js', 'views/pal.js', 'views/typed.ts']);
   assert.doesNotMatch(src['views/typed.ts']!, /: string/, '静态导出里的 .ts 已经去掉类型');
   const html = exportHtml(store, dir, src);
-  assert.match(html, /window\.__STARS_VIEWSRC__ = \{"views\/heat\.js":/);
+  assert.match(html, /<script type="importmap">\{"imports":\{"stars-view:\/views\/heat\.js":"data:text\/javascript;charset=utf-8;base64,/);
+  assert.match(html, /window\.__STARS_VIEWMODS__ = \["views\/heat\.js"/);
+  const map = viewImportMap(src).imports, heat = Buffer.from(map['stars-view:/views/heat.js']!.split(',')[1]!, 'base64').toString('utf8');
+  assert.match(heat, /from 'stars-view:\/views\/pal\.js'/, '相对 import 换成 import map 里的名字');
 });
 
 /** 读 SSE:把收到的具名事件交给 onEvent;返回关闭函数 */

@@ -126,6 +126,37 @@ test('视图脚本:edge() 藏起来的边类型不算度数', () => {
   assert.deepEqual(c.warnings, []);
 });
 
+test('视图脚本:link() 逐条改边的颜色 / 线宽;汇总了几条的边用类型的', () => {
+  const u = world();
+  apply(u, { op: 'batch', ops: [
+    { op: 'addEdge', from: 'src/b.ts', type: 'dependsOn', to: 'src/c.md', attrs: { weight: '3' } },
+    { op: 'addEdge', from: 'idea', type: 'dependsOn', to: 'src/a.ts', attrs: {} },
+  ] } as never);
+  const seen: string[] = [];
+  const w: ViewModule = {
+    spec: { base: 'galaxy' },
+    link(e, _v, base) {
+      if (e.type !== 'dependsOn') return undefined;
+      seen.push(`${e.from.id}>${e.to.id}`);
+      return e.attrs.weight ? { width: Number(e.attrs.weight), color: '#ff8800' } : { width: base.width * 2 };
+    },
+  };
+  const c = compileView(u, { script: 'w.js' }, { modules: mods({ 'w.js': w }) });
+  assert.deepEqual(seen.sort(), ['idea>src/a.ts', 'src/a.ts>src/b.ts', 'src/b.ts>src/c.md']);
+  const dep = (s: { edges: Array<{ from: string; to: string; type: string; color: string; width: number; count?: number }> }, from: string, to: string) => s.edges.find((e) => e.type === 'dependsOn' && e.from === from && e.to === to);
+  const inSrc = c.space('src/');
+  assert.deepEqual([dep(inSrc, 'src/b.ts', 'src/c.md')!.width, dep(inSrc, 'src/b.ts', 'src/c.md')!.color], [3, '#ff8800']);
+  assert.equal(dep(inSrc, 'src/a.ts', 'src/b.ts')!.width, 2, '没写 weight 的:类型线宽的两倍');
+  // repo 的空间里 idea → a 抬到了 src/:只汇总了这一条,还是它自己的线宽
+  assert.equal(dep(c.space('repo'), 'idea', 'src/')!.width, 2);
+  apply(u, { op: 'addEdge', from: 'idea', type: 'dependsOn', to: 'src/b.ts', attrs: { weight: '5' } });
+  const c2 = compileView(u, { script: 'w.js' }, { modules: mods({ 'w.js': w }) });
+  const both = dep(c2.space('repo'), 'idea', 'src/')!;
+  assert.deepEqual([both.count, both.width, both.color], [2, 1, c2.space('src/').edges.find((e) => e.type === 'dependsOn' && e.width === 2)!.color], '汇总了两条:用类型的');
+  const bad: ViewModule = { link: () => ({ color: 'red' }) as never };
+  assert.match(compileView(u, { base: 'galaxy', script: 'b.js' }, { modules: mods({ 'b.js': bad }) }).warnings.join(), /b\.js 的 link\(\) 有 \d+ 次返回了不认识的值/);
+});
+
 test('视图脚本:n 的列与结构;v 的辅助函数', () => {
   const u = world();
   const now = Date.UTC(2026, 0, 10), got: Record<string, unknown> = {};

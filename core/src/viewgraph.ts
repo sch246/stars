@@ -58,6 +58,8 @@ export interface ViewGraph {
   readonly et: Int32Array;
   readonly ety: Int32Array;
   readonly eprop: Uint8Array;
+  /** 边的属性(按下标;视图脚本的 link() 用) */
+  readonly eattrs: Array<Record<string, string | undefined>>;
   /** 边类型:按第一次出现编号;tSym = 不分方向(related 这类) */
   readonly typeNames: string[];
   readonly typeIdx: Map<string, number>;
@@ -100,6 +102,7 @@ export function indexGraph(u: Universe, relation: string): ViewGraph {
   const E0 = u.edges.size;
   const ef = new Int32Array(E0), et = new Int32Array(E0), ety = new Int32Array(E0);
   const eprop = new Uint8Array(E0);
+  const eattrs: ViewGraph['eattrs'] = new Array(E0);
   const parent = new Int32Array(N).fill(-1);
   let E = 0;
   // 一个节点在几个容器里时(contains 没有 single-parent):和文件路径对得上的那条(目录包含文件)进容器树,
@@ -120,6 +123,7 @@ export function indexGraph(u: Universe, relation: string): ViewGraph {
     }
     ef[E] = a; et[E] = b; ety[E] = typeId(e.type);
     eprop[E] = e.attrs.status === 'proposed' ? 1 : 0;
+    eattrs[E] = e.attrs;
     E++;
   }
   const tSym = typeNames.map((t) => isSymmetric(u, t));
@@ -179,5 +183,5 @@ export function indexGraph(u: Universe, relation: string): ViewGraph {
   };
   const chainOf = (v: number): number[] => { const c: number[] = []; for (let x = v; x >= 0; x = parent[x]!) c.push(x); return c.reverse(); };
 
-  return { u, N, nodeList, ids, idx, E, ef, et, ety, eprop, typeNames, typeIdx, tSym, relation, parent, depth, order, treeKids, childCount, desc, second, adjOf, chainOf };
+  return { u, N, nodeList, ids, idx, E, ef, et, ety, eprop, eattrs, typeNames, typeIdx, tSym, relation, parent, depth, order, treeKids, childCount, desc, second, adjOf, chainOf };
 }

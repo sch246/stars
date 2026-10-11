@@ -7,17 +7,10 @@ const viewMods = new Map();      // 路径 → 模块 | Error
 const viewDeps = new Map();      // 入口路径 → { files, missing, version }
 const viewLoading = new Map();   // 路径 → Promise
 
-// 静态导出:源码在页面里(__STARS_VIEWSRC__),每个文件做成一个 blob 模块,相对 import 换成依赖的 blob 地址(先依赖后自己)
-const staticUrls = new Map();
-function staticModuleUrl(path, stack = []) {
-  if (staticUrls.has(path)) return staticUrls.get(path);
-  if (stack.includes(path)) throw new Error('静态导出里不支持循环 import: ' + [...stack, path].join(' → '));
-  const src = (window.__STARS_VIEWSRC__ || {})[path];
-  if (src == null) throw new Error('导出的页面里没有 ' + path);
-  const code = rewriteImports(src, (spec) => { const dep = resolveImport(path, spec); return dep === null ? null : staticModuleUrl(dep, [...stack, path]); });
-  const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
-  staticUrls.set(path, url);
-  return url;
+// 静态导出:每个文件是页面 import map 里的一个模块 stars-view:/<路径>(见 exporter.ts;循环 import 也行)
+function staticModuleUrl(path) {
+  if (!(window.__STARS_VIEWMODS__ || []).includes(path)) throw new Error('导出的页面里没有 ' + path);
+  return 'stars-view:/' + path;
 }
 const viewErr = new Map();       // 路径 → 重新加载失败的原因(这时还用着上一次加载成功的模块)
 /** keepOld:重新加载(文件改了)时失败了就留着上一次的模块,只在顶上提示 —— 改到一半保存不会让画面塌掉 */
@@ -75,7 +68,7 @@ async function viewFromScript(path, name) {
   await loadViewScript(path);
   const m = viewMods.get(path);
   if (m instanceof Error) { toast(`${esc(path)} 加载不了:${esc(m.message)}`, true, 8000); return; }
-  if (!['spec', 'select', 'size', 'color', 'shape', 'label', 'edge', 'forces', 'looks'].some((k) => m[k] !== undefined)) {
+  if (!['spec', ...VIEW_HOOKS].some((k) => m[k] !== undefined)) {
     toast(`${esc(path)} 不像视图脚本(没有导出 spec / select / size / color …)`, true, 6000); return;
   }
   let base = name || path.split('/').pop().replace(VIEW_SCRIPT_FILE, '').replace(/[^\p{L}\p{N}_-]+/gu, '-').replace(/^-+|-+$/g, '') || 'script';

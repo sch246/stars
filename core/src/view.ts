@@ -10,7 +10,7 @@ import { STYLE_DEFAULT_SHAPES, STYLE_MODES } from './styles.ts';
 import { SHAPES, type ColorRule, type CompileOptions, type CompiledView, type EvalOptions, type Explain, type RelationMode, type RelationRule, type Scene, type Shape, type SizeRule, type StepName, type StyleRule, type ViewSpec, type When } from './viewspec.ts';
 import { indexGraph, rollupArr } from './viewgraph.ts';
 import { viewExprs } from './viewexpr.ts';
-import { viewFolder, type EdgeLook, type Looks } from './viewfold.ts';
+import { viewFolder, type EdgeLook, type EdgeOwn, type Looks } from './viewfold.ts';
 import { resolveView } from './viewlayers.ts';
 import { scaleValue, scriptRun, viewModuleOf, VIEW_HOOKS, type ViewModule } from './viewscript.ts';
 
@@ -307,9 +307,27 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     for (let i = 0; i < N; i++) if (selected[i]) label[i] = applyHooks('label', i, 0, label[i]!, labelBy);
   }
 
+  // ---- 逐条边:脚本的 link() 改颜色 / 线宽(类型藏起来的不调) ----
+  let own: Looks['own'];
+  if (run && hooks.link.some(Boolean)) {
+    own = { color: new Array(E), width: new Float32Array(E).fill(NaN) };
+    for (let li = 0; li < nL; li++) {
+      const f = hooks.link[li];
+      if (!f) continue;
+      for (let e = 0; e < E; e++) {
+        const te = edge[ety[e]!]!;
+        if (te.mode === 'hidden') continue;
+        const w = own.width[e]!, base = { color: own.color[e] ?? te.color, width: w === w ? w : te.width };
+        const r = run.call(scriptOf(li), 'link', f, run.edge(e), run.v, base, `${ids[ef[e]!]} -${typeNames[ety[e]!]}-> ${ids[et[e]!]}`) as Partial<EdgeOwn> | undefined;
+        if (!r) continue;
+        if (r.color !== undefined) own.color[e] = r.color;
+        if (r.width !== undefined) own.width[e] = r.width;
+      }
+    }
+  }
   const value = new Float64Array(N).fill(NaN);
   for (let i = 0; i < N; i++) { const li = SZ.layer[i]!, k = SZ.rule[i]!; if (k >= 0) value[i] = ruleVals[li]![k]![i]!; }
-  const looks: Looks = { selected, rad, color, shape: shapeIdx, value, edge, ...(label ? { label } : {}) };
+  const looks: Looks = { selected, rad, color, shape: shapeIdx, value, edge, ...(label ? { label } : {}), ...(own ? { own } : {}) };
   // ---- looks():最后一次,整列改 ----
   if (run) for (let li = 0; li < nL; li++) {
     const f = hooks.looks[li];
