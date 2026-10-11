@@ -7,7 +7,9 @@
 // 事件处理:攒一小段时间(默认 80ms,最长 500ms)去重合并 → 一批脏目录 → 对账 → 一次提交。
 // 事件风暴保护:脏目录太多(默认 > 300,比如切分支、npm install)就放弃逐个对账,做一次全量对账。
 // 兜底:每隔 pollSec 秒做一次全量对账,事件丢了/溢出了也能自愈。
-import { type FSWatcher, watch } from 'node:fs';
+// 刚开起来的一小段时间里的事件可能收不到(macOS 的 FSEvents 是异步开起来的;Linux 给很多目录挂监听也要时间):
+// 启动后 catchUpMs(默认 1 秒)再全量对一次账。ready() 等到监听真的开始收事件(测试在它之后才动文件)。
+import { existsSync, type FSWatcher, unlinkSync, watch, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { reconcile, type SyncResult } from './fssync.ts';
 import { liveFs, snapshotFs } from './nodefs.ts';
@@ -24,6 +26,7 @@ export interface WatchOptions {
   maxWaitMs?: number;
   stormDirs?: number;
   pollSec?: number;        // 0 = 关闭兜底
+  catchUpMs?: number;      // 启动后多久再全量对一次账(补上监听开起来之前的事件);0 = 不补
   onSync?: (r: SyncResult & { full: boolean; ms: number }) => void;
   onGit?: () => void;      // .git/HEAD 或 .git/index 变了(提交、切分支):git 派生的信号需要刷新
   log?: (m: string) => void;
@@ -39,17 +42,23 @@ export class FsWatcher {
   private timer: NodeJS.Timeout | null = null;
   private firstAt = 0;
   private poller: NodeJS.Timeout | null = null;
+  private catchUp: NodeJS.Timeout | null = null;
+  private readyWait: Promise<void> | null = null;
+  private onReady: (() => void) | null = null;
+  private probe: NodeJS.Timeout | null = null;
   private degraded = false;
   private stopped = false;
   private started = false;
-  stats = { events: 0, flushes: 0, fullSyncs: 0 };
+  stats = { events: 0, flushes: 0, fullSyncs: 0, storms: 0 };
   /** 宇宙文件相对于根目录的路径:它自己的写入不是文件系统的变化 */
   private readonly self: string;
+  /** 局部对账读磁盘用的,跨批次复用(git check-ignore 的结果缓存着;改了 .gitignore 就清掉) */
+  private fsv: ReturnType<typeof liveFs> | null = null;
 
   constructor(opts: WatchOptions) {
     const given = Object.fromEntries(Object.entries(opts).filter(([, v]) => v !== undefined)); // 显式的 undefined 不覆盖默认值
     this.o = {
-      author: 'fs', debounceMs: 80, maxWaitMs: 500, stormDirs: 300, pollSec: 120, log: () => {}, ...given,
+      author: 'fs', debounceMs: 80, maxWaitMs: 500, stormDirs: 300, pollSec: 120, catchUpMs: 1000, log: () => {}, ...given,
     } as WatchOptions & never;
     this.self = selfRel(this.o.root, this.o.store.file);
   }
@@ -62,13 +71,35 @@ export class FsWatcher {
     this.watchGit();
     this.started = true;
     if (this.o.pollSec > 0) { this.poller = setInterval(() => this.syncAll(), this.o.pollSec * 1000); this.poller.unref(); }
+    if (this.o.catchUpMs > 0) { this.catchUp = setTimeout(() => { this.catchUp = null; if (!this.stopped) this.syncAll(); }, this.o.catchUpMs); this.catchUp.unref(); }
     return first;
+  }
+
+  /**
+   * 等到监听真的开始收事件:递归监听(macOS / Windows)是异步开起来的,往 .git/ 里写一个探针文件,收到它的事件就算好了
+   * (.git 里的事件本来就不对账);每目录监听(Linux)是同步挂上的,马上就好。最多等 3 秒。
+   */
+  ready(): Promise<void> {
+    if (this.readyWait) return this.readyWait;
+    const probe = join(this.o.root, '.git', 'stars-watch-probe');
+    if (!this.recursive || !existsSync(join(this.o.root, '.git'))) return (this.readyWait = Promise.resolve());
+    this.readyWait = new Promise<void>((ok) => {
+      const done = () => { if (this.probe) clearInterval(this.probe); this.probe = null; this.onReady = null; try { unlinkSync(probe); } catch { /* 没写成 */ } ok(); };
+      this.onReady = done;
+      let n = 0;
+      const poke = () => { if (++n > 60 || this.stopped) { done(); return; } try { writeFileSync(probe, String(n)); } catch { done(); } };
+      poke();
+      this.probe = setInterval(poke, 50);
+    });
+    return this.readyWait;
   }
 
   stop(): void {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
     if (this.poller) clearInterval(this.poller);
+    if (this.catchUp) clearTimeout(this.catchUp);
+    this.onReady?.();
     for (const w of this.watchers.values()) w.close();
     this.watchers.clear();
     this.recursive?.close();
@@ -80,6 +111,7 @@ export class FsWatcher {
   private hit(dirRel: string, type: string, name: string | null): void {
     if (!name) { this.dirty.add(dirRel); this.schedule(); return; }
     const rel = (dirRel + name).replace(/\\/g, '/');
+    if (rel === '.git/stars-watch-probe') { this.onReady?.(); return; }   // ready() 的探针
     if (/(^|\/)(\.git|node_modules)(\/|$)/.test(rel) || isStorage(rel, this.self)) return; // 宇宙自己的写入不算文件系统的变化
     this.stats.events++;
     const parent = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/') + 1) : '';
@@ -103,20 +135,22 @@ export class FsWatcher {
     const dirs = [...this.dirty], touched = [...this.touched];
     this.dirty.clear(); this.touched.clear();
     this.stats.flushes++;
-    if (dirs.length > this.o.stormDirs) { this.syncAll(); return; } // 事件风暴:不逐个对账了
+    if (dirs.length > this.o.stormDirs) { this.stats.storms++; this.syncAll(); return; } // 事件风暴:不逐个对账了
     this.run(dirs, touched, false);
   }
 
   // ---------- 对账 ----------
   private syncAll(): SyncResult & { full: boolean; ms: number } {
     this.stats.fullSyncs++;
+    this.fsv?.forget?.();   // 全量对账 = 从头来:忽略规则也重新问
     return this.run('all', [], true);
   }
 
   private run(dirs: string[] | 'all', touched: string[], full: boolean): SyncResult & { full: boolean; ms: number } {
     const t0 = performance.now();
     const u = this.o.store.peek(); // 只读;提交时复用同一份内存里的宇宙,不用每次重新解析
-    const r = reconcile(u, full ? snapshotFs(this.o.root, this.self) : liveFs(this.o.root, this.self), { mountId: this.o.mountId, dirs, touched });
+    if (!full && touched.some((t) => /(^|\/)\.gitignore$/.test(t))) this.fsv?.forget?.();
+    const r = reconcile(u, full ? snapshotFs(this.o.root, this.self) : (this.fsv ??= liveFs(this.o.root, this.self)), { mountId: this.o.mountId, dirs, touched });
     if (r.op) {
       try { this.o.store.commit(r.op, { author: this.o.author }, undefined, { defer: true }); }
       catch (e) {

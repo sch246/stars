@@ -48,6 +48,14 @@ test('视图脚本:新建、改依赖跟着变、写坏了留着上一次的、�
   assert.match((await page.text('#ed-layers')) ?? '', /galaxy → views\/heat\.js 打开 → 热力/, '规则面板里列出层');
   await s.ui('panel rules off');
 
+  // .ts:服务端去掉类型再给浏览器;import 别的 .ts 写上扩展名
+  writeFileSync(join(s.dir, 'views/tpal.ts'), "export const cool: string = '#3355ff';\n");
+  writeFileSync(join(s.dir, 'views/typed.ts'), "import { cool } from './tpal.ts';\ninterface N { ext: string }\nexport const spec = { base: 'galaxy' };\nexport function color(n: N, v: unknown, c: string): string { return n.ext === 'ts' ? cool : c; }\n");
+  await s.ui('view-script 带类型 --file views/typed.ts');
+  await waitLook(s, 'src/app.ts', (l) => l?.color === '#3355ff', '.ts 视图脚本的颜色');
+  await s.ui('view 热力');
+  await waitLook(s, 'src/app.ts', (l) => l?.color === '#00ffaa', '切回热力');
+
   // 一开始就加载不了的:只用视图自己写的规则算,顶上提示
   writeFileSync(join(s.dir, 'views/bad.js'), 'export const spec = {');
   await s.ui('view-script 坏的 --file views/bad.js').catch(() => {});

@@ -35,7 +35,7 @@ async function loadRuns(name) {
 }
 
 /** ▶:在服务端跑,等它跑完(输出进控制台) */
-async function runScript(name, args = []) {
+async function runScriptNode(name, args = []) {
   scriptRunning.add(name);
   renderSide();
   try {

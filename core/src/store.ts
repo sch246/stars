@@ -265,9 +265,7 @@ export class Store {
   /** 撤销最近一条尚未被撤销的操作。那一步动过磁盘上的文件(entry.fs)时要给 fsUndo,先把文件倒回去 */
   undo(ctx: Ctx, fsUndo?: FsUndo): LogEntry {
     return withLock(this.file, () => {
-      const log = this.readLog();
-      const undone = new Set(log.filter((e) => e.undoOf !== undefined).map((e) => e.undoOf!));
-      const target = [...log].reverse().find((e) => e.undoOf === undefined && !undone.has(e.n));
+      const target = undoTarget(this.readLog());
       if (!target) throw new StarsError('没有可撤销的操作');
       if (!target.fs?.length) return this.commit(target.inverse, ctx, target.n).entry;
       if (!fsUndo) throw new StarsError(`#${target.n} 还移动 / 复制了磁盘上的文件,这里撤销不了(在项目里撤销:查看器,或在项目目录里 stars undo)`);
@@ -276,6 +274,12 @@ export class Store {
       catch (e) { try { fsUndo(back); } catch { /* 尽力而为 */ } throw e; }
     });
   }
+}
+
+/** undo 会撤销哪一条:最近一条不是撤销、也还没被撤销过的 */
+export function undoTarget(log: readonly LogEntry[]): LogEntry | undefined {
+  const undone = new Set(log.filter((e) => e.undoOf !== undefined).map((e) => e.undoOf!));
+  return [...log].reverse().find((e) => e.undoOf === undefined && !undone.has(e.n));
 }
 
 // ---------- 草稿(见 draft.ts):<宇宙文件>.draft,一行一条 { t, author, op } ----------

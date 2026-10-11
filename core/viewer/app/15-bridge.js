@@ -31,6 +31,8 @@ function bridgePost(b, event, value) {
   try { b.frame.contentWindow.postMessage({ stars: b.nonce, event, value }, '*'); } catch { /* 克隆不了的值:这次不发 */ }
 }
 function bridgeEmit(event, value) { for (const b of bridges.values()) bridgePost(b, event, value); }
+// 页面和查看器里跑的脚本能订阅的事件(level 是各自的,由 grantsChanged 单独发):查看器里发生了就转过去
+for (const name of eventsFor('page')) if (name !== 'level') onEvent(name, (v) => bridgeEmit(name, v));
 /** 按页面存的小数据(沙箱里的页面没有 localStorage):存在查看器这边,按项目目录 + 页面路径分开 */
 function bridgeStore(b, m) {
   const k = 'stars.page:' + projDir() + ':' + b.path;
@@ -54,7 +56,7 @@ window.addEventListener('message', (ev) => {
     catch (e) { ev.source.postMessage({ stars: b.nonce, re: m.id, ok: false, error: '结果传不回页面:' + e.message }, '*'); }
   };
   try {
-    if (m.kind === 'sub') { if (['change', 'select', 'level'].includes(m.event)) b.subs.add(m.event); return; }
+    if (m.kind === 'sub') { if (eventsFor('page').includes(m.event)) b.subs.add(m.event); else conLog(`[${b.path.replace(/^.*\//, '')}] 订阅了不存在的事件 ${String(m.event)}(能订阅的:${eventsFor('page').join(' ')})`, 'dim'); return; }
     if (m.kind === 'info') { reply(true, { runner: b.kind, path: b.path, project: project ? { id: project.id, name: project.name, dir: project.dir } : null, level: b.level, selected, view: currentView }); return; }
     if (m.kind === 'graph') { reply(true, { nodes: data.nodes, edges: data.edges, proposals: data.proposals || {}, n: lastN }); return; }
     if (m.kind === 'store') { reply(true, bridgeStore(b, m)); return; }
@@ -71,3 +73,4 @@ window.addEventListener('message', (ev) => {
   } catch (e) { reply(false, (e && e.message) || e); }
 });
 const htmlRefreshSoon = debounce(() => { if (fp && fp.handler === 'html' && fp.renderView) fp.renderView(); }, 300);
+onEvent('file', ({ ids }) => { if (fp && fp.handler === 'html' && ids.some((id) => id !== fp.id || !fp.opts.live)) htmlRefreshSoon(); });   // 页面引用的 css / js 改了(实时同步发现的)

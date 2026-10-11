@@ -3,11 +3,12 @@ import { execFile } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { cmdLine, cmdQuote, cmdTokenize } from '../src/cmdline.ts';
 
 process.env.XDG_CONFIG_HOME = mkdtempSync(join(tmpdir(), 'stars-cfg-')); // 脚本的 store 别写进真实的家目录
-const cliPath = new URL('../src/cli.ts', import.meta.url).pathname;
+const cliPath = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
 const stars = (cwd: string, ...args: string[]) => new Promise<{ code: number; out: string; err: string }>((ok) => {
   execFile(process.execPath, [cliPath, ...args], { cwd, env: process.env }, (e, out, err) => ok({ code: e ? (e as { code?: number }).code ?? 1 : 0, out, err }));
 });

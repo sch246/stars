@@ -1,9 +1,8 @@
 // 内核命令:读写宇宙文件、不需要查看器的那一批(add / link / ls / show / nb …)。
-// CLI(stars <命令>)和 Node 脚本(stars run x.js 里的 stars.exec / stars.cmd)都走这里:返回 { out, data },
-// out 给人看,data 给程序(--json 打印的就是它)。选项的写法与 CLI 相同,定义在 CLI_OPTIONS。
+// CLI(stars <命令>)、Node 脚本(stars run x.js 里的 stars.exec / stars.cmd)、查看器里的写命令(经 /api/cmd)都走这里:
+// 返回 { out, data },out 给人看,data 给程序(--json 打印的就是它)。用法、选项、说明在命令表里(cmdspec.ts)。
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
-import { type ParseArgsConfig } from 'node:util';
 import { loadSignals } from './activity.ts';
 import { readRuns } from './runlog.ts';
 import { SCRIPT_PREFIX, checkScriptAttrs, describeTriggers, listScripts, scriptDef } from './scriptnode.ts';
@@ -12,66 +11,22 @@ import { RULE_PREFIX, lint, listRules } from './lint.ts';
 import { StarsError, getEdge, type Attrs, type Universe } from './model.ts';
 import { type Op } from './ops.ts';
 import { arrange, undoWithFs } from './fsops.ts';
-import { QUERY_PREFIX, filterNodes, listQueries, neighborhood, shortestPath, type Dir } from './query.ts';
+import { QUERY_PREFIX, listQueries } from './query.ts';
+import { nodeLine, readLs, readNb, readPath, readShow, readTypes } from './cmdread.ts';
 import { IMPORT_VIA, importsOn, listFiles, planImports, planImportsToggle, planScan, selfRel, statMeta } from './scan.ts';
 import { planStamp, seenDiff, seenPath, seenState, stampOnSummary } from './stale.ts';
-import { applyDraft, readDraft, Store, updateDraft } from './store.ts';
+import { applyDraft, DraftStore, readDraft, Store, updateDraft } from './store.ts';
+import { CMD_OPTIONS, CMD_TABLE, KERNEL_NAMES, cmdParse } from './cmdspec.ts';
 import { draftPreview, draftSummary } from './draft.ts';
-import { styleKindOf, styleOp, styleTypes, type StyleKind, type StyleTypeInfo } from './styles.ts';
+import { styleKindOf, styleOp, type StyleKind } from './styles.ts';
 import { compileView } from './view.ts';
 import { resolveView } from './viewlayers.ts';
-import { writeViewSkeleton } from './viewload.ts';
-import type { ViewModule } from './viewscript.ts';
+import { viewModulesFor, writeViewSkeleton } from './viewload.ts';
+import { VIEW_SCRIPT_FILE, type ViewModule } from './viewscript.ts';
 import { BUILTIN_VIEWS, listViews, validateSpec, type ViewSpec } from './viewspec.ts';
 
-/** CLI 的全部选项(全局选项 + 各命令的选项);脚本里的 stars.exec 也按它解析 */
-export const CLI_OPTIONS = {
-  file: { type: 'string', short: 'f' },
-  author: { type: 'string' },
-  json: { type: 'boolean' },
-  type: { type: 'string', short: 't' },
-  summary: { type: 'string', short: 's' },
-  label: { type: 'string', short: 'l' },
-  ref: { type: 'string' },
-  attr: { type: 'string', short: 'a', multiple: true },
-  unset: { type: 'string', multiple: true },
-  where: { type: 'string', short: 'w', multiple: true },
-  proposed: { type: 'boolean' },
-  all: { type: 'boolean' },
-  diff: { type: 'boolean' },
-  draft: { type: 'boolean' },
-  orphans: { type: 'boolean' },
-  edges: { type: 'boolean' },
-  q: { type: 'string', short: 'q' },
-  depth: { type: 'string' },
-  'max-nodes': { type: 'string' },
-  expand: { type: 'string' },
-  dir: { type: 'string' },
-  under: { type: 'string' },
-  port: { type: 'string' },
-  watch: { type: 'boolean' },
-  mount: { type: 'string' },
-  debounce: { type: 'string' },
-  poll: { type: 'string' },
-  host: { type: 'string' },
-  'allow-host': { type: 'string', multiple: true },
-  spec: { type: 'string' },
-  script: { type: 'string' },
-  params: { type: 'string' },
-  base: { type: 'string' },
-  code: { type: 'string' },
-  expr: { type: 'string' },
-  from: { type: 'string' },
-  n: { type: 'string', short: 'n' },
-  'no-agent': { type: 'boolean' },
-  reverse: { type: 'boolean' },
-  top: { type: 'boolean' },
-  'node-only': { type: 'boolean' },
-  force: { type: 'boolean' },
-  name: { type: 'string' },
-  rel: { type: 'string' },
-  help: { type: 'boolean', short: 'h' },
-} as const satisfies ParseArgsConfig['options'];
+/** CLI 的全部选项(全局选项 + 各命令的选项;每条命令认哪些见命令表 cmdspec.ts) */
+export const CLI_OPTIONS = CMD_OPTIONS;
 
 export type CliOpts = {
   [K in keyof typeof CLI_OPTIONS]?: (typeof CLI_OPTIONS)[K] extends { multiple: true } ? string[]
@@ -80,12 +35,15 @@ export type CliOpts = {
 
 export interface KernelCtx {
   store: Store; author: string; /** 项目根目录(体检查文件、扫描、信号) */ root: string;
+  /** 命令里写的相对路径(scan 的目录、--from 文件)相对于哪里;不给 = 当前目录(CLI);服务端给项目根 */
+  cwd?: string;
   /** view 命令用到的视图脚本(调用方先异步加载好,见 viewload.ts 的 viewModulesFor) */
   modules?: ReadonlyMap<string, ViewModule | Error>;
 }
 export interface CmdOut { out: string; data?: unknown; exitCode?: number }
 
-export const KERNEL_COMMANDS = new Set(['add', 'set', 'rm', 'mv', 'cp', 'ln', 'group', 'ungroup', 'link', 'unlink', 'relink', 'accept', 'stamp', 'scan', 'undo', 'ls', 'show', 'nb', 'path', 'lint', 'stale', 'log', 'views', 'view', 'view-set', 'imports', 'fn-set', 'query', 'query-set', 'queries', 'draft', 'types', 'type-set', 'rule-set', 'rules', 'script-set', 'scripts']);
+/** 内核命令的名字(命令表里 where: 'kernel' 的) */
+export const KERNEL_COMMANDS = KERNEL_NAMES;
 
 function kv(list: string[] | undefined): Attrs {
   const attrs: Attrs = {};
@@ -116,12 +74,8 @@ function queryView(store: Store, root: string, u: Universe, expr = '') {
   return compileView(u, {}, { signals: signalsFor(text, store, root, u) });
 }
 
-export function describeNode(u: Universe, id: string): string {
-  const n = u.nodes.get(id);
-  if (!n) return `${id}  (不存在)`;
-  const t = n.attrs.type ? ` [${n.attrs.type}]` : '';
-  return `${n.id}${t}  ${n.label}`;
-}
+/** 一行:id [类型]  标签(见 cmdread.ts) */
+export const describeNode = nodeLine;
 
 export function summarize(op: Op): string {
   switch (op.op) {
@@ -139,7 +93,9 @@ export function summarize(op: Op): string {
 /** 执行一条内核命令。出错抛 StarsError(用法、节点不存在……) */
 export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCtx): CmdOut {
   const { store } = ctx, c = { author: ctx.author };
-  const need = (n: number, usage: string) => { if (args.length < n) throw new StarsError(`用法: stars ${usage}`); };
+  const usage = `用法: stars ${CMD_TABLE.get(cmd)?.usage ?? cmd}`;
+  const need = (n: number) => { if (args.length < n) throw new StarsError(usage); };
+  const here = (p: string) => resolve(ctx.cwd ?? '.', p);
   const nodeAttrs = () => {
     const attrs = kv(o.attr);
     if (o.type !== undefined) attrs.type = o.type;
@@ -155,16 +111,16 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
   const described = (op: Op): Op => stampOnSummary(store.peek(), op, ctx.root);
   switch (cmd) {
     case 'add': {
-      need(1, 'add <id> [label]');
+      need(1);
       const attrs = nodeAttrs();
       if (o.proposed) attrs.status = 'proposed';
       return wrote(described({ op: 'addNode', id: args[0]!, label: args[1] ?? o.label ?? args[0]!, attrs }), `+ ${args[0]}${o.proposed ? '  (proposed)' : ''}`);
     }
     case 'set':
-      need(1, 'set <id> [-l 标签] [-a k=v] [--unset k]');
+      need(1);
       return wrote(described({ op: 'setNode', id: args[0]!, label: o.label, set: nodeAttrs(), unset: o.unset }), `~ ${args[0]}`);
     case 'rm': {   // 文件 / 文件夹节点连文件一起挪进回收站(撤销时搬回来);--node-only 只删节点
-      need(1, 'rm <id> ... [--node-only]');
+      need(1);
       const ids = [...new Set(args)];
       const r = arrange(store, ctx.root, 'delete', ids, null, { nodeOnly: !!o['node-only'] }, ctx.author);
       const e = r.entry;
@@ -173,17 +129,16 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
       return e.draft ? { out: `${note}   (草稿 #${e.draft})`, data: { draft: e.draft } } : { out: note, data: { n: e.n, fs: r.plan.fs } };
     }
     case 'link': {
-      need(3, 'link <from> <type> <to>');
+      need(3);
       const attrs = kv(o.attr);
       if (o.proposed) attrs.status = 'proposed';
       return wrote({ op: 'addEdge', from: args[0]!, type: args[1]!, to: args[2]!, attrs }, `+ ${args[0]} -${args[1]}-> ${args[2]}${o.proposed ? '  (proposed)' : ''}`);
     }
     case 'unlink':
-      need(3, 'unlink <from> <type> <to>');
+      need(3);
       return wrote({ op: 'removeEdge', from: args[0]!, type: args[1]!, to: args[2]! }, `- ${args[0]} -${args[1]}-> ${args[2]}`);
     case 'mv': case 'cp': case 'ln': {   // 整理(arrange.ts):最后一个参数是目标容器;--top = 移到顶层(不在任何容器里)
-      const usage = `${cmd} <id> ... <容器> [--from 原容器]${cmd === 'mv' ? ' | mv <id> ... --top' : ''}`;
-      need(o.top ? 1 : 2, usage);
+      need(o.top ? 1 : 2);
       const ids = o.top ? args : args.slice(0, -1), target = o.top ? null : args[args.length - 1]!;
       const mode = cmd === 'mv' ? 'move' : cmd === 'cp' ? 'copy' : 'ref';
       const from = o.from !== undefined ? Object.fromEntries(ids.map((id) => [id, o.from === '-' ? null : o.from!])) : undefined;
@@ -199,7 +154,7 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
       return { out: r.plan.summary + (r.plan.fs.length ? `\n${r.plan.fs.map((a) => `  ${a.act === 'mkdir' ? '新建' : '搬'} ${a.act === 'mkdir' ? a.to : `${a.from} → ${a.to}`}`).join('\n')}` : ''), data: { n: r.entry.n, result: r.plan.result } };
     }
     case 'ungroup': {   // 解散一个域:里面的放回上一层;有冲突(重名、磁盘上图里没有的文件、会丢掉的说明 / 关系)就报出来不做,--force 照做会丢的
-      need(1, 'ungroup <域> [--force] [--from 上一层]');
+      need(1);
       const from = o.from === undefined ? null : o.from === '-' ? null : o.from;
       const r = arrange(store, ctx.root, 'ungroup', [args[0]!], from, { force: !!o.force, inferParent: o.from === undefined, rel: o.rel }, ctx.author);
       const cf = r.plan.conflicts;
@@ -211,7 +166,7 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
       return { out: r.plan.summary, data: { n: r.entry.n, result: r.plan.result } };
     }
     case 'relink': {   // 换类型 / 反向:属性跟着走,一步撤回
-      need(3, 'relink <from> <type> <to> [--type 新类型] [--reverse]');
+      need(3);
       const [f0, t0, to0] = [args[0]!, args[1]!, args[2]!];
       const cur = getEdge(store.peek(), f0, t0, to0);
       if (!cur) throw new StarsError(`边不存在: ${f0} -${t0}-> ${to0}`);
@@ -221,19 +176,19 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
     }
     case 'accept':
       if (args.length === 1) return wrote({ op: 'setNode', id: args[0]!, unset: ['status'] }, `✓ ${args[0]}`);   // 确认一个 proposed 节点
-      need(3, 'accept <from> <type> <to>');
+      need(3);
       return wrote({ op: 'setEdge', from: args[0]!, type: args[1]!, to: args[2]!, unset: ['status'] }, `✓ ${args[0]} -${args[1]}-> ${args[2]}`);
     case 'stamp': {   // 确认说明仍然有效:记下文件现在的版本
       const u = store.peek();
       const ids = o.all ? [...u.nodes.values()].filter((n) => seenState(ctx.root, n.attrs) === 'untracked').map((n) => n.id) : args;
-      if (!o.all) need(1, 'stamp <id> ... | --all');
+      if (!o.all) need(1);
       const p = planStamp(u, ids, ctx.root);
       const n = p.op ? store.commit(p.op, c).entry.n : undefined;
       const lines = [...p.stamped.map((id) => `✓ ${id}`), ...p.skipped.map((id) => `跳过 ${id}(不存在、没指向文件,或文件不在)`)];
       return { out: lines.join('\n') || '没有要记的', data: { n, stamped: p.stamped, skipped: p.skipped }, exitCode: p.skipped.length && !p.stamped.length ? 1 : 0 };
     }
     case 'scan': {
-      const dir = resolve(args[0] ?? '.');
+      const dir = here(args[0] ?? '.');
       const rootId = o.under ?? 'repo';
       const op = planScan(store.load(), listFiles(dir, selfRel(dir, store.file)), rootId, basename(dir), statMeta(dir));
       const added = op.op === 'batch' ? op.ops.length : 0;
@@ -260,39 +215,11 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
     }
     case 'ls': {
       const u = store.load();
-      const nodes = filterNodes(u, { type: o.type, where: kv(o.where), orphans: o.orphans, text: o.q });
-      let out = nodes.map((n) => describeNode(u, n.id)).join('\n') || '(空)';
-      if (o.edges) out += [...u.edges.values()].map((e) => `\n${e.from} -${e.type}-> ${e.to}`).join('');
-      return { out, data: nodes };
+      return readLs(u, { type: o.type, where: kv(o.where), orphans: o.orphans, text: o.q ?? (args.join(' ') || undefined), edges: o.edges });
     }
-    case 'show': {
-      need(1, 'show <id>');
-      const u = store.load();
-      const n = u.nodes.get(args[0]!);
-      if (!n) throw new StarsError(`节点不存在: ${args[0]}`);
-      const out = [...u.edges.values()].filter((e) => e.from === n.id);
-      const inn = [...u.edges.values()].filter((e) => e.to === n.id);
-      const lines = [describeNode(u, n.id)];
-      for (const [k, v] of Object.entries(n.attrs)) if (k !== 'type') lines.push(`  ${k}: ${v}`);
-      for (const e of out) lines.push(`  → -${e.type}-> ${e.to}${e.attrs.status ? ` (${e.attrs.status})` : ''}`);
-      for (const e of inn) lines.push(`  ← ${e.from} -${e.type}->`);
-      return { out: lines.join('\n'), data: { node: n, out, in: inn } };
-    }
-    case 'nb': {
-      need(1, 'nb <id> [--depth N] [--dir out|in|both]');
-      const u = store.load();
-      if (!u.nodes.has(args[0]!)) throw new StarsError(`节点不存在: ${args[0]}`);
-      const nb = neighborhood(u, args[0]!, { depth: Number(o.depth ?? 1), dir: (o.dir as Dir) ?? 'both', type: o.type });
-      return {
-        out: [...nb.dist].sort((a, b) => a[1] - b[1]).map(([id, d]) => `${'  '.repeat(d)}${describeNode(u, id)}`).join('\n'),
-        data: { nodes: Object.fromEntries(nb.dist), edges: nb.edges },
-      };
-    }
-    case 'path': {
-      need(2, 'path <a> <b>');
-      const p = shortestPath(store.load(), args[0]!, args[1]!, { type: o.type });
-      return { out: p === null ? '不可达' : [args[0], ...p.map((s) => `${s.forward ? `-${s.edge.type}->` : `<-${s.edge.type}-`} ${s.to}`)].join(' '), data: p };
-    }
+    case 'show': need(1); return readShow(store.load(), args[0]);
+    case 'nb': need(1); return readNb(store.load(), args[0], o);
+    case 'path': need(2); return readPath(store.load(), args[0], args[1], o);
     case 'lint': {
       const issues = lint(store.load(), { baseDir: ctx.root });
       return {
@@ -322,7 +249,7 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
       };
     }
     case 'view': {
-      need(1, 'view <name>');
+      need(1);
       const u0 = store.load(), { specs } = listViews(u0);
       const spec = specs[args[0]!];
       if (!spec) throw new StarsError(`没有视图 "${args[0]}"(stars views 查看列表)`);
@@ -352,8 +279,8 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
       };
     }
     case 'view-set': {
-      need(1, "view-set <name> --spec '<JSON>' | --from <文件> | --script <视图脚本.js> [--base 视图] [--params '<JSON>']");
-      const text = o.from !== undefined ? readFileSync(resolve(o.from), 'utf8') : o.spec;
+      need(1);
+      const text = o.from !== undefined ? readFileSync(here(o.from), 'utf8') : o.spec;
       if (text === undefined && o.script === undefined && o.base === undefined) throw new StarsError('需要 --spec、--from、--script 或 --base');
       let spec: Record<string, unknown> = {};
       if (text !== undefined) { try { spec = JSON.parse(text); } catch (err) { throw new StarsError(`规格不是合法 JSON: ${(err as Error).message}`); } }
@@ -361,7 +288,7 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
       if (o.script !== undefined) {
         const path = o.script.replace(/\\/g, '/').replace(/^\.\//, '');
         spec = { ...spec, script: path };
-        if (/\.m?js$/.test(path) && !existsSync(resolve(ctx.root, path))) { writeViewSkeleton(ctx.root, path, o.base ?? 'galaxy'); made = `\n  新建了骨架 ${path}(base: ${o.base ?? 'galaxy'}),打开它改`; }
+        if (VIEW_SCRIPT_FILE.test(path) && !existsSync(resolve(ctx.root, path))) { writeViewSkeleton(ctx.root, path, o.base ?? 'galaxy'); made = `\n  新建了骨架 ${path}(base: ${o.base ?? 'galaxy'}),打开它改`; }
         else if (o.base !== undefined) spec.base = o.base;
       } else if (o.base !== undefined) spec = { base: o.base, ...spec };
       if (o.params !== undefined) { try { spec.params = JSON.parse(o.params); } catch (err) { throw new StarsError(`--params 不是合法 JSON: ${(err as Error).message}`); } }
@@ -373,8 +300,8 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
       return { out: `${had ? '~' : '+'} 视图 ${args[0]}${BUILTIN_VIEWS[args[0]!] ? '(覆盖同名内置视图)' : ''}${made}`, data: { n } };
     }
     case 'fn-set': {
-      need(1, "fn-set <name> --code '(x, y) => ...' | --from <文件>");
-      const code = (o.from !== undefined ? readFileSync(resolve(o.from), 'utf8') : o.code)?.trim();
+      need(1);
+      const code = (o.from !== undefined ? readFileSync(here(o.from), 'utf8') : o.code)?.trim();
       if (!code) throw new StarsError('需要 --code 或 --from');
       if (!/^[\w-]+$/.test(args[0]!)) throw new StarsError('函数名只能含字母、数字、_ 和 -');
       try { compileFn(code, { now: Date.now(), fns: {} }); } catch (err) { throw new StarsError((err as Error).message); }
@@ -383,7 +310,7 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
       return { out: `${had ? '~' : '+'} 函数 fn.${args[0]}`, data: { n } };
     }
     case 'rule-set': {   // 自定义体检规则 = 一个节点 ~rule/<名字>:命中表达式的节点各报一条
-      need(1, "rule-set <名字> --expr '<表达式>' [-s 提示] [-a level=warn|error|info]");
+      need(1);
       const name = args[0]!;
       if (!/^[\p{L}\p{N}_.-]+$/u.test(name)) throw new StarsError('规则名只能含字母、数字、_ . -');
       if (o.expr === undefined || !o.expr.trim()) throw new StarsError("需要 --expr '<表达式>'(命中的节点算有问题),比如 --expr \"type == 'file' && !summary\"");
@@ -409,12 +336,12 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
       };
     }
     case 'script-set': {   // 脚本节点 ~script/<名字>(L4,见 agent.ts):代码在节点里(--code / --from)或指向文件(--ref);触发写在属性里
-      need(1, "script-set <名字> --code '<JS>' | --from <文件> | --ref <脚本文件> [-a on=change,file:src/**,stale,start] [-a every=10m] [-a draft=true] [-a enabled=false] [-a timeout=2m] [-s 说明] [--unset 键 …]");
+      need(1);
       const name = args[0]!;
       if (!/^[\p{L}\p{N}_.-]+$/u.test(name)) throw new StarsError('脚本名只能含字母、数字、_ . -');
       const set: Attrs = kv(o.attr);
       if (o.code !== undefined) set.code = o.code;
-      if (o.from !== undefined) set.code = readFileSync(resolve(o.from), 'utf8');
+      if (o.from !== undefined) set.code = readFileSync(here(o.from), 'utf8');
       if (o.ref !== undefined) set.file = o.ref.replace(/\\/g, '/');
       if (o.summary !== undefined) set.summary = o.summary;
       const id = SCRIPT_PREFIX + name, u = store.peek(), had = u.nodes.get(id);
@@ -440,18 +367,10 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
         data: rows,
       };
     }
-    case 'types': {   // 节点类型、边类型:用量与样式
-      const t = styleTypes(store.peek());
-      const fmt = (x: StyleTypeInfo) => `  ${x.name.padEnd(14)} ${String(x.count).padStart(6)}  ${Object.entries(x.style).map(([k, v]) => `${k}=${v}`).join(' ') || '(默认样式)'}`
-        + `${x.label !== x.name ? `  ${x.label}` : ''}${x.declared ? '' : '   (还没有类型节点)'}`;
-      return {
-        out: ['节点类型', ...t.nodes.map(fmt), '边类型', ...t.edges.map(fmt),
-          'stars type-set <类型> -a color=#rrggbb -a shape=ringed -a scale=1.5 改节点类型 · -a width=2 -a arrow=false -a mode=faint 改边类型(没专门规定它的视图里立刻生效)'].join('\n'),
-        data: t,
-      };
-    }
+    case 'types':   // 节点类型、边类型:用量与样式
+      return readTypes(store.peek(), 'stars type-set <类型> -a color=#rrggbb -a shape=ringed -a scale=1.5 改节点类型 · -a width=2 -a arrow=false -a mode=faint 改边类型(没专门规定它的视图里立刻生效)');
     case 'type-set': {   // 改类型的样式:写到类型节点 ~<类型> 上(不在就建)
-      need(1, 'type-set <类型> [-a color=#rrggbb] [-a shape=dot|star|nebula|ringed|pulsar] [-a scale=1.5] [-a width=2] [-a arrow=true|false] [-a mode=line|faint|hidden] [--unset 键 …] [-l 名字] [-s 说明]');
+      need(1);
       const set = kv(o.attr), u = store.peek();
       let kind: StyleKind | undefined;
       if (set.kind !== undefined) {
@@ -480,7 +399,7 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
           return { entries: entries.filter((_, i) => !idx.has(i + 1)), result: { out: `已丢弃 ${idx.size} 条,草稿还剩 ${entries.length - idx.size} 条`, data: { dropped: idx.size } } };
         });
       }
-      if (sub !== 'show') throw new StarsError('用法: stars draft [show | apply | drop [序号…]]');
+      if (sub !== 'show') throw new StarsError(usage);
       const entries = readDraft(store.file);
       if (!entries.length) return { out: '草稿是空的(写命令带上 --draft 就进草稿,比如 stars --draft link a dependsOn b、stars run --draft fix.js)', data: { entries: [] } };
       const p = draftPreview(new Store(store.file).load(), entries);
@@ -495,7 +414,7 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
       };
     }
     case 'query': {   // 跑一个保存的查询,或者直接给一条表达式
-      need(1, "query <查询名 | '表达式'>");
+      need(1);
       const u = store.load(), arg = args.join(' '), saved = u.nodes.get(QUERY_PREFIX + arg);
       const expr = saved?.attrs.kind === 'query' && saved.attrs.expr !== undefined ? saved.attrs.expr : arg;
       const bad = checkExpr(expr);
@@ -505,7 +424,7 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
       return { out: ids.length ? `${ids.slice(0, 300).map((id) => describeNode(u, id)).join('\n')}\n(共 ${ids.length} 个${ids.length > 300 ? ',只列前 300' : ''})` : '(没有匹配的)', data: ids };
     }
     case 'query-set': {
-      need(1, "query-set <名字> --expr '<表达式>' [-l 显示名] [-s 说明] [-a color=#rrggbb]");
+      need(1);
       const name = args[0]!, expr = (o.expr ?? args.slice(1).join(' ')).trim();
       if (!/^[\p{L}\p{N}_.-]+$/u.test(name)) throw new StarsError('查询名只能含字母、数字、_ . -');
       if (!expr) throw new StarsError('需要 --expr');
@@ -530,4 +449,20 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
     default:
       throw new StarsError(`不是内核命令: ${cmd}`);
   }
+}
+
+/**
+ * 一行内核命令(已经切好词)按命令表解析后执行:Node 脚本的 stars.exec、查看器的 /api/cmd 都走这里。
+ * --draft:这一条写进草稿;--file / --author 不认(宇宙和作者由调用方定)。view 用到的视图脚本先加载好。
+ */
+export async function execKernel(name: string, tokens: readonly string[], ctx: KernelCtx): Promise<CmdOut> {
+  if (!KERNEL_NAMES.has(name)) throw new StarsError(`不是内核命令: ${name}`);
+  let parsed;
+  try { parsed = cmdParse(name, tokens); } catch (err) { throw new StarsError((err as Error).message); }
+  const { file: _f, author: _a, ...o } = parsed.values as CliOpts;
+  let k: KernelCtx = o.draft && !(ctx.store instanceof DraftStore) ? { ...ctx, store: new DraftStore(ctx.store.file) } : ctx;
+  if (name === 'view' && parsed.positionals[0]) {
+    k = { ...k, modules: await viewModulesFor(k.store.load(), parsed.positionals[0], k.root) };
+  }
+  return runKernel(name, parsed.positionals, o, k);
 }

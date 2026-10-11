@@ -7,17 +7,10 @@ const viewMods = new Map();      // 路径 → 模块 | Error
 const viewDeps = new Map();      // 入口路径 → { files, missing, version }
 const viewLoading = new Map();   // 路径 → Promise
 
-// 静态导出:源码在页面里(__STARS_VIEWSRC__),每个文件做成一个 blob 模块,相对 import 换成依赖的 blob 地址(先依赖后自己)
-const staticUrls = new Map();
-function staticModuleUrl(path, stack = []) {
-  if (staticUrls.has(path)) return staticUrls.get(path);
-  if (stack.includes(path)) throw new Error('静态导出里不支持循环 import: ' + [...stack, path].join(' → '));
-  const src = (window.__STARS_VIEWSRC__ || {})[path];
-  if (src == null) throw new Error('导出的页面里没有 ' + path);
-  const code = rewriteImports(src, (spec) => { const dep = resolveImport(path, spec); return dep === null ? null : staticModuleUrl(dep, [...stack, path]); });
-  const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
-  staticUrls.set(path, url);
-  return url;
+// 静态导出:每个文件是页面 import map 里的一个模块 stars-view:/<路径>(见 exporter.ts;循环 import 也行)
+function staticModuleUrl(path) {
+  if (!(window.__STARS_VIEWMODS__ || []).includes(path)) throw new Error('导出的页面里没有 ' + path);
+  return 'stars-view:/' + path;
 }
 const viewErr = new Map();       // 路径 → 重新加载失败的原因(这时还用着上一次加载成功的模块)
 /** keepOld:重新加载(文件改了)时失败了就留着上一次的模块,只在顶上提示 —— 改到一半保存不会让画面塌掉 */
@@ -31,7 +24,7 @@ function loadViewScript(path, keepOld = false) {
         const d = await api('/api/viewdeps?path=' + encodeURIComponent(path));
         viewDeps.set(path, d);
         if (d.missing.includes(path)) throw new Error('文件不存在: ' + path);
-        ns = await import(`/preview/${pvToken}/${(project && project.id) || '_'}/~v${d.version}/` + path.split('/').map(encodeURIComponent).join('/'));
+        ns = await import(transport.fileUrl(path, d.version));
       }
       viewMods.set(path, viewModuleOf(ns)); viewErr.delete(path);
     } catch (e) {
@@ -52,6 +45,7 @@ function viewScriptsReady(spec) {
   return false;
 }
 /** 这些文件(项目里的路径)变了:用到它们的脚本整串重新加载(加载完重算;失败了留着上一次的) */
+onEvent('file', ({ paths }) => viewFilesChanged(paths));   // 实时同步发现的(视图脚本或它 import 的改了)
 function viewFilesChanged(paths) {
   const set = new Set(paths), hit = [];
   for (const [entry, d] of viewDeps) if (set.has(entry) || d.files.some((f) => set.has(f))) hit.push(entry);
@@ -66,8 +60,8 @@ function reloadViewScripts(paths) {
 const viewReloadNotes = () => [...viewErr].map(([p, m]) => `视图脚本 ${p} 加载失败(先用着上一次的): ${m}`);
 const viewScriptFiles = () => [...new Set([...viewDeps.values()].flatMap((d) => d.files))];
 
-/** 一个文件节点像不像视图脚本(.js / .mjs) */
-const scriptFileOf = (id) => { const n = raw.get(id); const f = n && (n.attrs.file || (n.attrs.type === 'file' ? id : '')); return f && /\.m?js$/.test(f) ? f : null; };
+/** 一个文件节点像不像视图脚本(.js / .mjs / .ts / .mts) */
+const scriptFileOf = (id) => { const n = raw.get(id); const f = n && (n.attrs.file || (n.attrs.type === 'file' ? id : '')); return f && VIEW_SCRIPT_FILE.test(f) ? f : null; };
 /** 用一个视图脚本新建视图(拖到视图列表上 / view-script):先加载看看它导出了什么,不像视图脚本就不建 */
 async function viewFromScript(path, name) {
   if (window.__STARS_STATIC__ || replay) { toast('静态导出 / 回放里不能新建视图', true); return; }
@@ -75,10 +69,10 @@ async function viewFromScript(path, name) {
   await loadViewScript(path);
   const m = viewMods.get(path);
   if (m instanceof Error) { toast(`${esc(path)} 加载不了:${esc(m.message)}`, true, 8000); return; }
-  if (!['spec', 'select', 'size', 'color', 'shape', 'label', 'edge', 'forces', 'looks'].some((k) => m[k] !== undefined)) {
+  if (!['spec', ...VIEW_HOOKS].some((k) => m[k] !== undefined)) {
     toast(`${esc(path)} 不像视图脚本(没有导出 spec / select / size / color …)`, true, 6000); return;
   }
-  let base = name || path.split('/').pop().replace(/\.m?js$/, '').replace(/[^\p{L}\p{N}_-]+/gu, '-').replace(/^-+|-+$/g, '') || 'script';
+  let base = name || path.split('/').pop().replace(VIEW_SCRIPT_FILE, '').replace(/[^\p{L}\p{N}_-]+/gu, '-').replace(/^-+|-+$/g, '') || 'script';
   let id = base; for (let i = 2; specs[id] && !(name && i === 2); i++) id = `${base}-${i}`;
   const spec = { script: path }, key = '~view/' + id, compact = JSON.stringify(spec);
   const op = uni.nodes.has(key) ? { op: 'setNode', id: key, set: { spec: compact } } : { op: 'addNode', id: key, label: id, attrs: { kind: 'view', spec: compact } };

@@ -76,8 +76,8 @@ const propKeyOf = (x) => (x.id !== undefined ? nodeProposalKey(x.id) : edgeKeyOf
 const batchOps = (list, fn) => ({ op: 'batch', ops: [...list.filter((x) => x.id === undefined), ...list.filter((x) => x.id !== undefined)].map(fn) });
 const rvMsg = (t, bad) => { $('rv-msg').style.color = bad ? 'var(--warn)' : 'var(--muted)'; $('rv-msg').textContent = t; };
 async function write(op, okText, author = 'viewer') {
-  try { const r = await api('/api/op', { op, author }); rvMsg(`${okText}(操作 #${r.n},可撤销)`); }
-  catch (e) { rvMsg('写入失败:' + e.message, true); }
+  try { const r = await api('/api/op', { op, author }); rvMsg(`${okText}(操作 #${r.n},可撤销)`); return true; }
+  catch (e) { rvMsg('写入失败:' + e.message, true); return false; }
 }
 const acceptOp = (e) => (e.id !== undefined ? { op: 'setNode', id: e.id, unset: ['status'] } : { op: 'setEdge', from: e.from, type: e.type, to: e.to, unset: ['status'] });
 const rejectOp = (e) => (e.id !== undefined ? { op: 'removeNode', id: e.id } : { op: 'removeEdge', from: e.from, type: e.type, to: e.to });

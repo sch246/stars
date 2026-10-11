@@ -1,9 +1,9 @@
-// ---- 写宇宙:和 CLI 同名同参数(作者记为 viewer;页面写的记为 page:<路径>;都能 undo)----
+// ---- 内核命令:用法、说明、选项、读还是写,都在命令表里(core/src/cmdspec.ts),和 CLI 同名同参数 ----
+// 写命令交给服务端执行(/api/cmd,和 CLI、Node 脚本是同一份实现;作者记为 viewer,页面写的记为 page:<路径>;都能 undo),
+// 这里只加界面上的部分:确认框、提示、用选中的东西补参数。读命令在浏览器里对手上这份宇宙算(回放、预览草稿时就是画面上那份)。
 // 「提议」级的页面(见 core/src/bridge.ts):新增的节点和边都落成 status=proposed,等你在审阅里确认;
 // 改、删只能动它自己提的、还没被确认的;不能确认、不能撤销、不能动 status。
 const kvs = (list) => Object.fromEntries((list || []).map((it) => { const i = it.indexOf('='); if (i <= 0) throw new Error(`属性应写成 key=value,得到 "${it}"`); return [it.slice(0, i), it.slice(i + 1)]; }));
-const NODE_FLAGS = { t: 'type', s: 'summary', l: 'label', a: 'attr', ref: 'ref', unset: 'unset' };
-function nodeAttrs(o) { const at = kvs(o.attr); if (o.type !== undefined) at.type = o.type; if (o.summary !== undefined) at.summary = o.summary; if (o.ref !== undefined) at.file = o.ref; return at; }
 const proposing = (c) => !!c && c.src === 'page' && c.level === 'propose';
 const pagePending = new Map();   // 页面刚提的(日志还没推回来):键 → { author, n }
 function ownProposal(c, k, what) {
@@ -12,6 +12,7 @@ function ownProposal(c, k, what) {
   throw new Error(`「提议」级的页面只能改、删自己提的还没被确认的东西,${what} 不是`);
 }
 const noProposing = (c, what) => { if (proposing(c)) throw new Error(`「提议」级的页面不能${what}(这要你来)`); };
+/** 界面上直接改宇宙(拖、连线、类型面板……):一个操作交给服务端;命令走下面的 kernelCmd */
 async function commitOp(op, done, c, pendingKey) {
   const r = await api('/api/op', { op, author: (c && c.author) || 'viewer' });
   if (pendingKey) pagePending.set(pendingKey, { author: c.author, n: r.n });
@@ -19,84 +20,99 @@ async function commitOp(op, done, c, pendingKey) {
   if (!$('review').hidden) rvMsg(`${done}(操作 #${r.n},可撤销)`);
   return { out: `${done}   #${r.n}`, data: { n: r.n } };
 }
-const edgeArgs = [nodeArg('from'), { name: '类型', values: () => [...new Set(data.edges.map((e) => e.type))] }, nodeArg('to')];
-defCmd('add', {
-  group: '宇宙', effect: 'write', title: '新建节点(--proposed 提议:等确认)', usage: 'add <id> [label] [-t 类型] [-s 摘要] [--ref 文件] [-a k=v …] [--proposed]', flags: NODE_FLAGS, multi: ['attr', 'unset'], bools: ['proposed'], more: true,
-  run: (a, o, c) => {
+/** 选项还原成命令行的写法(位置参数放在 -- 之后:以 - 开头的 id 也不会被当成选项) */
+const optTokens = (o) => Object.entries(o || {}).flatMap(([k, v]) => (v === true ? ['--' + k] : Array.isArray(v) ? v.flatMap((x) => ['--' + k, String(x)]) : v === undefined || v === false || v === null ? [] : ['--' + k, String(v)]));
+/** 一条内核命令交给服务端执行;等日志推回来再算完成(脚本、页面写完马上读就能看到自己写的) */
+async function kernelCmd(name, a, o, c) {
+  if (window.__STARS_STATIC__ || replay) throw new Error('静态导出 / 回放里不能改宇宙');
+  const r = await api('/api/cmd', { name, args: [...optTokens(o), '--', ...a], author: (c && c.author) || 'viewer' });
+  await waitApplied(r.n);
+  if (!$('review').hidden && r.out) rvMsg(`${esc(r.out.split('\n')[0])}(可撤销)`);
+  return { out: r.out, data: r.data, n: r.n };
+}
+const ARG_KINDS = {
+  node: ['id', (p) => nodeIds(p)],
+  edgeType: ['类型', () => [...new Set(data.edges.map((e) => e.type))]],
+  nodeType: ['类型', () => [...new Set(data.nodes.map((n) => n.attrs.type).filter(Boolean))]],
+  type: ['类型', () => [...new Set([...data.nodes.map((n) => n.attrs.type).filter(Boolean), ...data.edges.map((e) => e.type)])]],
+  view: ['视图', () => viewNames],
+  query: ['查询', () => (compiled ? compiled.queryResults().map((r) => r.name) : [])],
+  script: ['脚本', () => (uni ? listScripts(uni).map((d) => d.name) : [])],
+  file: ['路径', (p) => projectFiles(p, /./)],
+};
+/** 按命令表定义一条内核命令;ext 里给 run(界面上的部分 + kernelCmd 或在本地算)和别的(palette 之类) */
+function kdef(name, ext) {
+  const k = CMD_TABLE.get(name);
+  if (!k || k.where !== 'kernel') throw new Error('命令表里没有内核命令 ' + name);
+  defCmd(name, {
+    group: k.group, effect: k.effect, title: k.title, usage: k.usage, kernel: true, more: !!(k.args || k.opts),
+    args: (k.args || []).map((a) => (Array.isArray(a) ? { name: '…', values: () => a } : { name: ARG_KINDS[a][0], values: ARG_KINDS[a][1] })),
+    run: (a, o, c) => kernelCmd(name, a, o, c),
+    ...ext,
+  });
+}
+const undoLink = '<span data-cmd="undo" style="cursor:pointer;text-decoration:underline">撤销</span>';
+
+kdef('add', {
+  run: async (a, o, c) => {
     need(a, 1, CMDS.get('add'));
-    const attrs = nodeAttrs(o), prop = o.proposed || proposing(c);
-    if (prop) attrs.status = 'proposed';
-    return commitOp({ op: 'addNode', id: a[0], label: a[1] ?? o.label ?? a[0], attrs }, `+ ${a[0]}${prop ? '  (proposed)' : ''}`, c, prop && c.src === 'page' ? nodeProposalKey(a[0]) : null);
+    const prop = o.proposed || proposing(c);
+    const r = await kernelCmd('add', a, prop ? { ...o, proposed: true } : o, c);
+    if (prop && c.src === 'page') pagePending.set(nodeProposalKey(a[0]), { author: c.author, n: r.n });
+    return r;
   },
 });
-defCmd('set', {
-  group: '宇宙', effect: 'write', title: '修改节点', usage: 'set <id> [-l 标签] [-t 类型] [-s 摘要] [-a k=v …] [--unset k …]', flags: NODE_FLAGS, multi: ['attr', 'unset'], args: [nodeArg()], more: true,
+kdef('set', {
   run: (a, o, c) => {
     need(a, 1, CMDS.get('set'));
-    const set = nodeAttrs(o);
     if (proposing(c)) {
       ownProposal(c, nodeProposalKey(a[0]), `节点 ${a[0]}`);
-      if ('status' in set || (o.unset || []).includes('status')) throw new Error('「提议」级的页面不能改 status(确认要你来)');
+      if ('status' in kvs(o.attr) || (o.unset || []).includes('status')) throw new Error('「提议」级的页面不能改 status(确认要你来)');
     }
-    return commitOp({ op: 'setNode', id: a[0], label: o.label, set, unset: o.unset }, `~ ${a[0]}`, c);
+    return kernelCmd('set', a, o, c);
   },
 });
-defCmd('rm', {
-  group: '宇宙', effect: 'write', title: '删除节点(连带它的边;给几个 = 一次删掉,一步撤回)。文件 / 文件夹连文件一起挪进回收站,撤销时搬回来;--node-only 只删节点',
-  usage: 'rm <id…> [--node-only]', bools: ['node-only'], args: [nodeArg()], more: true,
+kdef('rm', {
   run: async (a, o, c) => {
     need(a, 1, CMDS.get('rm'));
     const ids = [...new Set(a)];
     for (const id of ids) if (!raw.has(id)) throw new Error(`节点不存在:${id}`);
     const files = o['node-only'] ? [] : ids.filter((id) => isFsNode(id));
-    const what = ids.length === 1 ? raw.get(ids[0])?.label || ids[0] : `${ids.length} 个节点`;
     if (proposing(c)) for (const id of ids) ownProposal(c, nodeProposalKey(id), `节点 ${id}`);
-    else if (c.src !== 'page' && (ids.length > 1 || files.length) && !confirm(`删除${ids.length > 1 ? `这 ${ids.length} 个节点和它们` : `「${raw.get(ids[0])?.label || ids[0]}」和它`}的所有边?`
-      + (files.length ? `\n其中 ${files.length} 个是文件 / 文件夹,会挪进回收站(.git/stars-trash/ 或 .stars-trash/)。` : '')
-      + `\n之后可以撤销(Ctrl Z / undo)。${ids.length > 1 ? `\n\n${ids.slice(0, 12).join('\n')}${ids.length > 12 ? `\n… 还有 ${ids.length - 12} 个` : ''}` : ''}`)) return;   // 单个普通节点直接删(能撤销);页面已经被你授权「写」,不弹框
-    if (files.length && !proposing(c)) {   // 动磁盘的走整理接口(服务端在写锁里挪文件 + 提交)
-      const r = await api('/api/arrange', { mode: 'delete', ids, target: null, author: (c && c.author) || 'viewer' });
-      if (r.n) await waitApplied(r.n);
-      if (c.src !== 'page') toast(`${esc(r.summary)} · <span data-cmd="undo" style="cursor:pointer;text-decoration:underline">撤销</span>`, false, 5000);
-      return { out: `${r.summary}   #${r.n}`, data: r };
-    }
-    const ops = ids.map((id) => ({ op: 'removeNode', id }));
-    const r = await commitOp(ops.length === 1 ? ops[0] : { op: 'batch', ops }, ids.length === 1 ? `- ${ids[0]}` : `- ${ids.length} 个节点`, c);
-    if (c.src !== 'page') toast(`已删除 ${esc(what)} · <span data-cmd="undo" style="cursor:pointer;text-decoration:underline">撤销</span>`, false, 4000);
+    const what = ids.length === 1 ? raw.get(ids[0])?.label || ids[0] : `${ids.length} 个节点`;
+    const r = await kernelCmd('rm', ids, o, c);
+    // 不先问:删了能撤销(文件在回收站里),提示条上就带着「撤销」
+    if (c.src !== 'page') toast(`${files.length ? esc(r.out.split('\n')[0]) : '已删除 ' + esc(what)} · ${undoLink}`, false, ids.length > 1 || files.length ? 6000 : 4000);
     return r;
   },
 });
 defCmd('delete', {
-  group: '宇宙', effect: 'write', title: '删除选中的:选中了一条边就删这条边,否则删选中的节点(连带它们的边)',
+  group: '写入', effect: 'write', title: '删除选中的:选中了一条边就删这条边,否则删选中的节点(连带它们的边)',
   run: (a, o, c) => {
     if (selEdge && !selEdge.lifted) return CMDS.get('unlink').run([selEdge.from, selEdge.type, selEdge.to], {}, c);
     if (!selection.size) return false;
     return CMDS.get('rm').run([...selection], {}, c);
   },
 });
-defCmd('link', {
-  group: '宇宙', effect: 'write', title: '建边', usage: 'link <from> <type> <to> [--proposed] [-a k=v …]', flags: { a: 'attr' }, multi: ['attr'], bools: ['proposed'], args: edgeArgs, more: true,
-  run: (a, o, c) => {
+kdef('link', {
+  run: async (a, o, c) => {
     need(a, 3, CMDS.get('link'));
-    const attrs = kvs(o.attr), prop = o.proposed || proposing(c);
-    if (prop) attrs.status = 'proposed';
-    return commitOp({ op: 'addEdge', from: a[0], type: a[1], to: a[2], attrs }, `+ ${a[0]} -${a[1]}-> ${a[2]}${prop ? '  (proposed)' : ''}`, c, prop && c.src === 'page' ? `${a[0]}|${a[1]}|${a[2]}` : null);
+    const prop = o.proposed || proposing(c);
+    const r = await kernelCmd('link', a, prop ? { ...o, proposed: true } : o, c);
+    if (prop && c.src === 'page') pagePending.set(`${a[0]}|${a[1]}|${a[2]}`, { author: c.author, n: r.n });
+    return r;
   },
 });
-defCmd('unlink', {
-  group: '宇宙', effect: 'write', title: '删边', usage: 'unlink <from> <type> <to>', args: edgeArgs, more: true,
+kdef('unlink', {
   run: (a, o, c) => {
     need(a, 3, CMDS.get('unlink'));
     if (proposing(c)) ownProposal(c, `${a[0]}|${a[1]}|${a[2]}`, `边 ${a[0]} -${a[1]}-> ${a[2]}`);
-    return commitOp({ op: 'removeEdge', from: a[0], type: a[1], to: a[2] }, `- ${a[0]} -${a[1]}-> ${a[2]}`, c);
+    return kernelCmd('unlink', a, o, c);
   },
 });
-for (const [cmd, mode, title] of [
-  ['mv', 'move', '移动进另一个容器(文件 / 文件夹在磁盘上真的搬,id 跟着改;--top 移到顶层);只给容器 = 移动选中的'],
-  ['cp', 'copy', '复制进另一个容器(连同里面的东西;文件在磁盘上复制一份);只给容器 = 复制选中的'],
-  ['ln', 'ref', '引用:也放进这个容器(只加一条容器关系,什么都不搬);只给容器 = 选中的'],
-]) defCmd(cmd, {
-  group: '宇宙', effect: 'write', title, usage: `${cmd} <id…> <容器> [--from 原容器]${cmd === 'mv' ? ' · mv <id…> --top' : ''}`, flags: { from: 'from' }, bools: ['top'], args: [nodeArg()], more: true,
+// mv / cp / ln:只给容器 = 选中的;移动时每个节点从它在当前视图里所在的那个容器移出(界面上的整理,见 08c-arrange.js;底下和 CLI 一样是 arrange.ts)
+for (const [cmd, mode] of [['mv', 'move'], ['cp', 'copy'], ['ln', 'ref']]) kdef(cmd, {
+  title: CMD_TABLE.get(cmd).title + ';只给容器 = 选中的',
   run: async (a, o, c) => {
     noProposing(c, '整理节点');
     let ids = o.top ? a : a.slice(0, -1);
@@ -108,216 +124,88 @@ for (const [cmd, mode, title] of [
     return { out: r.n ? `${r.summary}   #${r.n}` : '没有要改的', data: r };
   },
 });
-defCmd('relink', {
-  group: '宇宙', effect: 'write', title: '改一条边:换类型(--type)和 / 或反向(--reverse);属性跟着走,一步撤回', usage: 'relink <from> <type> <to> [--type 新类型] [--reverse]',
-  flags: { type: 'type', t: 'type' }, bools: ['reverse'], args: edgeArgs, more: true,
-  run: (a, o, c) => {
-    need(a, 3, CMDS.get('relink'));
-    noProposing(c, '改已有的边');
-    const cur = needUni().edges.get(edgeKey(a[0], a[1], a[2]));
-    if (!cur) throw new Error(`没有这条边:${a[0]} -${a[1]}-> ${a[2]}`);
-    const t = o.type ?? a[1], f = o.reverse ? a[2] : a[0], to = o.reverse ? a[0] : a[2];
-    if (t === a[1] && f === a[0]) return '没有要改的(给 --type 或 --reverse)';
-    return commitOp({ op: 'batch', ops: [{ op: 'removeEdge', from: a[0], type: a[1], to: a[2] }, { op: 'addEdge', from: f, type: t, to, attrs: { ...cur.attrs } }] }, `~ ${f} -${t}-> ${to}`, c);
-  },
-});
-defCmd('accept', {
-  group: '宇宙', effect: 'write', title: '确认一条 proposed 边;只给 id 就是确认 proposed 节点', usage: 'accept <from> <type> <to> · accept <id>', args: edgeArgs, more: true,
-  run: (a, o, c) => {
-    noProposing(c, '确认提议');
-    if (a.length === 1) return commitOp({ op: 'setNode', id: a[0], unset: ['status'] }, `✓ ${a[0]}`, c);
-    need(a, 3, CMDS.get('accept'));
-    return commitOp({ op: 'setEdge', from: a[0], type: a[1], to: a[2], unset: ['status'] }, `✓ ${a[0]} -${a[1]}-> ${a[2]}`, c);
-  },
-});
-defCmd('draft', {
-  group: '审阅', effect: 'write', title: '草稿(批量改动的预览):看 / 在图上预览 / 整批应用(一次提交,一步撤回)/ 丢弃', usage: 'draft [show|preview|exit|apply|drop [序号…]]',
-  args: [{ name: '动作', values: () => ['show', 'preview', 'exit', 'apply', 'drop'] }],
+kdef('relink', { run: (a, o, c) => { need(a, 3, CMDS.get('relink')); noProposing(c, '改已有的边'); return kernelCmd('relink', a, o, c); } });
+kdef('accept', { run: (a, o, c) => { noProposing(c, '确认提议'); return kernelCmd('accept', a, o, c); } });
+kdef('draft', {
+  group: '写入', usage: 'draft [show | preview | exit | apply | drop [序号…]]', args: [{ name: '动作', values: () => ['show', 'preview', 'exit', 'apply', 'drop'] }],
   palette: () => (draft.length ? [{ line: 'draft preview', title: `预览草稿(${draft.length} 条)` }, { line: 'draft apply', title: '整批应用草稿' }, { line: 'draft drop', title: '丢弃草稿' }] : []),
   run: async ([act = 'show', ...rest], o, c) => {
     if (act === 'preview') { if (!draft.length) return '草稿是空的'; enterDraft(); return; }
     if (act === 'exit') return exitDraft() ? undefined : false;
-    if (act === 'show') {
-      if (!draft.length) return { out: '草稿是空的(stars --draft <写命令>、stars run --draft 脚本 写进草稿)', data: { entries: [] } };
+    if (act === 'show') {   // 本地算:推过来的草稿叠在实时宇宙上
+      if (!draft.length) return { out: '草稿是空的(stars --draft <写命令>、stars run --draft 脚本 写进草稿;这里的写命令带 --draft 也行)', data: { entries: [] } };
       const m = draftPreview(liveU || uni, draft), bad = new Map(m.failed.map((f) => [f.i, f.error]));
       return { out: [`草稿:${draft.length} 条,应用之后 +${m.added.size} 节点 ~${m.changed.size} −${m.removed.size} · 边 +${m.addedEdges} −${m.removedEdges}`, ...draft.map((e, i) => `  ${String(i + 1).padStart(3)}  ${draftSummary(e.op)}${bad.has(i) ? '   ✗ ' + bad.get(i) : ''}`)].join('\n'), data: { entries: draft, failed: m.failed } };
     }
     noProposing(c, '应用或丢弃草稿');
-    if (act === 'apply') {
-      if (!draft.length) return '草稿是空的';
-      const r = await api('/api/draft', { action: 'apply', author: (c && c.author) || 'viewer' });
-      await waitApplied(r.n);
-      exitDraft();
-      if (c.src !== 'page') toast(`已应用草稿:${r.count} 条改动作为一次提交 #${r.n}(undo 一步撤回)`);
-      return { out: `已应用草稿 ${r.count} 条   #${r.n}`, data: r };
-    }
-    if (act === 'drop') {
-      if (!draft.length) return '草稿是空的';
-      const idx = rest.map(Number);
-      if (idx.some((i) => !Number.isInteger(i) || i < 1 || i > draft.length)) throw new Error(`序号应在 1..${draft.length} 之间`);
-      if (!idx.length && c.src !== 'page' && !confirm(`丢弃整个草稿(${draft.length} 条改动)?丢了就没了(草稿不进操作日志)`)) return;
-      const r = await api('/api/draft', { action: 'drop', indices: idx.length ? idx : undefined, author: (c && c.author) || 'viewer' });
-      return { out: `已丢弃 ${r.dropped} 条`, data: r };
-    }
-    throw new Error('用法:' + CMDS.get('draft').usage);
+    if (act !== 'apply' && act !== 'drop') throw new Error('用法:' + CMDS.get('draft').usage);
+    if (!draft.length) return '草稿是空的';
+    if (act === 'drop' && !rest.length && c.src !== 'page' && !(await ask(`丢弃整个草稿(${draft.length} 条改动)?\n丢了就没了:草稿不进操作日志,撤销不回来。`, { ok: '丢弃', danger: true }))) return '没有丢弃';
+    const r = await kernelCmd('draft', [act, ...rest], o, c);
+    if (act === 'apply') { exitDraft(); if (c.src !== 'page') toast(esc(r.out)); }
+    return r;
   },
 });
-defCmd('query-set', {
-  group: '宇宙', effect: 'write', title: '保存一个查询(= 动态区域,成员随宇宙变化)', usage: "query-set <名字> --expr '<表达式>' [-l 显示名] [-s 说明] [-a color=#rrggbb]", flags: { expr: 'expr', l: 'label', s: 'summary', a: 'attr' }, multi: ['attr'], more: true,
-  run: (a, o, c) => {
-    need(a, 1, CMDS.get('query-set'));
-    const name = a[0], expr = String(o.expr ?? a.slice(1).join(' ')).trim();
-    if (!/^[\p{L}\p{N}_.-]+$/u.test(name)) throw new Error('查询名只能含字母、数字、_ . -');
-    if (!expr) throw new Error('需要 --expr');
-    const count = needCompiled().matches(expr).length;   // 写错了在这里就抛出
-    const id = QUERY_PREFIX + name, had = uni.nodes.has(id), set = { ...kvs(o.attr), expr };
-    if (o.summary !== undefined) set.summary = o.summary;
-    if (proposing(c)) throw new Error('「提议」级的页面不能保存查询');
-    return commitOp(had ? { op: 'setNode', id, label: o.label, set } : { op: 'addNode', id, label: o.label ?? name, attrs: { kind: 'query', ...set } }, `${had ? '~' : '+'} 查询 ${name}(现在匹配 ${count} 个)`, c);
-  },
-});
-defCmd('script-set', {
-  group: '宇宙', effect: 'write', title: '新建 / 修改脚本节点 ~script/<名字>(代码在节点里,或指向文件;触发写在属性里)',
-  usage: "script-set <名字> --code '<JS>' | --ref <脚本文件> [-a on=change,file:src/**,stale,start] [-a every=10m] [-a draft=true] [-a enabled=false] [-s 说明] [--unset 键 …]",
-  flags: { code: 'code', ref: 'ref', a: 'attr', s: 'summary', l: 'label', unset: 'unset' }, multi: ['attr', 'unset'], more: true,
-  run: (a, o, c) => {
-    need(a, 1, CMDS.get('script-set'));
-    noProposing(c, '写脚本节点');
-    const name = a[0];
-    if (!/^[\p{L}\p{N}_.-]+$/u.test(name)) throw new Error('脚本名只能含字母、数字、_ . -');
-    const set = kvs(o.attr);
-    if (o.code !== undefined) set.code = o.code;
-    if (o.ref !== undefined) set.file = o.ref;
-    if (o.summary !== undefined) set.summary = o.summary;
-    const id = SCRIPT_PREFIX + name, had = needUni().nodes.get(id);
-    const merged = { ...(had ? had.attrs : {}), ...set };
-    for (const k of o.unset || []) delete merged[k];
-    const problems = checkScriptAttrs(merged);
-    if (problems.length) throw new Error(problems.join(';'));
-    const unset = (o.unset || []).filter((k) => had && k in had.attrs);
-    return commitOp(had ? { op: 'setNode', id, label: o.label, set, unset } : { op: 'addNode', id, label: o.label ?? name, attrs: { kind: 'script', ...set } }, `${had ? '~' : '+'} 脚本 ${name}`, c);
-  },
-});
+for (const name of ['query-set', 'script-set', 'rule-set', 'type-set', 'view-set', 'fn-set', 'scan']) {
+  const what = { 'query-set': '保存查询', 'script-set': '写脚本节点', 'rule-set': '定体检规则', 'type-set': '改类型的样子', 'view-set': '改视图', 'fn-set': '写函数节点', scan: '扫描目录' }[name];
+  kdef(name, { run: (a, o, c) => { need(a, name === 'scan' ? 0 : 1, CMDS.get(name)); noProposing(c, what); return kernelCmd(name, a, o, c); } });
+}
 defCmd('script-run', {
-  group: '宇宙', effect: 'write', title: '在服务端跑一个脚本节点(和触发的一样:子进程,有记录),跑完显示输出', usage: 'script-run <名字> [参数…]',
+  group: '脚本', effect: 'write', title: '在服务端跑一个脚本节点(和触发的一样:子进程,有记录),跑完显示输出', usage: 'script-run <名字> [参数…]',
   args: [{ name: '脚本', values: () => listScripts(needUni()).map((d) => d.name) }], more: true,
   run: async (a, o, c) => {
     need(a, 1, CMDS.get('script-run'));
     noProposing(c, '跑脚本');
     if (c && c.src === 'page') throw new Error('页面不能跑脚本节点(它在服务端以你的权限运行)');
-    const rec = await runScript(a[0], a.slice(1));
+    const rec = await runScriptNode(a[0], a.slice(1));
     const head = `${rec.status === 'ok' ? '✓' : rec.status === 'timeout' ? '⏱ 超时' : '✗'} ${a[0]}  ${rec.ms} ms${rec.ops ? ` · 写了 ${rec.ops} 处` : ''}${rec.draft ? ` · 草稿 +${rec.draft}` : ''}`;
     return { out: [head, (rec.out || '').trim()].filter(Boolean).join('\n'), data: rec };
   },
 });
-defCmd('rule-set', {
-  group: '宇宙', effect: 'write', title: '自定义体检规则(存成节点 ~rule/<名字>):命中表达式的节点各报一条', usage: "rule-set <名字> --expr '<表达式>' [-s 提示] [-a level=warn|error|info]",
-  flags: { expr: 'expr', s: 'summary', a: 'attr', l: 'label' }, multi: ['attr'], more: true,
-  run: (a, o, c) => {
-    need(a, 1, CMDS.get('rule-set'));
-    noProposing(c, '定体检规则');
-    const name = a[0], expr = String(o.expr ?? a.slice(1).join(' ')).trim();
-    if (!/^[\p{L}\p{N}_.-]+$/u.test(name)) throw new Error('规则名只能含字母、数字、_ . -');
-    if (!expr) throw new Error("需要 --expr '<表达式>'(命中的节点算有问题)");
-    const count = needCompiled().matches(expr).length;   // 写错了在这里就抛出
-    const set = { ...kvs(o.attr), expr };
-    if (set.level !== undefined && !['error', 'warn', 'info'].includes(set.level)) throw new Error('level 只能是 error / warn / info');
-    if (o.summary !== undefined) set.message = o.summary;
-    const id = '~rule/' + name, had = uni.nodes.has(id);
-    return commitOp(had ? { op: 'setNode', id, label: o.label, set } : { op: 'addNode', id, label: o.label ?? name, attrs: { kind: 'rule', ...set } }, `${had ? '~' : '+'} 规则 ${name}(现在命中 ${count} 个,体检结果稍后推过来)`, c);
-  },
-});
-defCmd('type-set', {
-  group: '宇宙', effect: 'write', title: '改类型的样子(写到类型节点 ~<类型>,不在就建;没专门规定它的视图里立刻生效)',
-  usage: 'type-set <类型> [-a color=#rrggbb] [-a shape=dot|star|nebula|ringed|pulsar] [-a scale=1.5] · 边类型 [-a width=2] [-a arrow=true|false] [-a mode=line|faint|hidden] [--unset 键 …] [-l 名字] [-s 说明]',
-  flags: { a: 'attr', unset: 'unset', l: 'label', s: 'summary' }, multi: ['attr', 'unset'], more: true,
-  args: [{ name: '类型', values: () => [...new Set([...data.nodes.map((n) => n.attrs.type).filter(Boolean), ...data.edges.map((e) => e.type)])] }],
-  run: (a, o, c) => {
-    need(a, 1, CMDS.get('type-set'));
-    noProposing(c, '改类型的样子');
-    const set = kvs(o.attr);
-    let kind;
-    if (set.kind !== undefined) { if (set.kind !== 'nodeType' && set.kind !== 'edgeType') throw new Error('kind 只能是 nodeType / edgeType'); kind = set.kind; delete set.kind; }
-    if (!Object.keys(set).length && !(o.unset || []).length && o.label === undefined && o.summary === undefined) throw new Error('要改什么?比如 type-set module -a color=#bd00ff -a shape=ringed');
-    const op = styleOp(needUni(), a[0], set, o.unset || [], kind);
-    if (op.op === 'addNode') { if (o.label !== undefined) op.label = o.label; if (o.summary !== undefined) op.attrs = { ...op.attrs, summary: o.summary }; }
-    if (op.op === 'setNode') { if (o.label !== undefined) op.label = o.label; if (o.summary !== undefined) op.set = { ...op.set, summary: o.summary }; }
-    const k = op.op === 'addNode' ? op.attrs.kind : styleKindOf(uni, a[0]);
-    return commitOp(op, `${op.op === 'addNode' ? '+' : '~'} ${k === 'edgeType' ? '边' : '节点'}类型 ${a[0]}  ${Object.entries(set).map(([x, y]) => `${x}=${y}`).join(' ')}${(o.unset || []).length ? ' −' + o.unset.join(',') : ''}`, c);
-  },
-});
-defCmd('stamp', {
-  group: '宇宙', effect: 'write', title: '说明仍然有效:记下节点指向的文件现在的版本(写说明时会自动记)', usage: 'stamp <id> … · stamp --all(有说明、还没记过版本的全部记上)', bools: ['all'], args: [nodeArg()], more: true,
+kdef('stamp', {
   run: async (a, o, c) => {
     noProposing(c, '确认说明仍然有效');
-    const ids = o.all ? data.nodes.filter((n) => n.attrs.summary && !n.attrs.seen && fileOf(n) && n.attrs.missing !== 'true').map((n) => n.id) : a;
-    if (!ids.length) { if (o.all) return '没有要记的'; throw new Error('用法:' + CMDS.get('stamp').usage); }
-    const r = await stampNodes(ids, (c && c.author) || 'viewer');
-    return { out: [...r.stamped.map((id) => `✓ ${id}`), ...r.skipped.map((id) => `跳过 ${id}(不存在、没指向文件,或文件不在)`)].join('\n'), data: r };
+    if (!a.length && !o.all) throw new Error('用法:' + CMDS.get('stamp').usage);
+    const r = await kernelCmd('stamp', a, o, c);
+    stampedLocally(r.data && r.data.stamped);
+    return r;
   },
 });
-defCmd('undo', {
-  group: '宇宙', effect: 'write', title: '撤销最近一次写入',
+kdef('undo', {
   run: async (a, o, c) => {
     noProposing(c, '撤销');
-    const r = await api('/api/undo', {}); await waitApplied(r.n); if (!$('review').hidden) rvMsg(`已撤销(操作 #${r.n})`);
-    if (['key', 'ui', 'mouse'].includes(c.src)) { toast('已撤销'); return { data: { n: r.n } }; }   // 按键 / 点按钮:提示一下就好,不拉出控制台
-    return { out: `已撤销   #${r.n}`, data: { n: r.n } };
+    const r = await kernelCmd('undo', [], o, c);
+    if (['key', 'ui', 'mouse'].includes(c.src)) { toast(esc(r.out)); return { data: r.data }; }   // 按键 / 点按钮:提示一下就好,不拉出控制台
+    return r;
+  },
+});
+kdef('imports', {
+  run: (a, o, c) => {
+    const mount = fsMount();
+    if (a[0] !== 'on' && a[0] !== 'off') {   // 只是看看:本地算
+      const on = !!mount && (raw.get(mount) || { attrs: {} }).attrs.imports === 'true', n = data.edges.filter((e) => e.type === 'dependsOn' && e.attrs.via === 'import').length;
+      return { out: `import 边:${on ? '开' : '关'}(${n} 条)`, data: { on, edges: n } };
+    }
+    noProposing(c, '开关 import 边');
+    if (!mount) throw new Error('这个宇宙没有对应的文件夹(没有扫描过的根目录)');
+    return kernelCmd('imports', a, o.under === undefined && mount && mount !== 'repo' ? { ...o, under: mount } : o, c);
   },
 });
 
 // ---- 读宇宙(在浏览器里算,不用等服务端)。输出给人看;data 给页面和遥控用 ----
-const descNode = (id) => { const n = uni.nodes.get(id); return n ? `${n.id}${n.attrs.type ? ` [${n.attrs.type}]` : ''}  ${n.label}${n.attrs.status === 'proposed' ? '  (proposed)' : ''}` : `${id}  (不存在)`; };
+const descNode = (id) => nodeLine(uni, id);
 const needUni = () => { if (!uni) throw new Error('宇宙还没载入'); return uni; };
-defCmd('show', {
-  group: '查询', effect: 'read', title: '节点详情及其所有边', usage: 'show <id>', args: [nodeArg()], more: true,
-  run: (a) => {
-    need(a, 1, CMDS.get('show'));
-    const id = a[0], u = needUni(), n = u.nodes.get(id); if (!n) throw new Error(`节点不存在:${id}`);
-    const lines = [descNode(id)], out = [], inn = [];
-    for (const e of u.edges.values()) { if (e.from === id) out.push(e); if (e.to === id) inn.push(e); }
-    for (const [k, v] of Object.entries(n.attrs)) if (k !== 'type') lines.push(`  ${k}: ${v}`);
-    for (const e of out) lines.push(`  → -${e.type}-> ${e.to}${e.attrs.status ? ` (${e.attrs.status})` : ''}`);
-    for (const e of inn) lines.push(`  ← ${e.from} -${e.type}->`);
-    return { out: lines.join('\n'), data: { node: n, out, in: inn } };
-  },
-});
-defCmd('nb', {
-  group: '查询', effect: 'read', title: '邻域', usage: 'nb <id> [--depth N] [--dir out|in|both] [-t 边类型]', flags: { depth: 'depth', dir: 'dir', t: 'type' }, args: [nodeArg()], more: true,
-  run: (a, o) => {
-    need(a, 1, CMDS.get('nb'));
-    const id = a[0], u = needUni(); if (!u.nodes.has(id)) throw new Error(`节点不存在:${id}`);
-    const nb = neighborhood(u, id, { depth: Number(o.depth ?? 1), dir: o.dir ?? 'both', type: o.type });
-    const list = [...nb.dist].sort((x, y) => x[1] - y[1]);
-    return { out: list.map(([nid, d]) => '  '.repeat(d) + descNode(nid)).join('\n'), data: list.map(([nid, d]) => ({ id: nid, depth: d })) };
-  },
-});
-defCmd('path', {
-  group: '查询', effect: 'read', title: '最短路径', usage: 'path <a> <b> [-t 边类型]', flags: { t: 'type' }, args: [nodeArg('a'), nodeArg('b')], more: true,
-  run: (a, o) => {
-    need(a, 2, CMDS.get('path'));
-    const p = shortestPath(needUni(), a[0], a[1], { type: o.type });
-    if (p === null) return { out: '不可达', data: null };
-    return { out: [a[0], ...p.map((st) => `${st.forward ? `-${st.edge.type}->` : `<-${st.edge.type}-`} ${st.to}`)].join(' '),
-      data: { from: a[0], steps: p.map((st) => ({ type: st.edge.type, forward: st.forward, to: st.to })) } };
-  },
-});
-defCmd('ls', {
-  group: '查询', effect: 'read', title: '列节点', usage: 'ls [-t 类型] [-q 文本] [-w k=v …] [--orphans]', flags: { t: 'type', q: 'q', w: 'where' }, multi: ['where'], bools: ['orphans'],
-  run: (a, o) => {
-    const u = needUni(), ns = filterNodes(u, { type: o.type, where: kvs(o.where), orphans: o.orphans, text: o.q ?? (a.join(' ') || undefined) });
-    return { out: (ns.slice(0, 300).map((n) => descNode(n.id)).join('\n') || '(空)') + (ns.length > 300 ? `\n… 共 ${ns.length} 个,只列前 300` : ''), data: ns };
-  },
-});
-defCmd('log', {
-  group: '查询', effect: 'read', title: '操作日志', usage: 'log [-n 20]', flags: { n: 'n' },
+kdef('show', { run: (a) => { need(a, 1, CMDS.get('show')); return readShow(needUni(), a[0]); } });
+kdef('nb', { run: (a, o) => { need(a, 1, CMDS.get('nb')); return readNb(needUni(), a[0], o); } });
+kdef('path', { run: (a, o) => { need(a, 2, CMDS.get('path')); return readPath(needUni(), a[0], a[1], o); } });
+kdef('ls', { run: (a, o) => readLs(needUni(), { type: o.type, where: kvs(o.where), orphans: o.orphans, text: o.q ?? (a.join(' ') || undefined), edges: o.edges }, 300) });
+kdef('log', {
   run: (a, o) => { const l = data.log.slice(-Number(o.n ?? 20)); return { out: l.map((e) => `#${e.n} ${e.author.padEnd(8)} ${summ(e)}`).join('\n') || '(无记录)', data: l }; },
 });
-defCmd('lint', {
-  group: '查询', effect: 'read', title: '体检结果', run: () => ({ out: data.issues.map((i) => `${i.severity.padEnd(5)} ${i.rule.padEnd(20)} ${i.message}`).join('\n') || '✓ 没有问题', data: data.issues }),
+kdef('lint', {
+  run: () => ({ out: data.issues.map((i) => `${i.severity.padEnd(5)} ${i.rule.padEnd(20)} ${i.message}`).join('\n') || '✓ 没有问题', data: data.issues }),
 });
-defCmd('stale', {
-  group: '查询', effect: 'read', title: '说明写于文件改动之前的节点(--diff 带上之后的改动)', usage: 'stale [--diff]', bools: ['diff'],
+kdef('stale', {
   run: async (a, o) => {
     const list = data.issues.filter((i) => i.rule === 'stale').map((i) => { const n = raw.get(i.nodes[0]); return { id: i.nodes[0], file: n ? fileOf(n) : null, seen: n && n.attrs.seen }; });
     if (o.diff) for (const x of list) x.diff = await api('/api/seen-diff?id=' + encodeURIComponent(x.id)).catch((e) => ({ error: e.message }));
@@ -326,9 +214,7 @@ defCmd('stale', {
   },
 });
 const needCompiled = () => { if (!compiled) throw new Error('视图还没算好'); return compiled; };
-defCmd('query', {
-  group: '查询', effect: 'read', title: '跑一个保存的查询,或直接给一条表达式(和视图规则同一套;from / to / near / out / into / query 是路径条件)', usage: "query <查询名 | 表达式>", more: true,
-  args: [{ name: '查询', values: () => (compiled ? compiled.queryResults().map((r) => r.name) : []) }],
+kdef('query', {
   run: (a) => {
     if (!a.length) throw new Error('用法:' + CMDS.get('query').usage);
     const c = needCompiled(), arg = a.join(' '), saved = c.queryResults().find((r) => r.name === arg);
@@ -337,15 +223,13 @@ defCmd('query', {
     return { out: ids.length ? ids.slice(0, 300).map(descNode).join('\n') + `\n(共 ${ids.length} 个${ids.length > 300 ? ',只列前 300' : ''})` : '(没有匹配的)', data: ids };
   },
 });
-defCmd('queries', {
-  group: '查询', effect: 'read', title: '列出保存的查询和各自的匹配数',
+kdef('queries', {
   run: () => {
     const res = needCompiled().queryResults();
     return { out: res.map((r) => `${r.name.padEnd(16)} ${r.error ? '错误:' + r.error : String(r.members.length).padStart(5) + ' 个'}   ${r.expr}`).join('\n') || "(还没有保存的查询;过滤框里写 = 表达式,再点「存为查询」)", data: res.map((r) => ({ name: r.name, label: r.label, expr: r.expr, count: r.members.length, error: r.error })) };
   },
 });
-defCmd('scripts', {
-  group: '查询', effect: 'read', title: '列出脚本节点:触发、最近一次运行',
+kdef('scripts', {
   run: () => {
     const defs = listScripts(needUni());
     return {
@@ -355,8 +239,7 @@ defCmd('scripts', {
     };
   },
 });
-defCmd('rules', {
-  group: '查询', effect: 'read', title: '列出自定义体检规则和各自命中的数目',
+kdef('rules', {
   run: () => {
     const c = needCompiled();
     const rows = data.nodes.filter((n) => n.id.startsWith('~rule/') && n.attrs.kind === 'rule' && n.attrs.expr).map((n) => {
@@ -366,15 +249,9 @@ defCmd('rules', {
     return { out: rows.map((r) => `${r.name.padEnd(16)} ${String(r.count).padStart(5)}  ${r.level.padEnd(5)} ${r.message}   ${r.expr}`).join('\n') || '(还没有自定义规则;rule-set <名字> --expr "<表达式>" -s 提示)', data: rows };
   },
 });
-defCmd('types', {
-  group: '查询', effect: 'read', title: '节点类型、边类型:用量与样式(✎ 在「类型」面板里改)',
-  run: () => {
-    const t = styleTypes(needUni());
-    const fmt = (x) => `  ${x.name.padEnd(14)} ${String(x.count).padStart(6)}  ${Object.entries(x.style).map(([k, v]) => `${k}=${v}`).join(' ') || '(默认样式)'}${x.label !== x.name ? '  ' + x.label : ''}${x.declared ? '' : '   (还没有类型节点)'}`;
-    return { out: ['节点类型', ...t.nodes.map(fmt), '边类型', ...t.edges.map(fmt)].join('\n'), data: t };
-  },
-});
-defCmd('views', { group: '查询', effect: 'read', title: '列出视图', run: () => ({ out: viewNames.map((v, i) => `${i + 1}. ${v}${v === currentView ? '   ← 当前' : ''}`).join('\n'), data: { current: currentView, names: viewNames } }) });
+kdef('types', { run: () => readTypes(needUni(), '✎ 在「类型」面板里改,或 type-set <类型> -a color=#rrggbb') });
+kdef('views', {
+  run: () => ({ out: viewNames.map((v, i) => `${i + 1}. ${v}${v === currentView ? '   ← 当前' : ''}`).join('\n'), data: { current: currentView, names: viewNames } }) });
 
 // ---- 控制台自己 ----
 defCmd('help', {
@@ -387,16 +264,3 @@ defCmd('help', {
 });
 defCmd('clear', { group: '控制台', effect: 'ui', title: '清空控制台', run: () => { $('con-out').innerHTML = ''; } });
 defCmd('palette', { group: '控制台', effect: 'ui', title: '命令面板:搜索全部命令', run: () => togglePalette(true) });
-defCmd('imports', {
-  group: '宇宙', effect: 'write', title: '代码文件之间的 import 写成 dependsOn 边(via=import;扫描、实时同步跟着更新;手画的不动);不给参数 = 看现在的状态', usage: 'imports [on|off]',
-  args: [{ name: '开关', values: () => ['on', 'off'] }],
-  run: async ([v], o, c) => {
-    const mount = fsMount(), on = !!mount && (raw.get(mount) || { attrs: {} }).attrs.imports === 'true';
-    const count = () => data.edges.filter((e) => e.type === 'dependsOn' && e.attrs.via === 'import').length;
-    if (v !== 'on' && v !== 'off') return `import 边:${on ? '开' : '关'}(${count()} 条)`;
-    if (!mount) throw new Error('这个宇宙没有对应的文件夹(没有扫描过的根目录)');
-    const r = await api('/api/imports', { on: v === 'on', author: (c && c.author) || 'viewer' });
-    await waitApplied(r.n);
-    return `import 边:${v === 'on' ? '开' : '关'}(现在 ${count()} 条)`;
-  },
-});

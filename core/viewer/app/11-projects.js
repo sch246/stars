@@ -26,7 +26,7 @@ function switchProject(info) {
   if (project && info.id === project.id) return;
   if (fp) releaseFile();   // 有修改会先自动保存
   for (const s of [...scripts.values()]) stopScript(s, '切换了项目');
-  stopPlay(); replay = null; liveSnap = null; staleLive = false; hist = null; histLimit = 300; histScope = 'auto'; renderReplayBar();
+  stopPlay(); replay = null; liveSnap = null; staleLive = false; hist = null; oplog = null; histLimit = 300; histScope = 'auto'; renderReplayBar();
   $('timeline').hidden = true; $('btn-time').classList.remove('on');
   draftSpec = null; editorDirty = false; toggleEditor(false);
   selected = null; selection.clear(); selVer++; selEdge = null; hovered = null; hiddenTypes.clear(); manual.clear(); auto.clear(); activeTags.clear();

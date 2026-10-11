@@ -1,8 +1,7 @@
 // 服务端里的"项目":一个目录里的 universe.stars、看着它的查看器连接、实时信号、增量推送的状态。
-// 一个服务(serve.ts)可以同时开多个项目;HTTP 接口在 api.ts。
+// 一个服务(hub.ts)可以同时开多个项目;接口在 api.ts,HTTP / SSE 的接法在 serve.ts。
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, watch, writeFileSync, type FSWatcher } from 'node:fs';
-import { type ServerResponse } from 'node:http';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { invalidateSignals, loadSignals, type LiveSignals } from './activity.ts';
@@ -19,11 +18,17 @@ import { FsWatcher } from './watch.ts';
 export const expandHome = (d: string) => (d === '~' || d.startsWith('~/') || d.startsWith('~\\') ? join(homedir(), d.slice(1)) : d);
 export const projectId = (file: string) => createHash('sha1').update(resolve(file)).digest('hex').slice(0, 10);
 
-/** 一个打开着的项目:一个宇宙文件、它的查看器连接、实时信号、增量推送的状态。 */
+/**
+ * 看着一个项目的一方:收事件。HTTP 的 SSE 连接是一种(serve.ts),进程内的订阅是另一种(hub.ts 的 subscribe)。
+ * event 'message' = 宇宙的快照 / 增量(data.type 说是哪种);别的是具名事件(config、closed、ui)。
+ */
+export interface Subscriber { push(event: string, data: unknown): void; /** 项目关掉了(SSE:断开连接) */ end?(): void }
+
+/** 一个打开着的项目:一个宇宙文件、看着它的订阅者、实时信号、增量推送的状态。 */
 export class Project {
   readonly id: string;
   readonly name: string;
-  readonly clients = new Set<ServerResponse>();
+  readonly clients = new Set<Subscriber>();
   readonly live: LiveSignals = { size: {}, changed: {} };
   watching = false;
   fsw: FsWatcher | null = null;
@@ -82,8 +87,7 @@ export class Project {
   }
 
   send(obj: unknown): void {
-    const line = `data: ${JSON.stringify(obj)}\n\n`;
-    for (const c of this.clients) c.write(line);
+    for (const c of this.clients) c.push('message', obj);
   }
 
   // 宇宙文件或日志变了:优先把"新追加的日志条目"推给查看器(浏览器本地 apply),
@@ -97,7 +101,7 @@ export class Project {
       if (r.entries.length > 0) {
         this.lastSig = sig;
         this.delivered = r.entries[r.entries.length - 1]!.n;
-        this.send({ type: 'ops', entries: r.entries, n: this.delivered });
+        this.send({ type: 'change', entries: r.entries, n: this.delivered });   // 事件名见 events.ts
         this.scheduleIssues();
         this.agent?.onOps(r.entries);
         return;
@@ -153,7 +157,7 @@ export class Project {
     Object.assign(this.pending.size, l.size); Object.assign(this.pending.changed, l.changed);
     this.liveTimer ??= setTimeout(() => {
       this.liveTimer = undefined;
-      if (this.pending) { this.send({ type: 'signals', ...this.pending }); this.pending = null; }
+      if (this.pending) { this.send({ type: 'file', ...this.pending }); this.pending = null; }
     }, 100);
   }
 
@@ -162,7 +166,7 @@ export class Project {
     invalidateSignals(this.baseDir);
     clearTimeout(this.gitTimer);
     this.gitTimer = setTimeout(() => {
-      try { this.send({ type: 'signals', replace: true, ...loadSignals(this.store.readLog(), this.store.peek(), this.baseDir, 0, this.live) }); } catch { /* ignore */ }
+      try { this.send({ type: 'file', replace: true, ...loadSignals(this.store.readLog(), this.store.peek(), this.baseDir, 0, this.live) }); } catch { /* ignore */ }
     }, 300);
   }
 
@@ -193,7 +197,8 @@ export class Project {
     for (const t of [this.timer, this.issueTimer, this.liveTimer, this.gitTimer, this.draftTimer]) clearTimeout(t);
     this.dirWatcher.close();
     this.fsw?.stop();
-    for (const c of this.clients) c.end();
+    for (const c of this.clients) c.end?.();
+    this.clients.clear();
   }
 }
 

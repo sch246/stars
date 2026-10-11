@@ -3,6 +3,7 @@
 // Node 和浏览器里都跑。
 
 import { type Node, type Universe, isSymmetric } from './model.ts';
+import type { Op } from './ops.ts';
 
 /** 压缩邻接表(CSR):start[i]..start[i+1] 是 i 的孩子在 list 里的区间。 */
 export interface Csr { start: Int32Array; list: Int32Array }
@@ -58,6 +59,8 @@ export interface ViewGraph {
   readonly et: Int32Array;
   readonly ety: Int32Array;
   readonly eprop: Uint8Array;
+  /** 边的属性(按下标;视图脚本的 link() 用) */
+  readonly eattrs: Array<Record<string, string | undefined>>;
   /** 边类型:按第一次出现编号;tSym = 不分方向(related 这类) */
   readonly typeNames: string[];
   readonly typeIdx: Map<string, number>;
@@ -100,6 +103,7 @@ export function indexGraph(u: Universe, relation: string): ViewGraph {
   const E0 = u.edges.size;
   const ef = new Int32Array(E0), et = new Int32Array(E0), ety = new Int32Array(E0);
   const eprop = new Uint8Array(E0);
+  const eattrs: ViewGraph['eattrs'] = new Array(E0);
   const parent = new Int32Array(N).fill(-1);
   let E = 0;
   // 一个节点在几个容器里时(contains 没有 single-parent):和文件路径对得上的那条(目录包含文件)进容器树,
@@ -120,6 +124,7 @@ export function indexGraph(u: Universe, relation: string): ViewGraph {
     }
     ef[E] = a; et[E] = b; ety[E] = typeId(e.type);
     eprop[E] = e.attrs.status === 'proposed' ? 1 : 0;
+    eattrs[E] = e.attrs;
     E++;
   }
   const tSym = typeNames.map((t) => isSymmetric(u, t));
@@ -179,5 +184,19 @@ export function indexGraph(u: Universe, relation: string): ViewGraph {
   };
   const chainOf = (v: number): number[] => { const c: number[] = []; for (let x = v; x >= 0; x = parent[x]!) c.push(x); return c.reverse(); };
 
-  return { u, N, nodeList, ids, idx, E, ef, et, ety, eprop, typeNames, typeIdx, tSym, relation, parent, depth, order, treeKids, childCount, desc, second, adjOf, chainOf };
+  return { u, N, nodeList, ids, idx, E, ef, et, ety, eprop, eattrs, typeNames, typeIdx, tSym, relation, parent, depth, order, treeKids, childCount, desc, second, adjOf, chainOf };
+}
+
+/**
+ * 这个操作改没改图索引(indexGraph)用到的东西:节点和边的增删、改名;节点的 type / file(决定一个节点放进哪个容器);
+ * 边的 status(提议);类型节点(~…,边类型是不是对称)。没改的(只改别的属性、标签)可以接着用上一次的索引(CompileOptions.graph):
+ * 节点和边的属性是按对象读的,改在原地(ops.ts)。
+ */
+export function opChangesStructure(op: Op): boolean {
+  switch (op.op) {
+    case 'setNode': return op.id.startsWith('~') || [...Object.keys(op.set ?? {}), ...(op.unset ?? [])].some((k) => k === 'type' || k === 'file');
+    case 'setEdge': return [...Object.keys(op.set ?? {}), ...(op.unset ?? [])].includes('status');
+    case 'batch': return op.ops.some(opChangesStructure);
+    default: return true;
+  }
 }

@@ -47,7 +47,7 @@ test('侧栏:改名、说明、属性;关系行:反转、改类型、删掉', (t
   assert.equal(await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('#side-info .row.link')].find((r) => r.innerText.includes('想法C'))?.querySelector('[data-erev]') ?? null), null, '不分方向的关系没有「反转」');
 }));
 
-test('Del:普通节点直接删、Ctrl+Z 拿回来;文件 = 先问,挪进回收站,Ctrl+Z 搬回来', (t) => scene(t, async (s) => {
+test('Del:直接删(不先问)、Ctrl+Z 拿回来;文件挪进回收站,Ctrl+Z 搬回来', (t) => scene(t, async (s) => {
   const { page } = s;
   await s.ui('select idea/c'); await sleep(300);
   await page.mouse.move(...await s.emptySpot());
@@ -59,8 +59,8 @@ test('Del:普通节点直接删、Ctrl+Z 拿回来;文件 = 先问,挪进回收�
 
   await s.ui('select docs/readme.md'); await sleep(300);
   await page.keyboard.press('Delete'); await sleep(1500);
-  assert.ok(page.dialogs.some((d) => d.startsWith('confirm')), '删文件先问');
-  assert.ok(!existsSync(join(s.dir, 'docs/readme.md')) && !s.has('docs/readme.md'));
+  assert.ok(!existsSync(join(s.dir, 'docs/readme.md')) && !s.has('docs/readme.md'), '文件也不先问(能撤销)');
+  assert.match((await s.toast()) ?? '', /撤销/);
   assert.equal(readdirSync(join(s.dir, '.git/stars-trash')).length, 1, '挪进了 .git/stars-trash/');
   await page.keyboard.press('Control+z'); await sleep(1200);
   assert.ok(existsSync(join(s.dir, 'docs/readme.md')) && s.has('docs/readme.md'), 'Ctrl+Z:文件搬回来');

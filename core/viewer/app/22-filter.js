@@ -42,7 +42,7 @@ function renderQbar() {
 }
 async function saveQueryFromBox() {
   const ex = exprQuery(); if (!ex) return;
-  const name = (prompt('查询名(字母、数字、_ . -;同名就覆盖)', qEditing || qActive || '') || '').trim();
+  const name = await askText('查询名(字母、数字、_ . -;同名就覆盖)', qEditing || qActive || '');
   if (!name) return;
   exec(`query-set ${quoteArg(name)} --expr ${quoteArg(ex)}`, 'ui', (r) => {
     if (!r.ok) return;

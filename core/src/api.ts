@@ -1,43 +1,40 @@
-// 服务端的 HTTP 接口(/api/*):一张"方法 + 路径 → 处理函数"的表。
-// 处理函数返回一个对象 = 200 + JSON;抛 HttpError = 指定的状态码;自己写了响应(图片)就返回 undefined。
-// 所有接口都要求页面里内嵌的 token,并拒绝跨源请求(见 serve.ts 开头的说明)。
+// 服务端的接口(/api/*):一张"方法 + 路径 → 处理函数"的表,和怎么通信无关。
+// 处理函数拿到参数(查询参数 q、请求体 body)和服务的核心(hub.ts),返回一个对象(= 200 + JSON)或 RawReply(图片这类);
+// 抛 HttpError = 指定的状态码。dispatch() 是不带传输的入口;handleApi() 是 HTTP 的接法(token、跨源检查,见 serve.ts 开头),
+// localApi() 是进程内的接法(测试、以后的 VS Code 宿主)。
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { type IncomingMessage, type ServerResponse } from 'node:http';
+import { type Hub } from './hub.ts';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { isConfigName, readUserConfig, writeUserConfig } from './config.ts';
 import { draftPreview } from './draft.ts';
 import { FileConflict, IMAGE_TYPES, patchProjectFile, readProjectFile, resolveInside, writeProjectFile } from './files.ts';
-import { diffUniverses, gitFirstParent, gitHistory, gitParentSnapshot, gitSnapshot, type HistoryScope } from './history.ts';
+import { diffUniverses, gitFirstParent, gitHistory, gitParentSnapshot, gitSnapshot, universeAtOp, withGhosts, type HistoryScope } from './history.ts';
 import { moduleGraph } from './imports.ts';
-import { StarsError } from './model.ts';
+import { KERNEL_NAMES } from './cmdspec.ts';
+import { execKernel, summarize } from './commands.ts';
+import { StarsError, type Universe } from './model.ts';
 import { apply, type Op } from './ops.ts';
 import { expandHome, readRecent, type Project } from './project.ts';
-import { planImportsToggle, selfRel } from './scan.ts';
-import { planStamp, seenDiff, stampOnSummary } from './stale.ts';
-import { applyDraft, updateDraft } from './store.ts';
-import { arrange, saveUploads, undoWithFs } from './fsops.ts';
+import { selfRel } from './scan.ts';
+import { seenDiff, stampOnSummary } from './stale.ts';
+import { updateDraft } from './store.ts';
+import { arrange, saveUploads } from './fsops.ts';
 import { readRuns } from './runlog.ts';
 
-/** 服务的共享状态(serve.ts 建好后交给接口) */
-export interface ServerCtx {
+/** HTTP 接法要的:服务的核心 + 页面里内嵌的 token + 信任的主机名 */
+export interface HttpCtx {
+  hub: Hub;
   token: string;
-  projects: Map<string, Project>;
-  main: Project;
-  mountId: string;
   allowedHosts: Set<string>;
-  openProject(dir: string, create?: boolean): Project;
-  /** 推给所有打开着的页面(或指定项目的);返回推给了几个连接 */
-  broadcast(event: string, obj: unknown, only?: Project[]): number;
-  /** 遥控(stars ui)等待页面回报的结果 */
-  pendingUi: Map<string, (r: unknown) => void>;
 }
 
 /** POST 请求体里可能出现的字段(各接口自己检查需要的那几个) */
 export interface Body {
   op?: Op; author?: string; dir?: string; create?: boolean; path?: string; content?: string; mtime?: number | null;
   name?: string; line?: string; file?: string; from?: string; id?: string; wait?: number; ids?: string[];
-  action?: string; indices?: number[]; args?: string[]; draft?: boolean; on?: boolean;
+  action?: string; args?: string[]; draft?: boolean;
   patch?: { start: number; end: number; insert: string }; baseHash?: string;
   /** 整理(/api/arrange) */
   mode?: string; target?: string | null; rel?: string; fromMap?: Record<string, string | null>;
@@ -47,17 +44,23 @@ export interface Body {
   type?: string; force?: boolean;
 }
 
+/** 查询参数:URLSearchParams 就是一种 */
+export type Query = Pick<URLSearchParams, 'get' | 'has'>;
+
 export interface ApiCall {
-  req: IncomingMessage;
-  res: ServerResponse;
-  url: URL;
-  q: URLSearchParams;
+  q: Query;
   /** ?p=<项目 id>,不给 = 主项目 */
   proj: Project;
   body: Body;
   /** 写操作记在日志里的作者(请求体的 author,不给 = viewer) */
   author: string;
-  s: ServerCtx;
+  s: Hub;
+}
+/** 不是 JSON 的回复(图片预览):HTTP 原样写出去,带上 type 和不许执行任何东西的 CSP */
+export class RawReply {
+  readonly body: Buffer;
+  readonly type: string;
+  constructor(body: Buffer, type: string) { this.body = body; this.type = type; }
 }
 
 export class HttpError extends Error {
@@ -79,8 +82,8 @@ const selfOf = (p: Project) => selfRel(p.baseDir, p.store.file);
 
 export const GET: Record<string, Handler> = {
   // 视图脚本的整串依赖(入口 + 它 import 的,只认相对路径):查看器按 version 换加载地址,依赖里哪个改了都重新加载
-  '/api/viewdeps': ({ url, proj }) => {
-    const path = (url.searchParams.get('path') ?? '').replace(/\\/g, '/').replace(/^(\.\/|\/)+/, '');
+  '/api/viewdeps': ({ q, proj }) => {
+    const path = (q.get('path') ?? '').replace(/\\/g, '/').replace(/^(\.\/|\/)+/, '');
     if (!path) throw new HttpError(400, '需要 path');
     const stat = new Map<string, string>();
     const g = moduleGraph(path, (p) => {
@@ -121,13 +124,11 @@ export const GET: Record<string, Handler> = {
     if (!d) throw new HttpError(400, '这个节点没记文件版本,或文件不在');
     return d;
   },
-  '/api/raw': ({ q, proj, res }) => {   // 图片预览(<img> 带不了请求头,token 可以放在查询参数 t 里)
+  '/api/raw': ({ q, proj }) => {   // 图片预览(<img> 带不了请求头,token 可以放在查询参数 t 里)
     const abs = resolveInside(proj.baseDir, q.get('path') ?? '');
     const type = IMAGE_TYPES[extname(abs).toLowerCase()];
     if (!type) throw new HttpError(415, '只提供图片');
-    res.writeHead(200, { 'content-type': type, 'cache-control': 'no-cache', 'content-security-policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'" });
-    res.end(readFileSync(abs));
-    return undefined;
+    return new RawReply(readFileSync(abs), type);
   },
   '/api/history': ({ q, proj }) => {
     // scope=auto:宇宙文件有历史就看它的,没有(新建的宇宙)就看所在文件夹的
@@ -140,18 +141,32 @@ export const GET: Record<string, Handler> = {
     runs: readRuns(proj.store.file, { script: q.get('script') ?? undefined, limit: Math.min(500, Number(q.get('limit')) || 30) }),
     running: proj.agent?.runningNames() ?? [],
   }),
+  // 回放:某个提交(commit=…,scope=repo 时由那时的文件树长出来)或操作日志里的某一条(op=n)刚做完时的宇宙;
+  // diff 是和前一刻比的;删掉的节点也放在里面(diff.removedNodes,查看器画成红圈)
   '/api/state': ({ q, proj, s }) => {
+    const reply = (snap: Universe, prev: Universe | null, extra: Record<string, unknown> = {}) => {
+      const diff = diffUniverses(prev, snap);
+      withGhosts(prev, snap);
+      return { nodes: [...snap.nodes.values()], edges: [...snap.edges.values()], diff, ...extra };
+    };
+    if (q.has('op')) {
+      const { at, before, entry } = universeAtOp(proj.store.peek(), proj.store.readLog(), Number(q.get('op')));
+      return reply(at, before, { entry: { n: entry.n, t: entry.t, author: entry.author, summary: entry.undoOf ? `撤销 #${entry.undoOf}` : summarize(entry.op) } });
+    }
     const hash = q.get('commit') ?? '';
     if ((q.get('scope') as HistoryScope) === 'repo') {
       const snap = proj.treeAt(hash, s.mountId);
       if (!snap) throw new HttpError(404, '这个提交里没有这个文件夹');
       const ph = gitFirstParent(proj.baseDir, hash);
-      const parent = ph ? proj.treeAt(ph, s.mountId) : null;
-      return { nodes: [...snap.nodes.values()], edges: [...snap.edges.values()], diff: diffUniverses(parent, snap) };
+      return reply(snap, ph ? proj.treeAt(ph, s.mountId) : null);
     }
-    const snap = gitSnapshot(proj.store.file, hash);
-    const diff = diffUniverses(gitParentSnapshot(proj.store.file, hash), snap);
-    return { nodes: [...snap.nodes.values()], edges: [...snap.edges.values()], diff };
+    return reply(gitSnapshot(proj.store.file, hash), gitParentSnapshot(proj.store.file, hash));
+  },
+  // 操作日志(时间线的「操作」):最近 limit 条(before = 只要编号小于它的,往前翻)
+  '/api/oplog': ({ q, proj }) => {
+    const limit = Math.min(20000, Math.max(1, Number(q.get('limit')) || 300)), before = Number(q.get('before')) || Infinity;
+    const all = proj.store.readLog().filter((e) => e.n < before);
+    return { entries: all.slice(-limit).map((e) => ({ n: e.n, t: e.t, author: e.author, summary: e.undoOf ? `撤销 #${e.undoOf}` : summarize(e.op) })), more: all.length > limit };
   },
 };
 
@@ -204,13 +219,6 @@ export const POST: Record<string, Handler> = {
     if (typeof body.dir !== 'string' || !body.dir) throw new HttpError(400, '需要 dir');
     return s.openProject(body.dir, !!body.create).info();
   },
-  '/api/undo': ({ proj, author }) => ({ ok: true, n: undoWithFs(proj.store, proj.baseDir, author).n }),
-  // import 边开 / 关(和 stars imports on / off 一样)
-  '/api/imports': ({ body, s, proj, author }) => {
-    const op = planImportsToggle(proj.store.peek(), proj.baseDir, s.mountId, body.on === true);
-    const n = op.op === 'batch' && op.ops.length ? proj.store.commit(op, { author }).entry.n : proj.store.logCount();
-    return { ok: true, n, changed: op.op === 'batch' ? op.ops.length : 0 };
-  },
   // 外面来的文件(粘贴、拖进查看器):存进 dir 这个文件夹(不给 = 项目根),建好节点;container 也装着它们
   '/api/upload': ({ body, s, proj, author }) => {
     const files = Array.isArray(body.files) ? body.files.filter((f) => f && typeof f.name === 'string' && typeof f.b64 === 'string').map((f) => ({ name: f.name, data: Buffer.from(f.b64, 'base64'), dir: f.dir === true })) : [];
@@ -230,23 +238,22 @@ export const POST: Record<string, Handler> = {
     }, author);
     return { ok: true, n: r.entry?.n ?? null, summary: r.plan.summary, result: r.plan.result, skipped: r.plan.skipped, fs: r.plan.fs, conflicts: r.plan.conflicts ?? null };
   },
+  // 一行内核命令(和 CLI 同名同参数,见 cmdspec.ts):查看器里的写命令都走这里,作者是请求里的 author;--draft 写进草稿。
+  // 返回命令的 { out, data, exitCode },外加 n(执行完日志的条数:页面等推送追到它再算完成)
+  '/api/cmd': async ({ body, proj, author }) => {
+    if (typeof body.name !== 'string' || !KERNEL_NAMES.has(body.name)) throw new HttpError(400, `不是内核命令: ${String(body.name)}`);
+    const args = Array.isArray(body.args) ? body.args.map(String) : [];
+    const r = await execKernel(body.name, args, { store: proj.store, author, root: proj.baseDir, cwd: proj.baseDir });
+    if (args.includes('--draft') || body.name === 'draft') proj.sendDraft();
+    return { ok: true, out: r.out, data: r.data ?? null, exitCode: r.exitCode ?? 0, n: proj.store.logCount() };
+  },
   '/api/op': ({ body, proj, author }) => {
     if (!validOp(body.op)) throw new HttpError(400, '无效的操作');
     const op = stampOnSummary(proj.store.peek(), body.op, proj.baseDir);   // 写了 summary 的节点顺手记下文件版本
     return { ok: true, n: proj.store.commit(op, { author }).entry.n };
   },
-  // 草稿:apply 整批落进宇宙(一次提交)· drop 丢弃(indices 从 1 数;不给 = 全部)· add 追加一条
+  // 草稿里追加一条操作(界面上的写入进草稿用;整批应用 / 丢弃是 draft apply / drop 命令,走 /api/cmd)
   '/api/draft': ({ body, proj, author }) => {
-    if (body.action === 'apply') { const r = applyDraft(proj.store, { author }); proj.sendDraft(); return { ok: true, ...r }; }
-    if (body.action === 'drop') {
-      const dropped = updateDraft(proj.store.file, (entries) => {
-        const idx = new Set(Array.isArray(body.indices) ? body.indices : entries.map((_, i) => i + 1));
-        const kept = entries.filter((_, i) => !idx.has(i + 1));
-        return { entries: kept, result: entries.length - kept.length };
-      });
-      proj.sendDraft();
-      return { ok: true, dropped };
-    }
     if (body.action === 'add') {
       const op0 = body.op;
       if (!validOp(op0)) throw new HttpError(400, '无效的操作');
@@ -259,7 +266,7 @@ export const POST: Record<string, Handler> = {
       proj.sendDraft();
       return { ok: true, draft };
     }
-    throw new HttpError(400, 'action 应为 apply / drop / add');
+    throw new HttpError(400, 'action 应为 add(应用、丢弃用 draft apply / drop 命令)');
   },
   // 跑一个脚本节点(子进程,和触发的一样);跑完返回运行记录
   '/api/run': async ({ body, proj, author }) => {
@@ -267,13 +274,6 @@ export const POST: Record<string, Handler> = {
     const agent = proj.agent ?? proj.startAgent(() => {});
     const args = Array.isArray(body.args) ? body.args.map(String) : [];
     return { ok: true, record: await agent.runNow(body.name, { kind: 'manual', by: author }, args) };
-  },
-  '/api/stamp': ({ body, proj, author }) => {   // 说明仍然有效:记下这些节点指向的文件现在的版本
-    if (!Array.isArray(body.ids) || !body.ids.every((x) => typeof x === 'string')) throw new HttpError(400, '需要 ids');
-    const p = planStamp(proj.store.peek(), body.ids, proj.baseDir);
-    const n = p.op ? proj.store.commit(p.op, { author }).entry.n : proj.store.logCount();
-    if (!p.op) proj.scheduleIssues();
-    return { ok: true, n, stamped: p.stamped, skipped: p.skipped };
   },
 };
 
@@ -300,31 +300,58 @@ export const json = (res: ServerResponse, status: number, body: unknown) => {
   res.end(JSON.stringify(body));
 };
 
-export async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL, s: ServerCtx): Promise<void> {
+/** 不带传输的入口:按方法和路径找处理函数,出错换成状态码。q 里的 p = 项目 id(不给 = 主项目) */
+export async function dispatch(method: string, path: string, q: Query, body: Body, s: Hub): Promise<{ status: number; json?: unknown; raw?: RawReply }> {
+  try {
+    const handler = (method === 'GET' ? GET : method === 'POST' ? POST : {})[path];
+    if (!handler) return { status: 404, json: { error: 'not found' } };
+    const proj = s.projects.get(q.get('p') ?? '') ?? s.main;
+    const author = typeof body.author === 'string' && body.author.trim() ? body.author.trim().slice(0, 40) : 'viewer';
+    const out = await handler({ q, proj, body, author, s });
+    return out instanceof RawReply ? { status: 200, raw: out } : { status: 200, json: out ?? { ok: true } };
+  } catch (err) {
+    if (err instanceof HttpError) return { status: err.status, json: { error: err.message, ...err.extra } };
+    const known = err instanceof StarsError || err instanceof SyntaxError || ['ENOENT', 'ENOTDIR', 'EACCES', 'EPERM'].includes((err as NodeJS.ErrnoException).code ?? '');
+    return { status: known ? 400 : 500, json: { error: (err as Error).message } };
+  }
+}
+
+/** HTTP 的接法:token、跨源检查,读请求体,写回复 */
+export async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL, h: HttpCtx): Promise<void> {
   // <img> 没法带请求头,只读的 /api/raw 允许把 token 放在查询参数里
   const tok = req.headers['x-stars-token'] ?? (url.pathname === '/api/raw' ? url.searchParams.get('t') : undefined);
-  if (tok !== s.token) return json(res, 403, { error: '缺少或错误的 token' });
+  if (tok !== h.token) return json(res, 403, { error: '缺少或错误的 token' });
   const origin = req.headers.origin;
   if (origin) { // 同源,或来自明确信任的主机名(反向代理时 Origin 是代理的域名)
     let o: URL | null = null;
     try { o = new URL(origin); } catch { /* Origin: null(沙箱里的预览页、file://)解析不了,一样算跨源 */ }
-    if (!o || (o.host !== req.headers.host && !s.allowedHosts.has(o.hostname))) return json(res, 403, { error: '跨源请求被拒绝' });
+    if (!o || (o.host !== req.headers.host && !h.allowedHosts.has(o.hostname))) return json(res, 403, { error: '跨源请求被拒绝' });
   }
-  try {
-    const handler = (req.method === 'GET' ? GET : req.method === 'POST' ? POST : {})[url.pathname];
-    if (!handler) return json(res, 404, { error: 'not found' });
-    let body: Body = {};
-    if (req.method === 'POST') {
-      if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return json(res, 415, { error: '需要 application/json' });
-      body = JSON.parse(await readBody(req, url.pathname === '/api/upload' ? UPLOAD_LIMIT : BIG_BODY.has(url.pathname) ? 8 << 20 : 1 << 20) || '{}') as Body;
-    }
-    const proj = s.projects.get(url.searchParams.get('p') ?? '') ?? s.main;
-    const author = typeof body.author === 'string' && body.author.trim() ? body.author.trim().slice(0, 40) : 'viewer';
-    const out = await handler({ req, res, url, q: url.searchParams, proj, body, author, s });
-    if (out !== undefined) json(res, 200, out);
-  } catch (err) {
-    if (err instanceof HttpError) return json(res, err.status, { error: err.message, ...err.extra });
-    const known = err instanceof StarsError || err instanceof SyntaxError || ['ENOENT', 'ENOTDIR', 'EACCES', 'EPERM'].includes((err as NodeJS.ErrnoException).code ?? '');
-    return json(res, known ? 400 : 500, { error: (err as Error).message });
+  let body: Body = {};
+  if (req.method === 'POST') {
+    if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return json(res, 415, { error: '需要 application/json' });
+    try { body = JSON.parse(await readBody(req, url.pathname === '/api/upload' ? UPLOAD_LIMIT : BIG_BODY.has(url.pathname) ? 8 << 20 : 1 << 20) || '{}') as Body; }
+    catch (err) { return json(res, 400, { error: (err as Error).message }); }
   }
+  const r = await dispatch(req.method ?? 'GET', url.pathname, url.searchParams, body, h.hub);
+  if (r.raw) {
+    res.writeHead(r.status, { 'content-type': r.raw.type, 'cache-control': 'no-cache', 'content-security-policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'" });
+    res.end(r.raw.body);
+  } else json(res, r.status, r.json);
+}
+
+/**
+ * 进程内的接法:和 HTTP 同一张表、同样的状态码,只是没有 token、不过网络(测试、以后的 VS Code 宿主)。
+ * 出错抛 HttpError(带状态码);图片这类给 RawReply。
+ */
+export function localApi(hub: Hub) {
+  const call = async (method: string, path: string, body: Body = {}, query: Record<string, string> = {}): Promise<unknown> => {
+    const r = await dispatch(method, path, new URLSearchParams(query), JSON.parse(JSON.stringify(body)) as Body, hub);   // 和过网络一样:请求体是一份拷贝
+    if (r.status >= 400) { const j = r.json as { error?: string } & Record<string, unknown>; const { error, ...extra } = j; throw new HttpError(r.status, error ?? `状态 ${r.status}`, extra); }
+    return r.raw ?? r.json;
+  };
+  return {
+    get: (path: string, query?: Record<string, string>) => call('GET', path, {}, query),
+    post: (path: string, body?: Body, query?: Record<string, string>) => call('POST', path, body, query),
+  };
 }

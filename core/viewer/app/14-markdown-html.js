@@ -188,7 +188,7 @@ $('fp-body').addEventListener('click', (ev) => {   // 预览里的链接:项目�
 // ---- HTML 预览:沙箱 iframe(不同源,碰不到查看器和 token)。脚本:每个预览可开关;实时:跟着编辑器里没保存的改动走,
 // 关掉则显示保存了的版本。项目里其它文件变了(serve --watch 的实时信号)也刷新 —— 像 VS Code 的 Live Preview。
 // 相对路径的 css / js / 图片从 /preview/<token>/<项目>/… 取,所以页面引用的资源都能加载。
-const previewUrl = (path) => `/preview/${pvToken}/${(project && project.id) || '_'}/` + path.split('/').map(encodeURIComponent).join('/');
+const previewUrl = (path) => transport.fileUrl(path);
 function mountHtml(body) {
   fp.onEditRender = !!fp.opts.live;
   mountPreview(body, (pane) => {

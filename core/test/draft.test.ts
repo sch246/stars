@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { runKernel, type CliOpts } from '../src/commands.ts';
 import { draftPreview, draftSummary } from '../src/draft.ts';
@@ -15,7 +16,7 @@ import { DraftStore, draftPath, readDraft, Store } from '../src/store.ts';
 
 const genesis = readFileSync(new URL('../genesis.stars', import.meta.url), 'utf8');
 process.env.XDG_CONFIG_HOME = mkdtempSync(join(tmpdir(), 'stars-cfg-'));
-const cli = new URL('../src/cli.ts', import.meta.url).pathname;
+const cli = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
 
 function project() {
   const dir = mkdtempSync(join(tmpdir(), 'stars-draft-'));
@@ -112,7 +113,7 @@ test('草稿:stars run --draft 脚本 —— 脚本的写入进草稿,脚本自�
   assert.ok(!new Store(file).load().nodes.has('s1'));
 });
 
-test('草稿:服务端 —— 快照带草稿、草稿变了推 draft 事件、/api/draft 的 add / drop / apply', async () => {
+test('草稿:服务端 —— 快照带草稿、草稿变了推 draft 事件、/api/draft 的 add;/api/cmd 的 draft drop / apply、写命令带 --draft', async () => {
   const { dir, file, store, run } = project();
   run('add', ['a']);
   run('add', ['b'], {}, true);
@@ -121,6 +122,10 @@ test('草稿:服务端 —— 快照带草稿、草稿变了推 draft 事件、/
   const base = `http://127.0.0.1:${port}`;
   const call = async (body: unknown) => {
     const r = await fetch(`${base}/api/draft`, { method: 'POST', headers: { 'x-stars-token': srv.token, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    return { status: r.status, j: await r.json() as Record<string, unknown> };
+  };
+  const cmd = async (name: string, args: string[], author?: string) => {
+    const r = await fetch(`${base}/api/cmd`, { method: 'POST', headers: { 'x-stars-token': srv.token, 'content-type': 'application/json' }, body: JSON.stringify({ name, args, author }) });
     return { status: r.status, j: await r.json() as Record<string, unknown> };
   };
   try {
@@ -145,16 +150,22 @@ test('草稿:服务端 —— 快照带草稿、草稿变了推 draft 事件、/
     assert.ok(await until(/"type":"draft"[^\n]*"op":"addEdge"/), '草稿变了推 draft 事件');
     assert.equal((await call({ action: 'add', op: { op: 'addNode', id: 'a', label: 'dup' } })).status, 400, '做不了的不进草稿');
     assert.equal((await call({ action: 'add', op: { op: 'addNode', id: 'c', label: 'c' }, author: 'viewer' })).j.draft, 3);
-    assert.equal((await call({ action: 'drop', indices: [3] })).j.dropped, 1);
+    assert.deepEqual((await cmd('draft', ['drop', '3'])).j.data, { dropped: 1 });
+    const viaCmd = await cmd('add', ['--draft', '--', 'd'], 'viewer');   // 查看器里的写命令带 --draft
+    assert.deepEqual(viaCmd.j.data, { draft: 3 });
+    assert.equal((await cmd('draft', ['drop', '3'])).status, 200);
     const n = store.logCount();
-    const a = await call({ action: 'apply', author: 'tester' });
-    assert.equal(a.j.count, 2);
+    const a = await cmd('draft', ['apply'], 'tester');
+    assert.equal((a.j.data as { count: number }).count, 2);
+    assert.equal(a.j.n, n + 1, '返回执行完日志的条数');
     assert.equal(store.logCount(), n + 1);
     assert.equal(store.readLog().at(-1)!.author, 'tester');
     assert.deepEqual(readDraft(file), []);
     buf = '';
     assert.ok(await until(/"type":"draft","entries":\[\]/), '应用之后推空草稿');
-    assert.equal((await call({ action: 'apply' })).status, 400, '空草稿');
+    assert.equal((await cmd('draft', ['apply'])).status, 400, '空草稿');
+    assert.match(String((await cmd('add', ['x', '--depth', '2'])).j.error), /add 不认识选项 --depth/, '选项按命令表查');
+    assert.equal((await cmd('nope', [])).status, 400);
     ctl.abort();
   } finally { srv.close(); }
 });

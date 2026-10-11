@@ -6,22 +6,20 @@ function connect() {
     $('status').innerHTML += ' · <b>静态导出(只读)</b>';
     return;
   }
-  if (es) es.close();
-  es = new EventSource(withP('/events'));
-  es.onmessage = (ev) => handle(JSON.parse(ev.data));
-  es.onerror = () => { $('status').textContent = '连接断开,重连中…'; };
-  // 个人设置 / 快捷键在别处改了(编辑器、别的标签页、stars ui):立即生效
-  es.addEventListener('config', (ev) => { const m = JSON.parse(ev.data); adoptCfg(m.name, m); });
-  // 看着的项目被关掉了(别的标签页、project --close):回到主项目
-  es.addEventListener('closed', () => {
-    if (!projectId) return;   // 自己关的、已经切回主项目了
-    toast(`项目 ${esc(project ? project.name : '')} 已关闭,回到主项目`);
-    api('/api/projects').then((r) => switchProject(r.open.find((x) => x.primary))).catch(() => { projectId = null; setHash(); connect(); });
-  });
-  // 遥控:stars ui <命令> → 在这里执行 → 把输出回报给服务端,由它交回 CLI
-  es.addEventListener('ui', (ev) => {
-    const m = JSON.parse(ev.data);
-    exec(m.line, 'remote', (r) => { api('/api/ui-result', { id: m.id, ...r }).catch(() => { /* CLI 已经不等了 */ }); }, m.from);
+  if (stopListening) stopListening();
+  stopListening = transport.listen({
+    message: handle,
+    error: () => { $('status').textContent = '连接断开,重连中…'; },
+    // 个人设置 / 快捷键在别处改了(编辑器、别的标签页、stars ui):立即生效
+    config: (m) => adoptCfg(m.name, m),
+    // 看着的项目被关掉了(别的标签页、project --close):回到主项目
+    closed: () => {
+      if (!projectId) return;   // 自己关的、已经切回主项目了
+      toast(`项目 ${esc(project ? project.name : '')} 已关闭,回到主项目`);
+      api('/api/projects').then((r) => switchProject(r.open.find((x) => x.primary))).catch(() => { projectId = null; setHash(); connect(); });
+    },
+    // 遥控:stars ui <命令> → 在这里执行 → 把输出回报给服务端,由它交回 CLI
+    ui: (m) => exec(m.line, 'remote', (r) => { api('/api/ui-result', { id: m.id, ...r }).catch(() => { /* CLI 已经不等了 */ }); }, m.from),
   });
 }
 
@@ -31,19 +29,32 @@ let lastN = 0, staleLive = false, recomputeTimer = null, lastCompile = 100;
 const appliedWaiters = [];
 const waitApplied = (n) => (lastN >= n ? Promise.resolve() : new Promise((ok) => { const w = { n, ok }; appliedWaiters.push(w); setTimeout(() => { const i = appliedWaiters.indexOf(w); if (i >= 0) appliedWaiters.splice(i, 1); ok(); }, 3000); }));
 function wakeApplied() { for (let i = appliedWaiters.length - 1; i >= 0; i--) if (appliedWaiters[i].n <= lastN) appliedWaiters.splice(i, 1)[0].ok(); }
+// ---------- 事件(名字见 core/src/events.ts):服务端推来的消息翻成同名的事件,查看器里的模块各自订阅(onEvent),
+// 页面和查看器里跑的脚本也订阅同样的名字(页面桥转过去,见 15-bridge.js)----------
+const eventSubs = new Map();
+function onEvent(name, f) {
+  if (!STARS_EVENTS[name]) throw new Error('不是事件名:' + name);
+  if (!eventSubs.has(name)) eventSubs.set(name, new Set());
+  eventSubs.get(name).add(f);
+  return () => eventSubs.get(name).delete(f);
+}
+function emitEvent(name, value) {
+  for (const f of eventSubs.get(name) || []) { try { f(value); } catch (e) { console.error(e); } }
+}
 function handle(m) {
-  if (m.type === 'draft') { setDraft(m.entries || []); return; }
-  if (m.type === 'run') { onRun(m); return; }
-  if (m.type === 'ops' || m.type === 'signals' || m.type === 'issues') {
+  if (m.type === 'draft') { setDraft(m.entries || []); emitEvent('draft', { entries: m.entries || [] }); return; }
+  if (m.type === 'run') { onRun(m); emitEvent('run', m); return; }
+  if (m.type === 'change' || m.type === 'file' || m.type === 'issues') {
     if (replay) { staleLive = true; return; } // 回放中:实时更新先不动画面,退出回放时重新同步
-    if (m.type === 'ops') return applyOps(m.entries);
-    if (m.type === 'signals') return applySignals(m);
+    if (m.type === 'change') return applyOps(m.entries);
+    if (m.type === 'file') return applySignals(m);
     data.issues = m.issues; onIssues();
+    emitEvent('issues', { issues: m.issues });
     return;
   }
   ingest(m);
 }
-function resync() { if (es) es.close(); connect(); }   // 日志出现缺口等不一致:重新连接,服务端会先发一份完整快照
+function resync() { connect(); }   // 日志出现缺口等不一致:重新连接,服务端会先发一份完整快照
 function scheduleRecompute() {
   if (recomputeTimer) return;
   // 编译较贵:变化很密集时按上一次编译耗时自适应地合并,保证界面不被拖死
@@ -55,6 +66,7 @@ function applyOps(entries) {
     if (e.n <= lastN) continue;                       // 重复(快照已包含)
     if (e.n !== lastN + 1) { resync(); return; }      // 缺口
     try { apply(liveU || uni, e.op); } catch { resync(); return; }
+    if (opChangesStructure(e.op)) structStamp++;
     lastN = e.n; done.push(e);
     data.log.push(e); if (data.log.length > 60) data.log.shift();
     data.proposals = data.proposals || {};
@@ -68,12 +80,14 @@ function applyOps(entries) {
   scheduleRecompute();
   renderReview();
   renderStatus();
-  if (done.length) bridgeEmit('change', { n: lastN, ops: done.map((e) => ({ n: e.n, author: e.author, t: e.t, op: e.op })) });
+  if (done.length) emitEvent('change', { n: lastN, ops: done.map((e) => ({ n: e.n, author: e.author, t: e.t, op: e.op })) });
   wakeApplied();
 }
 function applySignals(m) {
-  if (m.changed) viewFilesChanged(Object.keys(m.changed).map((id) => (raw.get(id) && raw.get(id).attrs.file) || id));   // 视图脚本(或它 import 的)改了
-  if (fp && fp.handler === 'html' && m.changed && Object.keys(m.changed).some((id) => id !== fp.id || !fp.opts.live)) htmlRefreshSoon();   // 页面引用的 css / js 改了
+  if (m.changed && Object.keys(m.changed).length) {   // 视图脚本(05a)、侧栏里的 HTML 页面(14)、页面桥都订阅 file
+    const ids = Object.keys(m.changed);
+    emitEvent('file', { ids, paths: ids.map((id) => (raw.get(id) && raw.get(id).attrs.file) || id) });
+  }
   if (fp && ((m.changed && m.changed[fp.id] !== undefined) || (m.size && m.size[fp.id] !== undefined) || m.replace)) checkDisk();
   const sg = (data.signals = data.signals || {});
   if (m.replace) { sg.fileChanged = m.fileChanged; sg.touched = m.touched; if (m.size) sg.size = m.size; }
@@ -85,8 +99,12 @@ let staleKey = '';
 function staleSignal() { const o = {}; for (const i of data.issues) if (i.rule === 'stale') o[i.nodes[0]] = 1; return o; }
 function onIssues() {
   rebuildIssues(); renderSide(); renderStatus();
-  const k = Object.keys(staleSignal()).sort().join('\n');
-  if (k !== staleKey) { staleKey = k; scheduleRecompute(); }
+  const now = Object.keys(staleSignal()).sort(), k = now.join('\n');
+  if (k !== staleKey) {
+    const before = new Set(staleKey ? staleKey.split('\n') : []), fresh = now.filter((id) => !before.has(id));
+    staleKey = k; scheduleRecompute();
+    if (fresh.length) emitEvent('stale', { ids: fresh });   // 新过期的说明(和脚本节点的 on=stale 同一个意思)
+  }
 }
 function rebuildIssues() {
   issueByNode = new Map();

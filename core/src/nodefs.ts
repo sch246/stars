@@ -58,8 +58,9 @@ export function liveFs(root: string, self?: string): FsView {
           for (const t of todo) { const ig = FALLBACK_IGNORE.test(t); cache.set(t, ig); if (ig) out.add(t); }
         }
       }
-      if (cache.size > 200_000) cache.clear(); // 忽略规则可能变(改了 .gitignore),缓存别无限长
+      if (cache.size > 200_000) cache.clear(); // 别无限长
       return out;
     },
+    forget: () => cache.clear(),
   };
 }

@@ -8,6 +8,7 @@ import { type Universe, SCHEMA_PREFIX } from './model.ts';
 import { checkExpr } from './expr.ts';
 import type { QueryResult } from './query.ts';
 import type { ViewModule } from './viewscript.ts';
+import type { ViewGraph } from './viewgraph.ts';
 
 export type Shape = 'dot' | 'star' | 'nebula' | 'ringed' | 'pulsar';
 export const SHAPES: Shape[] = ['dot', 'star', 'nebula', 'ringed', 'pulsar'];
@@ -178,6 +179,11 @@ export interface CompileOptions {
   name?: string;
   /** 每一层的规格先过一遍它(查看器用来把「体积半径」设置套到每层的 size 规则上) */
   mapLayer?: (spec: ViewSpec) => ViewSpec;
+  /**
+   * 上一次编译的图索引(CompiledView.graph):宇宙的结构没变(只改了属性、信号、规格、换了视图)时传进来,省掉重建
+   * (10 万节点时约占编译的六成)。宇宙对象不同或容器关系不同时自动不用它。结构变没变见 viewgraph.ts 的 opChangesStructure
+   */
+  graph?: ViewGraph;
 }
 /** 折叠选项:决定"现在显示哪些"(每次展开/收起都变,必须很便宜)。 */
 export interface FoldOptions {
@@ -247,6 +253,8 @@ export interface CompiledView {
   readonly forces: Array<NonNullable<ViewModule['forces']>>;
   /** 脚本没加载、加载失败、函数出错、返回值不对……(不影响出图:出错的那一步退回规则) */
   readonly warnings: string[];
+  /** 这次用的图索引:下次结构没变时传回 CompileOptions.graph */
+  readonly graph: ViewGraph;
 }
 export type StepName = 'size' | 'color' | 'style';
 export type Explain = Record<StepName, number> & { layer?: Record<StepName, string>; script?: Partial<Record<StepName | 'label', string>> };
@@ -401,7 +409,7 @@ export function validateSpec(spec: unknown, u?: Universe): string[] {
   unknownKeys(spec, KEYS.spec, '规格');
   if (spec.base !== undefined && (typeof spec.base !== 'string' || !spec.base)) bad.push('base 必须是视图名(内置的或 ~view/ 的)');
   else if (typeof spec.base === 'string' && u && !BUILTIN_VIEWS[spec.base] && !u.nodes.has(`${SCHEMA_PREFIX}view/${spec.base}`)) bad.push(`base: 没有视图 "${spec.base}"`);
-  if (spec.script !== undefined && !(typeof spec.script === 'string' && /\.m?js$/.test(spec.script))) bad.push('script 必须是项目里的 .js 文件路径(如 "views/热力.js")');
+  if (spec.script !== undefined && !(typeof spec.script === 'string' && /\.m?[jt]s$/.test(spec.script))) bad.push('script 必须是项目里的 .js / .ts 文件路径(如 "views/热力.js")');
   if (spec.params !== undefined && !isObj(spec.params)) bad.push('params 必须是对象');
   const layered = spec.base !== undefined || spec.script !== undefined;   // 下面还有层:没写全的关系规则由下面补
   if (spec.forces !== undefined && (!Array.isArray(spec.forces) || !spec.forces.every((f) => typeof f === 'string'))) bad.push('forces 必须是函数名字符串数组(如 ["~fn/名字"])');

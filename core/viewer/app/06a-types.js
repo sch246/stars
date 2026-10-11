@@ -130,6 +130,7 @@ function typePreview(name, kind, key, value) {
   if (!typePrev.has(id)) typePrev.set(id, n ? { ...n.attrs } : null);
   if (!n) { n = { id, label: name, attrs: { kind } }; uni.nodes.set(id, n); }
   n.attrs = { ...n.attrs, [key]: value };
+  structStamp++;   // 类型节点在原地改了(边类型的对称等):图索引重建
   if (!typePrevRaf) typePrevRaf = requestAnimationFrame(() => { typePrevRaf = 0; recompute(true); });
 }
 function typePrevRevert() {
@@ -138,6 +139,7 @@ function typePrevRevert() {
     else { const n = uni.nodes.get(id); if (n) n.attrs = before; }
   }
   typePrev.clear();
+  structStamp++;
   if (typePrevRaf) { cancelAnimationFrame(typePrevRaf); typePrevRaf = 0; }
 }
 /** 写进宇宙:改的是类型节点 ~name(不在就建),和 CLI 的 type-set 同一个操作 */

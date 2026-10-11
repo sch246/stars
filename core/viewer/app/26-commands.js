@@ -59,7 +59,11 @@ function exec(line, src = 'console', report = null, from = '', level = 'off') {
   }
   if (page && spec.effect !== 'read') { conLog(line + `   ← ${from}`, 'remote'); echoed = true; }   // 页面做的界面操作和写入,控制台里都看得到
   let r;
-  try { const { a, o } = parseArgs(spec, toks.slice(1)); r = spec.run(a, o, { src, from, level, author: page ? from : 'viewer' }); }
+  try {
+    // 内核命令按命令表切选项(和 CLI 一样);别的按各自声明的 flags / bools
+    const { a, o } = spec.kernel ? (({ positionals, values }) => ({ a: positionals, o: values }))(cmdParse(spec.name, toks.slice(1))) : parseArgs(spec, toks.slice(1));
+    r = spec.run(a, o, { src, from, level, author: page ? from : 'viewer' });
+  }
   catch (e) { fail(e); return null; }
   if (r === false) { if (typed || src === 'remote') conLog('(此时不适用)', 'dim'); if (report) report({ ok: false, error: '此时不适用' }); return false; }
   if (!typed && src !== 'remote' && !page) conLog(line, 'echo');
@@ -198,7 +202,7 @@ defCmd('view-script', {
   run: async ([name], o) => {
     if (!name || !/^[\p{L}\p{N}_-]+$/u.test(name)) throw new Error('需要视图名(文字、数字、_ 和 -)');
     const path = (o.file || `views/${name}.js`).replace(/^\.\//, '');
-    if (!/\.m?js$/.test(path)) throw new Error('视图脚本要是 .js 文件');
+    if (!VIEW_SCRIPT_FILE.test(path)) throw new Error('视图脚本要是 .js / .ts 文件');
     let made = false;
     try { await api('/api/file?stat=1&path=' + encodeURIComponent(path)); }
     catch { await api('/api/file', { path, content: viewSkeleton(path, o.base || currentView), mtime: null, create: true }); made = true; }
@@ -437,7 +441,7 @@ defCmd('unbind', {
 });
 
 // ---- 时间线 ----
-const TL_ACTS = { prev: '上一个提交', next: '下一个提交', first: '最早的提交', now: '回到现在', play: '播放 / 暂停', scope: '宇宙文件的历史 ↔ 文件夹的历史', more: '再往前载入一批' };
+const TL_ACTS = { prev: '上一步(提交 / 操作)', next: '下一步', first: '最早的', now: '回到现在', play: '播放 / 暂停', scope: '宇宙文件的历史 ↔ 文件夹的历史', ops: '按提交 ↔ 按操作(每次写入一步)', more: '再往前载入一批' };
 defCmd('timeline', {
   group: '时间线', effect: 'ui', title: '时间线操作(先 panel timeline 打开)', usage: 'timeline <' + Object.keys(TL_ACTS).join('|') + '>', args: [{ name: '动作', values: () => Object.keys(TL_ACTS) }],
   palette: () => Object.entries(TL_ACTS).map(([k, t]) => ({ line: 'timeline ' + k, title: '时间线:' + t })),
@@ -446,7 +450,7 @@ defCmd('timeline', {
     if (!(act in TL_ACTS)) throw new Error('用法:timeline <' + Object.keys(TL_ACTS).join('|') + '>');
     if ($('timeline').hidden) return false;
     if (act === 'prev' || act === 'next') return stepCommit(act === 'prev' ? -1 : 1);
-    return { first: tlFirst, play: tlPlay, scope: tlScope, more: tlMore }[act]();
+    return { first: tlFirst, play: tlPlay, scope: tlScope, ops: tlOps, more: tlMore }[act]();
   },
 });
 
@@ -476,7 +480,10 @@ defCmd('review', {
     noProposing(c, '批量确认 / 拒绝提议');
     const l = proposed();
     if (act === 'accept-all') { if (!l.length) return '没有待审阅的提议'; return write(batchOps(l, acceptOp), `已接受全部 ${l.length} 条`, c.author); }
-    if (act === 'reject-all') { if (!l.length) return '没有待审阅的提议'; if (c.src !== 'page' && !confirm(`拒绝并删除全部 ${l.length} 条提议?(之后可以撤销)`)) return; return write(batchOps(l, rejectOp), `已拒绝全部 ${l.length} 条`, c.author); }
+    if (act === 'reject-all') {   // 不先问:拒绝能撤销,提示条上带着「撤销」
+      if (!l.length) return '没有待审阅的提议';
+      return write(batchOps(l, rejectOp), `已拒绝全部 ${l.length} 条`, c.author).then((ok) => { if (ok && c.src !== 'page') toast(`已拒绝并删除全部 ${l.length} 条提议 · ${undoLink}`, false, 6000); });
+    }
     throw new Error('用法:review <accept-all|reject-all>');
   },
 });

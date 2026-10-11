@@ -12,6 +12,7 @@ import { apply, type Op } from '../src/ops.ts';
 import { Store } from '../src/store.ts';
 import { compileView } from '../src/view.ts';
 import { resolveView } from '../src/viewlayers.ts';
+import { opChangesStructure } from '../src/viewgraph.ts';
 import { loadViewModules, viewModulesFor } from '../src/viewload.ts';
 import type { NodeRef, ViewModule } from '../src/viewscript.ts';
 import { BUILTIN_VIEWS, validateSpec, type ViewSpec } from '../src/viewspec.ts';
@@ -111,6 +112,52 @@ test('视图脚本:select 先于大小,归一化按最后入选的算;looks 整�
   assert.deepEqual([f.r, f.shape, f.label], [7, 'pulsar', 'SRC/B.TS']);
 });
 
+test('视图脚本:edge() 藏起来的边类型不算度数', () => {
+  const u = world();
+  let seen = -1;
+  const hide: ViewModule = {
+    spec: { base: 'galaxy', size: [{ by: 'degree' }] },
+    edge: (type) => (type === 'dependsOn' ? { mode: 'hidden' } : undefined),
+    size: (n) => { if (n.id === 'src/a.ts') seen = n.degree as number; return undefined; },
+  };
+  const c = compileView(u, { script: 'h.js' }, { modules: mods({ 'h.js': hide }) });
+  assert.equal(seen, 1, 'a 只剩 src/ 装着它的那条(dependsOn 藏了)');
+  assert.equal(c.fold().edges.find((e) => e.type === 'dependsOn'), undefined);
+  assert.equal(compileView(u, { base: 'galaxy', size: [{ by: 'degree' }] }).node('src/a.ts')!.r > c.node('src/a.ts')!.r, true, '按度数的大小跟着变小');
+  assert.deepEqual(c.warnings, []);
+});
+
+test('视图脚本:link() 逐条改边的颜色 / 线宽;汇总了几条的边用类型的', () => {
+  const u = world();
+  apply(u, { op: 'batch', ops: [
+    { op: 'addEdge', from: 'src/b.ts', type: 'dependsOn', to: 'src/c.md', attrs: { weight: '3' } },
+    { op: 'addEdge', from: 'idea', type: 'dependsOn', to: 'src/a.ts', attrs: {} },
+  ] } as never);
+  const seen: string[] = [];
+  const w: ViewModule = {
+    spec: { base: 'galaxy' },
+    link(e, _v, base) {
+      if (e.type !== 'dependsOn') return undefined;
+      seen.push(`${e.from.id}>${e.to.id}`);
+      return e.attrs.weight ? { width: Number(e.attrs.weight), color: '#ff8800' } : { width: base.width * 2 };
+    },
+  };
+  const c = compileView(u, { script: 'w.js' }, { modules: mods({ 'w.js': w }) });
+  assert.deepEqual(seen.sort(), ['idea>src/a.ts', 'src/a.ts>src/b.ts', 'src/b.ts>src/c.md']);
+  const dep = (s: { edges: Array<{ from: string; to: string; type: string; color: string; width: number; count?: number }> }, from: string, to: string) => s.edges.find((e) => e.type === 'dependsOn' && e.from === from && e.to === to);
+  const inSrc = c.space('src/');
+  assert.deepEqual([dep(inSrc, 'src/b.ts', 'src/c.md')!.width, dep(inSrc, 'src/b.ts', 'src/c.md')!.color], [3, '#ff8800']);
+  assert.equal(dep(inSrc, 'src/a.ts', 'src/b.ts')!.width, 2, '没写 weight 的:类型线宽的两倍');
+  // repo 的空间里 idea → a 抬到了 src/:只汇总了这一条,还是它自己的线宽
+  assert.equal(dep(c.space('repo'), 'idea', 'src/')!.width, 2);
+  apply(u, { op: 'addEdge', from: 'idea', type: 'dependsOn', to: 'src/b.ts', attrs: { weight: '5' } });
+  const c2 = compileView(u, { script: 'w.js' }, { modules: mods({ 'w.js': w }) });
+  const both = dep(c2.space('repo'), 'idea', 'src/')!;
+  assert.deepEqual([both.count, both.width, both.color], [2, 1, c2.space('src/').edges.find((e) => e.type === 'dependsOn' && e.width === 2)!.color], '汇总了两条:用类型的');
+  const bad: ViewModule = { link: () => ({ color: 'red' }) as never };
+  assert.match(compileView(u, { base: 'galaxy', script: 'b.js' }, { modules: mods({ 'b.js': bad }) }).warnings.join(), /b\.js 的 link\(\) 有 \d+ 次返回了不认识的值/);
+});
+
 test('视图脚本:n 的列与结构;v 的辅助函数', () => {
   const u = world();
   const now = Date.UTC(2026, 0, 10), got: Record<string, unknown> = {};
@@ -184,6 +231,14 @@ test('视图脚本:Node 里加载(含它 import 的文件)、stars view / view-s
   // 参数:--params 盖掉脚本里的默认值
   runKernel('view-set', ['热力2'], { script: 'views/热力.js', params: '{"x":1}' }, ctx);
   assert.deepEqual(JSON.parse(store.load().nodes.get('~view/热力2')!.attrs.spec!), { script: 'views/热力.js', params: { x: 1 } });
+  // .ts:Node 自己去类型;import 别的 .ts 写上扩展名
+  writeFileSync(join(dir, 'views/pal2.ts'), "export const hot: string = '#00ffaa';\n");
+  writeFileSync(join(dir, 'views/typed.ts'), "import { hot } from './pal2.ts';\ntype N = { type: string };\nexport function color(n: N): string | undefined { return n.type === 'note' ? hot : undefined; }\n");
+  runKernel('view-set', ['typed'], { script: 'views/typed.ts', base: 'galaxy' }, ctx);
+  const tm = await viewModulesFor(store.load(), 'typed', dir);
+  const ts = runKernel('view', ['typed'], { json: true }, { ...ctx, modules: tm }).data as { nodes: Array<{ id: string; color: string }>; warnings: string[] };
+  assert.equal(ts.nodes.find((n) => n.id === 'b')!.color, '#00ffaa');
+  assert.deepEqual(ts.warnings, []);
 });
 
 test('import:静态 / export from / 动态;注释里的不算;按目录解出路径;整串依赖', () => {
@@ -231,4 +286,27 @@ test('import 边:stars imports on 把相对 import 写成 dependsOn(via=import);
   runKernel('imports', ['off'], {}, ctx);
   assert.deepEqual(deps(), ['src/app.ts>src/auth.ts'], 'off:只删扫描得来的');
   assert.equal(store.load().nodes.get('repo')!.attrs.imports, undefined);
+});
+
+test('图索引:结构没变(只改属性、换规格)时接着用上一次的,结果和重建的一样;opChangesStructure 认得出改结构的操作', () => {
+  const u = world();
+  const sp: ViewSpec = { base: 'galaxy', size: [{ when: { type: 'file' }, attr: 'size', scale: 'linear', range: [1, 10] }] };
+  const c1 = compileView(u, sp);
+  apply(u, { op: 'setNode', id: 'src/a.ts', set: { size: '9000', summary: '大' } });
+  assert.equal(opChangesStructure({ op: 'setNode', id: 'src/a.ts', set: { size: '9000' } }), false);
+  const reused = compileView(u, sp, { graph: c1.graph });
+  assert.equal(reused.graph, c1.graph, '接着用');
+  const fresh = compileView(u, sp);
+  assert.notEqual(fresh.graph, c1.graph);
+  assert.deepEqual(reused.fold(), fresh.fold(), '和重建的一样');
+  assert.notEqual(reused.node('src/b.ts')!.r, c1.node('src/b.ts')!.r, '属性改了看得出来(a 变大,b 相对变小)');
+  const other = compileView(u, { ...BUILTIN_VIEWS.galaxy!, expand: { relation: 'dependsOn' } }, { graph: c1.graph });
+  assert.notEqual(other.graph, c1.graph, '容器关系不同:不用');
+  assert.notEqual(compileView(world(), BUILTIN_VIEWS.galaxy!, { graph: c1.graph }).graph, c1.graph, '宇宙对象不同:不用');
+  for (const op of [
+    { op: 'addNode', id: 'z', label: 'z' }, { op: 'removeEdge', from: 'a', type: 't', to: 'b' }, { op: 'renameNodes', pairs: [['a', 'b']] },
+    { op: 'setNode', id: 'x', set: { type: 'dir' } }, { op: 'setNode', id: 'x', unset: ['file'] }, { op: 'setNode', id: '~related', set: { symmetric: 'false' } },
+    { op: 'setEdge', from: 'a', type: 't', to: 'b', unset: ['status'] }, { op: 'batch', ops: [{ op: 'setNode', id: 'x', set: { k: 'v' } }, { op: 'addNode', id: 'y', label: 'y' }] },
+  ] as Op[]) assert.equal(opChangesStructure(op), true, JSON.stringify(op));
+  assert.equal(opChangesStructure({ op: 'setEdge', from: 'a', type: 't', to: 'b', set: { weight: '2' } }), false);
 });

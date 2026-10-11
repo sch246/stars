@@ -29,7 +29,7 @@ const setHash = () => { history.replaceState(null, '', '#view=' + currentView + 
 const dirsKey = 'stars.projectDirs';
 const knownDirs = () => { try { return JSON.parse(localStorage.getItem(dirsKey) || '{}'); } catch { return {}; } };
 const rememberDir = (id, dir) => { try { localStorage.setItem(dirsKey, JSON.stringify({ ...knownDirs(), [id]: dir })); } catch { /* 隐私模式 */ } };
-let es = null;
+let stopListening = null;   // 收事件的连接(见 09-server.js 的 transport.listen)
 const sim = new Map();            // id -> 模拟节点(保留位置)
 const raw = new Map();            // id -> 宇宙里的原始节点
 let links = [];

@@ -70,8 +70,10 @@ test('Tab 打包 / 新建域,Shift+Tab 解散:文件夹里是真文件夹;解散
   writeFileSync(join(s.dir, 'src/lib/scratch.tmp'), 'x');
   await sleep(600);
   await s.ui('select src/lib/'); await sleep(300);
-  await page.keyboard.press('Shift+Tab'); await sleep(1200);
-  assert.ok(page.dialogs.some((d) => d.startsWith('alert') && d.includes('scratch.tmp')), `弹窗说明冲突:${page.dialogs}`);
+  await page.keyboard.press('Shift+Tab');
+  await page.waitFor(() => !document.getElementById('ask')!.hidden, 5000);
+  assert.match((await page.text('#ask-t')) ?? '', /解散不了[\s\S]*scratch\.tmp/, '页内说明冲突');
+  await page.clickOn('#ask-ok'); await sleep(300);
   assert.ok(existsSync(join(s.dir, 'src/lib/app.ts')), '什么都没做');
   rmSync(join(s.dir, 'src/lib/scratch.tmp')); await sleep(600);
   await page.keyboard.press('Shift+Tab'); await sleep(1500);
@@ -79,9 +81,10 @@ test('Tab 打包 / 新建域,Shift+Tab 解散:文件夹里是真文件夹;解散
 
   await s.ui('set 两个想法 -s 说明'); await sleep(800);
   await s.ui('select 两个想法'); await sleep(300);
-  const asked = page.dialogs.length;
-  await page.keyboard.press('Shift+Tab'); await sleep(1500);
-  assert.ok(page.dialogs.slice(asked).some((d) => d.startsWith('confirm')), '会丢掉说明:先问');
+  await page.keyboard.press('Shift+Tab');
+  await page.waitFor(() => !document.getElementById('ask')!.hidden, 5000);
+  assert.match((await page.text('#ask-t')) ?? '', /会丢东西/, '会丢掉说明:先问');
+  await page.clickOn('#ask-ok'); await sleep(1500);
   assert.ok(s.edge('ideas', 'contains', 'idea/a') && !s.has('两个想法'), '确定之后解散');
 
   await s.ui('select'); await s.ui('fit'); await s.settle(['docs/']);

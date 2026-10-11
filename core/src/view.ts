@@ -10,7 +10,7 @@ import { STYLE_DEFAULT_SHAPES, STYLE_MODES } from './styles.ts';
 import { SHAPES, type ColorRule, type CompileOptions, type CompiledView, type EvalOptions, type Explain, type RelationMode, type RelationRule, type Scene, type Shape, type SizeRule, type StepName, type StyleRule, type ViewSpec, type When } from './viewspec.ts';
 import { indexGraph, rollupArr } from './viewgraph.ts';
 import { viewExprs } from './viewexpr.ts';
-import { viewFolder, type EdgeLook, type Looks } from './viewfold.ts';
+import { viewFolder, type EdgeLook, type EdgeOwn, type Looks } from './viewfold.ts';
 import { resolveView } from './viewlayers.ts';
 import { scaleValue, scriptRun, viewModuleOf, VIEW_HOOKS, type ViewModule } from './viewscript.ts';
 
@@ -60,7 +60,8 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
   const now = opts.now ?? Date.now();
   const R = resolveView(u, spec, opts.modules, opts.name, opts.mapLayer);
   const S = R.spec, layers = R.layers, nL = layers.length;
-  const g = indexGraph(u, S.expand?.relation ?? 'contains');
+  const rel0 = S.expand?.relation ?? 'contains';
+  const g = opts.graph && opts.graph.u === u && opts.graph.relation === rel0 ? opts.graph : indexGraph(u, rel0);
   const { N, nodeList, ids, idx, E, ef, et, ety, typeNames, typeIdx, tSym, relation, parent, depth, order, treeKids } = g;
   const sel = S.select ?? {};
 
@@ -83,15 +84,6 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     return r;
   };
   const tRel = typeNames.map(relOf);
-  const tShown = tRel.map((r) => r.mode !== 'hidden');
-
-  // ---- 度数:全图里"会显示的"边的条数。静态的,所以展开/收起时节点大小不会跳变 ----
-  const degree = new Int32Array(N);
-  for (let e = 0; e < E; e++) if (tShown[ety[e]!]) { degree[ef[e]!]!++; degree[et[e]!]!++; }
-
-  const X = viewExprs(g, degree, opts, now);
-  const { exprFor, attrArr, signalArr } = X;
-  const whereFn = sel.where ? exprFor(sel.where) : null;
 
   // ---- 视图脚本:有导出函数的层才建 n / v ----
   const warnings: string[] = [...R.missing.map((p) => `视图脚本 ${p} 还没加载(先只用规则算)`), ...R.errors];
@@ -101,9 +93,38 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     return typeof f === 'function' ? (f as (...a: unknown[]) => unknown).bind(L.module) : null;
   });
   const hooks = Object.fromEntries(VIEW_HOOKS.map((h) => [h, hookOf(h)])) as Record<typeof VIEW_HOOKS[number], Array<((...a: unknown[]) => unknown) | null>>;
-  const anyHook = VIEW_HOOKS.some((h) => h !== 'forces' && hooks[h].some(Boolean));
-  const run = anyHook ? scriptRun(g, X, Object.keys(opts.signals ?? {}), { params: R.params, spec: S, now }) : null;
+  const anyHook = VIEW_HOOKS.some((h) => h !== 'forces' && h !== 'edge' && hooks[h].some(Boolean));
   const scriptOf = (li: number) => layers[li]!.script!;
+  const runOpts = { params: R.params, spec: S, now }, sigNames = Object.keys(opts.signals ?? {});
+
+  // ---- 边的画法:每种类型一份;脚本的 edge() 逐层改。在算度数之前:被它藏起来的边不算度数(所以 edge() 里读到的度数都是 0) ----
+  const edge = tRel.map((rel, t): EdgeLook => ({
+    mode: rel.mode,
+    color: rel.color ?? hashColor(`edge:${typeNames[t]!}`),
+    width: rel.width ?? 1,
+    arrow: rel.arrow ?? (rel.mode === 'line' && !tSym[t]),
+    distance: rel.distance, strength: rel.strength, spin: rel.spin,
+  }));
+  if (hooks.edge.some(Boolean)) {
+    const pre = scriptRun(g, viewExprs(g, new Int32Array(N), opts, now), sigNames, runOpts);   // 用完就扔:缓存里不会留下度数为 0 时算的东西
+    for (let li = 0; li < nL; li++) {
+      const f = hooks.edge[li];
+      if (f) for (let t = 0; t < edge.length; t++) {
+        const r = pre.call(scriptOf(li), 'edge', f, typeNames[t], pre.v, { ...edge[t] }, typeNames[t]) as Partial<EdgeLook> | undefined;
+        if (r) edge[t] = mergeEdge(edge[t]!, r);
+      }
+    }
+    warnings.push(...pre.finish());
+  }
+
+  // ---- 度数:全图里"会显示的"边的条数。静态的,所以展开/收起时节点大小不会跳变 ----
+  const degree = new Int32Array(N);
+  for (let e = 0; e < E; e++) if (edge[ety[e]!]!.mode !== 'hidden') { degree[ef[e]!]!++; degree[et[e]!]!++; }
+
+  const X = viewExprs(g, degree, opts, now);
+  const { exprFor, attrArr, signalArr } = X;
+  const whereFn = sel.where ? exprFor(sel.where) : null;
+  const run = anyHook ? scriptRun(g, X, sigNames, runOpts) : null;
 
   // ---- 选择:哪些节点有资格出现 ----
   const selected = new Uint8Array(N);
@@ -287,24 +308,27 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
     for (let i = 0; i < N; i++) if (selected[i]) label[i] = applyHooks('label', i, 0, label[i]!, labelBy);
   }
 
-  // ---- 边的画法:每种类型一份;脚本的 edge() 逐层改 ----
-  const edge = tRel.map((rel, t): EdgeLook => ({
-    mode: rel.mode,
-    color: rel.color ?? hashColor(`edge:${typeNames[t]!}`),
-    width: rel.width ?? 1,
-    arrow: rel.arrow ?? (rel.mode === 'line' && !tSym[t]),
-    distance: rel.distance, strength: rel.strength, spin: rel.spin,
-  }));
-  if (run) for (let li = 0; li < nL; li++) {
-    const f = hooks.edge[li];
-    if (f) for (let t = 0; t < edge.length; t++) {
-      const r = run.call(scriptOf(li), 'edge', f, typeNames[t], run.v, { ...edge[t] }, typeNames[t]) as Partial<EdgeLook> | undefined;
-      if (r) edge[t] = mergeEdge(edge[t]!, r);
+  // ---- 逐条边:脚本的 link() 改颜色 / 线宽(类型藏起来的不调) ----
+  let own: Looks['own'];
+  if (run && hooks.link.some(Boolean)) {
+    own = { color: new Array(E), width: new Float32Array(E).fill(NaN) };
+    for (let li = 0; li < nL; li++) {
+      const f = hooks.link[li];
+      if (!f) continue;
+      for (let e = 0; e < E; e++) {
+        const te = edge[ety[e]!]!;
+        if (te.mode === 'hidden') continue;
+        const w = own.width[e]!, base = { color: own.color[e] ?? te.color, width: w === w ? w : te.width };
+        const r = run.call(scriptOf(li), 'link', f, run.edge(e), run.v, base, `${ids[ef[e]!]} -${typeNames[ety[e]!]}-> ${ids[et[e]!]}`) as Partial<EdgeOwn> | undefined;
+        if (!r) continue;
+        if (r.color !== undefined) own.color[e] = r.color;
+        if (r.width !== undefined) own.width[e] = r.width;
+      }
     }
   }
   const value = new Float64Array(N).fill(NaN);
   for (let i = 0; i < N; i++) { const li = SZ.layer[i]!, k = SZ.rule[i]!; if (k >= 0) value[i] = ruleVals[li]![k]![i]!; }
-  const looks: Looks = { selected, rad, color, shape: shapeIdx, value, edge, ...(label ? { label } : {}) };
+  const looks: Looks = { selected, rad, color, shape: shapeIdx, value, edge, ...(label ? { label } : {}), ...(own ? { own } : {}) };
   // ---- looks():最后一次,整列改 ----
   if (run) for (let li = 0; li < nL; li++) {
     const f = hooks.looks[li];
@@ -339,7 +363,7 @@ export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = 
       if (Object.keys(sc).length) ex.script = sc;
       return ex;
     },
-    spec: S, layers: layers.map((L) => (L.script ? { name: L.name, script: L.script } : { name: L.name })), scripts: R.scripts, params: R.params, forces, warnings,
+    spec: S, layers: layers.map((L) => (L.script ? { name: L.name, script: L.script } : { name: L.name })), scripts: R.scripts, params: R.params, forces, warnings, graph: g,
   };
 }
 

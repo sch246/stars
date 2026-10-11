@@ -18,7 +18,7 @@ import { helpers } from './expr.ts';
 import { SHAPES, type Shape, type ViewSpec } from './viewspec.ts';
 import { buildCsr, type Csr, type ViewGraph } from './viewgraph.ts';
 import type { ViewExprs } from './viewexpr.ts';
-import type { EdgeLook } from './viewfold.ts';
+import type { EdgeLook, EdgeOwn } from './viewfold.ts';
 
 export interface NodeRef {
   readonly i: number;
@@ -30,6 +30,14 @@ export interface NodeRef {
   readonly kids: NodeRef[];
   edges(type?: string, dir?: 'out' | 'in' | 'both'): Array<{ type: string; node: NodeRef; out: boolean; proposed: boolean }>;
   readonly [column: string]: unknown;
+}
+/** link() 拿到的一条边 */
+export interface EdgeRef {
+  readonly type: string;
+  readonly from: NodeRef;
+  readonly to: NodeRef;
+  readonly attrs: Readonly<Record<string, string | undefined>>;
+  readonly proposed: boolean;
 }
 export interface ViewCtx {
   readonly params: Record<string, unknown>;
@@ -76,12 +84,14 @@ export interface ViewModule {
   label?(n: NodeRef, v: ViewCtx, t: string): string | void;
   /** 每种边类型一次:返回 { mode, color, width, arrow, distance, strength, spin } 里想改的几项 */
   edge?(type: string, v: ViewCtx, base: Readonly<EdgeLook>): Partial<EdgeLook> | void;
+  /** 每条边一次(类型没藏起来的):base = 它那种边的颜色、线宽,返回想改的(只有画面上单独一条的边用得上;几条汇总成一条时用类型的) */
+  link?(e: EdgeRef, v: ViewCtx, base: Readonly<EdgeOwn>): Partial<EdgeOwn> | void;
   /** 查看器里物理每一帧调用,和 spec.forces 的函数节点一样 */
   forces?(nodes: unknown[], links: unknown[], alpha: number, ctx: unknown): void;
   /** 最后一次,整列改(节点很多、逐个调用嫌慢时用) */
   looks?(g: LooksGraph, v: ViewCtx, base: LooksArrays): void;
 }
-export const VIEW_HOOKS = ['select', 'size', 'color', 'shape', 'label', 'edge', 'forces', 'looks'] as const;
+export const VIEW_HOOKS = ['select', 'size', 'color', 'shape', 'label', 'edge', 'link', 'forces', 'looks'] as const;
 export type ViewHook = typeof VIEW_HOOKS[number];
 const MODULE_KEYS = new Set<string>([...VIEW_HOOKS, 'spec', 'params', 'default']);
 
@@ -100,24 +110,31 @@ export function scaleValue(v: number, max: number, scale: 'sqrt' | 'log' | 'line
   const t = scale === 'log' ? Math.log1p(v) / Math.log1p(max) : scale === 'linear' ? v / max : Math.sqrt(v / max);
   return lo + (hi - lo) * Math.max(0, Math.min(1, t));
 }
+/** 视图脚本的文件:.js / .mjs,或 .ts / .mts(浏览器里由服务端去掉类型;import 别的 .ts 时写上扩展名,和 Node 一样) */
+export const VIEW_SCRIPT_FILE = /\.m?[jt]s$/;
 /** 一定有的信号(没有记录 = 0) */
 const KNOWN_SIGNALS = ['touched', 'fileChanged', 'stale'];
 const STRUCT = new Set(['i', 'id', 'label', 'type', 'attrs', 'parent', 'kids', 'edges']);
 const BUILTIN_COLS = ['degree', 'depth', 'children', 'descendants'];
 
 /** 返回值检查:不对就当没返回 */
-export const CHECK: Record<'select' | 'size' | 'color' | 'shape' | 'label' | 'edge', (r: unknown) => boolean> = {
+export const CHECK: Record<'select' | 'size' | 'color' | 'shape' | 'label' | 'edge' | 'link', (r: unknown) => boolean> = {
   select: (r) => typeof r === 'boolean',
   size: (r) => typeof r === 'number' && Number.isFinite(r) && r >= 0,
   color: (r) => typeof r === 'string' && /^#[0-9a-fA-F]{6}$/.test(r),
   shape: (r) => SHAPES.includes(r as Shape),
   label: (r) => typeof r === 'string',
   edge: (r) => typeof r === 'object' && r !== null,
+  link: (r) => typeof r === 'object' && r !== null
+    && ((r as EdgeOwn).color === undefined || (typeof (r as EdgeOwn).color === 'string' && /^#[0-9a-fA-F]{6}$/.test((r as EdgeOwn).color)))
+    && ((r as EdgeOwn).width === undefined || (typeof (r as EdgeOwn).width === 'number' && Number.isFinite((r as EdgeOwn).width) && (r as EdgeOwn).width >= 0)),
 };
 
 export interface ScriptRun {
   readonly v: ViewCtx;
   node(i: number): NodeRef;
+  /** 第 e 条边(link() 用) */
+  edge(e: number): EdgeRef;
   /**
    * 调一个脚本函数。抛错:记一条提醒,这一步余下的都不再调它(用下面的值);返回值不对:当没返回,最后汇总提醒一次。
    * 返回 undefined = 不改。
@@ -128,7 +145,7 @@ export interface ScriptRun {
 }
 
 export function scriptRun(g: ViewGraph, X: ViewExprs, signalNames: string[], opts: { params: Record<string, unknown>; spec: ViewSpec; now: number }): ScriptRun {
-  const { N, nodeList, ids, idx, E, ef, et, ety, eprop, typeNames, tSym, parent, treeKids } = g;
+  const { N, nodeList, ids, idx, E, ef, et, ety, eprop, eattrs, typeNames, tSym, parent, treeKids } = g;
   const env = X.env;
 
   // ---- 列:属性名、信号名、内置列都变成 n 上的属性 ----
@@ -205,6 +222,7 @@ export function scriptRun(g: ViewGraph, X: ViewExprs, signalNames: string[], opt
   const bad = new Map<string, { count: number; example: string }>();
   return {
     v, node,
+    edge: (e) => ({ type: typeNames[ety[e]!]!, from: node(ef[e]!), to: node(et[e]!), attrs: eattrs[e]!, proposed: eprop[e] === 1 }),
     call(script, hook, f, a, b, c, at) {
       if (dead.size && dead.has(`${script}#${hook}`)) return undefined;
       let r: unknown;
@@ -265,5 +283,8 @@ export const params = {};
 
 // /** 每种边类型一次:返回 { mode, color, width, arrow, distance, strength, spin } 里想改的几项 */
 // export function edge(type, v, base) { return type === 'dependsOn' ? { color: '#7aa7ff' } : undefined; }
+
+// /** 每条边一次:e.type、e.from、e.to(节点,同 n)、e.attrs、e.proposed;返回 { color, width } 里想改的(画面上汇总了几条的边用类型的) */
+// export function link(e, v, base) { return e.attrs.weight ? { width: 1 + Number(e.attrs.weight) } : undefined; }
 `;
 }

@@ -15,6 +15,8 @@ export interface EdgeLook {
   strength?: number;
   spin?: number;
 }
+/** 逐条边能改的(视图脚本的 link()) */
+export type EdgeOwn = Pick<EdgeLook, 'color' | 'width'>;
 
 /** 外观:每个节点长什么样(按节点下标),每种边怎么画(按边类型编号)。由视图规则算出来(view.ts)。 */
 export interface Looks {
@@ -27,6 +29,8 @@ export interface Looks {
   /** 驱动大小的原始数值(提示框里显示);NaN = 没有规则管它的大小 */
   value: Float64Array;
   edge: EdgeLook[];
+  /** 逐条边的颜色 / 线宽(视图脚本的 link() 改过才有;按边的下标,没改 = undefined / NaN);画面上汇总了几条的边用类型的 */
+  own?: { color: Array<string | undefined>; width: Float32Array };
   /** 显示的名字(视图脚本的 label() 改过才有;没有 = 节点自己的 label) */
   label?: string[];
 }
@@ -43,7 +47,7 @@ export interface Folder {
 /** spec 只用到 look、expand(depth / maxNodes / auto)、tags */
 export function viewFolder(g: ViewGraph, looks: Looks, spec: ViewSpec): Folder {
   const { N, nodeList, ids, idx, E, ef, et, ety, eprop, typeNames, typeIdx, tSym, relation, parent, depth, order, treeKids, desc, second, chainOf } = g;
-  const { selected, rad, color, shape, value, edge: tEdge, label } = looks;
+  const { selected, rad, color, shape, value, edge: tEdge, label, own } = looks;
   const nT = typeNames.length;
   const tShown = tEdge.map((l) => l.mode !== 'hidden');
   const expandAuto = spec.expand?.auto;
@@ -118,7 +122,7 @@ export function viewFolder(g: ViewGraph, looks: Looks, spec: ViewSpec): Folder {
     for (let i = 0; i < N; i++) visible[i] = treeVis[i]! & selected[i]!;
 
     // 3. 边:折叠掉的内部关系提升到容器上,按 (起点,类型,终点) 汇总
-    interface Agg { from: number; to: number; type: number; count: number; real: boolean; proposed: boolean; sec: number }
+    interface Agg { from: number; to: number; type: number; count: number; real: boolean; proposed: boolean; sec: number; one: number }
     const aggs = new Map<number, Agg>();
     for (let e = 0; e < E; e++) {
       const t = ety[e]!;
@@ -129,8 +133,8 @@ export function viewFolder(g: ViewGraph, looks: Looks, spec: ViewSpec): Folder {
       if (lifted && tSym[t] && ids[a]! > ids[b]!) { const x = a; a = b; b = x; }
       const key = ((a * N + b) * nT + t) * 2 + second[e]!;
       let agg = aggs.get(key);
-      if (!agg) { agg = { from: a, to: b, type: t, count: 0, real: false, proposed: true, sec: second[e]! }; aggs.set(key, agg); }
-      agg.count++;
+      if (!agg) { agg = { from: a, to: b, type: t, count: 0, real: false, proposed: true, sec: second[e]!, one: e }; aggs.set(key, agg); }
+      if (agg.count++) agg.one = -1;   // 汇总了几条:逐条的颜色 / 线宽不用
       if (!lifted) agg.real = true;
       if (!eprop[e]) agg.proposed = false;
     }
@@ -155,7 +159,7 @@ export function viewFolder(g: ViewGraph, looks: Looks, spec: ViewSpec): Folder {
       nodes.push(sn);
     }
     const edges: SceneEdge[] = [];
-    for (const agg of aggs.values()) edges.push(mkEdge(agg.from, agg.to, agg.type, agg.count, agg.real, agg.proposed, agg.sec));
+    for (const agg of aggs.values()) edges.push(mkEdge(agg.from, agg.to, agg.type, agg.count, agg.real, agg.proposed, agg.sec, agg.one));
     const expand: Scene['expand'] = { relation };
     if (expandAuto) expand.auto = expandAuto;
     return { look, nodes, edges, expand };
@@ -173,12 +177,13 @@ export function viewFolder(g: ViewGraph, looks: Looks, spec: ViewSpec): Folder {
     return sn;
   };
   /** sec:第二个容器的 contains(见 ViewGraph.second):疆界 / 轨道画不出"也属于",改成淡线,不带距离、公转 */
-  function mkEdge(from: number, to: number, t: number, count: number, real: boolean, proposed: boolean, sec = 0): SceneEdge {
+  function mkEdge(from: number, to: number, t: number, count: number, real: boolean, proposed: boolean, sec = 0, one = -1): SceneEdge {
     const te = tEdge[t]!;
+    const oc = own && one >= 0 ? own.color[one] : undefined, ow = own && one >= 0 ? own.width[one]! : NaN;
     const weak = sec === 1 && (te.mode === 'region' || te.mode === 'orbit');
     const edge: SceneEdge = {
       from: ids[from]!, to: ids[to]!, type: typeNames[t]!, mode: weak ? 'faint' : te.mode as SceneEdge['mode'],
-      color: te.color, width: te.width, arrow: weak ? true : te.arrow, proposed, count, lifted: !real,
+      color: oc ?? te.color, width: ow === ow ? ow : te.width, arrow: weak ? true : te.arrow, proposed, count, lifted: !real,
     };
     if (weak) return edge;
     if (te.distance !== undefined) edge.distance = te.distance;
@@ -213,7 +218,7 @@ export function viewFolder(g: ViewGraph, looks: Looks, spec: ViewSpec): Folder {
     }
     const here = ci < 0 ? new Set<number>() : new Set<number>(chainOf(ci));
 
-    interface Agg { from: number; to: number; type: number; count: number; real: boolean; proposed: boolean; sec: number }
+    interface Agg { from: number; to: number; type: number; count: number; real: boolean; proposed: boolean; sec: number; one: number }
     const internal = new Map<number, Agg>();
     const external = new Map<string, ExternalLink & { _k: string }>();
     for (let e = 0; e < E; e++) {
@@ -228,8 +233,8 @@ export function viewFolder(g: ViewGraph, looks: Looks, spec: ViewSpec): Folder {
         if (lifted && tSym[t] && ids[a]! > ids[b]!) { const x = a; a = b; b = x; }
         const key = ((a * N + b) * nT + t) * 2 + second[e]!;
         let agg = internal.get(key);
-        if (!agg) { agg = { from: a, to: b, type: t, count: 0, real: false, proposed: true, sec: second[e]! }; internal.set(key, agg); }
-        agg.count++;
+        if (!agg) { agg = { from: a, to: b, type: t, count: 0, real: false, proposed: true, sec: second[e]!, one: e }; internal.set(key, agg); }
+        if (agg.count++) agg.one = -1;   // 汇总了几条:逐条的颜色 / 线宽不用
         if (!lifted) agg.real = true;
         if (!eprop[e]) agg.proposed = false;
         continue;
@@ -246,7 +251,7 @@ export function viewFolder(g: ViewGraph, looks: Looks, spec: ViewSpec): Folder {
     const out: SpaceScene = {
       id,
       nodes: children.map(mkNode),
-      edges: [...internal.values()].map((agg) => mkEdge(agg.from, agg.to, agg.type, agg.count, agg.real, agg.proposed, agg.sec)),
+      edges: [...internal.values()].map((agg) => mkEdge(agg.from, agg.to, agg.type, agg.count, agg.real, agg.proposed, agg.sec, agg.one)),
       external: [...external.values()].map(({ _k, ...rest }) => rest),
     };
     spaceCache.set(ci, out);
