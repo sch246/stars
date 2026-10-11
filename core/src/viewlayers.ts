@@ -49,7 +49,7 @@ function namedView(u: Universe, name: string, stack: string[]): { key: string; s
 }
 
 /** 把规格展开成一叠层。base 写错 / 循环引用会抛出;脚本没加载不抛(记进 missing) */
-export function resolveView(u: Universe, spec: ViewSpec, modules?: ReadonlyMap<string, ViewModule | Error>, name = ''): ResolvedView {
+export function resolveView(u: Universe, spec: ViewSpec, modules?: ReadonlyMap<string, ViewModule | Error>, name = '', mapLayer?: (s: ViewSpec) => ViewSpec): ResolvedView {
   const layers: ViewLayer[] = [], params: Record<string, unknown> = {}, scripts: string[] = [], missing: string[] = [], errors: string[] = [];
   const expand = (s: ViewSpec, layerName: string, stack: string[], script?: string, module?: ViewModule) => {
     if (s.base !== undefined) { const b = namedView(u, s.base, stack); expand(b.spec, s.base, [...stack, b.key]); }
@@ -62,7 +62,7 @@ export function resolveView(u: Universe, spec: ViewSpec, modules?: ReadonlyMap<s
       else if (m instanceof Error) errors.push(`视图脚本 ${p} 加载失败: ${m.message}`);
       else expand(isObj(m.spec) ? m.spec : {}, p, [...stack, `script:${p}`], p, m);
     }
-    layers.push({ name: layerName, spec: s, ...(script ? { script, module } : {}) });
+    layers.push({ name: layerName, spec: mapLayer ? mapLayer(s) : s, ...(script ? { script, module } : {}) });
     if (module && isObj(module.params)) Object.assign(params, module.params);
     if (isObj(s.params)) Object.assign(params, s.params);
   };

@@ -106,6 +106,9 @@ code.qexpr { display: block; white-space: pre-wrap; word-break: break-all; font:
 .btn:hover { border-color: var(--accent); } .btn.pri { background: #2a4a9c; border-color: #4a6fd0; color: #fff; }
 .btns input { width: 110px; padding: 2px 6px; }
 #ed-ref { font-size: 12px; color: var(--muted); } #ed-ref summary { cursor: pointer; }
+#ed-layers { font-size: 12px; line-height: 1.6; } #ed-layers .ed-hint { color: var(--muted); } #ed-layers code { color: #b8c4ff; }
+#ed-layers .ed-l { color: #dfe3ff; } #ed-layers .ed-l.sc { color: #9ef0c0; } #ed-layers .link { cursor: pointer; color: #9db4ff; text-decoration: underline; }
+#views.drop { outline: 1.5px dashed #9ef0c0; outline-offset: 3px; border-radius: 8px; } .vbtn.sc::after { content: ' ƒ'; color: #9ef0c0; font-size: 10px; }
 #ed-ref code { color: #b8c4ff; }
 #timeline { left: 50%; transform: translateX(-50%); bottom: 34px; width: min(900px, calc(100vw - 700px)); min-width: 420px; }
 #tl-head { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }

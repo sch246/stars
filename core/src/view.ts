@@ -58,7 +58,7 @@ const firstMatch = (preds: Array<Pred | null>, n: Node, i: number): number => {
  */
 export function compileView(u: Universe, spec: ViewSpec, opts: CompileOptions = {}): CompiledView {
   const now = opts.now ?? Date.now();
-  const R = resolveView(u, spec, opts.modules, opts.name);
+  const R = resolveView(u, spec, opts.modules, opts.name, opts.mapLayer);
   const S = R.spec, layers = R.layers, nL = layers.length;
   const g = indexGraph(u, S.expand?.relation ?? 'contains');
   const { N, nodeList, ids, idx, E, ef, et, ety, typeNames, typeIdx, tSym, relation, parent, depth, order, treeKids } = g;

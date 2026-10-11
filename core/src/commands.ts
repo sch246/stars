@@ -13,7 +13,7 @@ import { StarsError, getEdge, type Attrs, type Universe } from './model.ts';
 import { type Op } from './ops.ts';
 import { arrange, undoWithFs } from './fsops.ts';
 import { QUERY_PREFIX, filterNodes, listQueries, neighborhood, shortestPath, type Dir } from './query.ts';
-import { listFiles, planScan, selfRel, statMeta } from './scan.ts';
+import { IMPORT_VIA, importsOn, listFiles, planImports, planImportsToggle, planScan, selfRel, statMeta } from './scan.ts';
 import { planStamp, seenDiff, seenPath, seenState, stampOnSummary } from './stale.ts';
 import { applyDraft, readDraft, Store, updateDraft } from './store.ts';
 import { draftPreview, draftSummary } from './draft.ts';
@@ -85,7 +85,7 @@ export interface KernelCtx {
 }
 export interface CmdOut { out: string; data?: unknown; exitCode?: number }
 
-export const KERNEL_COMMANDS = new Set(['add', 'set', 'rm', 'mv', 'cp', 'ln', 'group', 'ungroup', 'link', 'unlink', 'relink', 'accept', 'stamp', 'scan', 'undo', 'ls', 'show', 'nb', 'path', 'lint', 'stale', 'log', 'views', 'view', 'view-set', 'fn-set', 'query', 'query-set', 'queries', 'draft', 'types', 'type-set', 'rule-set', 'rules', 'script-set', 'scripts']);
+export const KERNEL_COMMANDS = new Set(['add', 'set', 'rm', 'mv', 'cp', 'ln', 'group', 'ungroup', 'link', 'unlink', 'relink', 'accept', 'stamp', 'scan', 'undo', 'ls', 'show', 'nb', 'path', 'lint', 'stale', 'log', 'views', 'view', 'view-set', 'imports', 'fn-set', 'query', 'query-set', 'queries', 'draft', 'types', 'type-set', 'rule-set', 'rules', 'script-set', 'scripts']);
 
 function kv(list: string[] | undefined): Attrs {
   const attrs: Attrs = {};
@@ -236,10 +236,22 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
       const dir = resolve(args[0] ?? '.');
       const rootId = o.under ?? 'repo';
       const op = planScan(store.load(), listFiles(dir, selfRel(dir, store.file)), rootId, basename(dir), statMeta(dir));
-      if (op.op === 'batch' && op.ops.length === 0) return { out: '没有新内容', data: { added: 0 } };
-      const n = store.commit(op, c).entry.n;
       const added = op.op === 'batch' ? op.ops.length : 0;
-      return { out: `已扫描 ${dir}:新增 ${added} 项操作`, data: { n, added } };
+      const n = added ? store.commit(op, c).entry.n : null;
+      // 开着 import 边(挂载根上 imports=true):代码文件之间的 import 跟着更新
+      const imp = importsOn(store.peek(), rootId) ? planImports(store.peek(), dir) : [];
+      if (imp.length) store.commit({ op: 'batch', ops: imp }, c);
+      if (!added && !imp.length) return { out: '没有新内容', data: { added: 0 } };
+      return { out: `已扫描 ${dir}:新增 ${added} 项操作${imp.length ? `;import 边改动 ${imp.length} 条` : ''}`, data: { n, added, imports: imp.length } };
+    }
+    case 'imports': {   // 代码文件之间的 import 写成 dependsOn 边(via=import);on / off / 不给 = 看现在的状态
+      const mount = o.under ?? 'repo', u = store.peek();
+      const count = (x: Universe) => [...x.edges.values()].filter((e) => e.type === 'dependsOn' && e.attrs.via === IMPORT_VIA).length;
+      if (args[0] !== 'on' && args[0] !== 'off') return { out: `import 边:${importsOn(u, mount) ? '开' : '关'}(${count(u)} 条)· stars imports on / off`, data: { on: importsOn(u, mount), edges: count(u) } };
+      let op: Op;
+      try { op = planImportsToggle(u, ctx.root, mount, args[0] === 'on'); } catch (err) { throw new StarsError((err as Error).message); }
+      if (op.op === 'batch' && op.ops.length) store.commit(op, c);
+      return { out: `import 边:${args[0] === 'on' ? '开' : '关'}(现在 ${count(store.peek())} 条;扫描和实时同步会跟着更新)`, data: { on: args[0] === 'on', edges: count(store.peek()) } };
     }
     case 'undo': {
       const e = undoWithFs(store, ctx.root, ctx.author);

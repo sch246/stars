@@ -1,6 +1,7 @@
 // ---------- 面板 ----------
 function renderViews() {
-  $('views').innerHTML = viewNames.map((v, i) => `<span class="vbtn ${v === currentView ? 'on' : ''}" data-v="${esc(v)}" data-cmd="view ${esc(quoteArg(v))}" title="按 ${i + 1}">${esc(v)}</span>`).join('');
+  $('views').innerHTML = viewNames.map((v, i) => `<span class="vbtn ${v === currentView ? 'on' : ''}${specs[v] && specs[v].script ? ' sc' : ''}" data-v="${esc(v)}" data-cmd="view ${esc(quoteArg(v))}" title="按 ${i + 1}${specs[v] && specs[v].script ? ' · 视图脚本 ' + esc(specs[v].script) : ''}">${esc(v)}</span>`).join('');
+  try { renderEdLayers(); } catch { /* 编辑器那一节还没初始化 */ }
 }
 function setView(v) {
   if (!v || v === currentView) return;

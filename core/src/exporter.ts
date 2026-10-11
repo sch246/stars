@@ -9,7 +9,8 @@ import { type Store } from './store.ts';
 
 const safe = (s: string) => s.replace(/<\/(script)/gi, '<\\/$1').replace(/<!--/g, '<\\!--');
 
-export function exportHtml(store: Store, baseDir: string): string {
+/** viewSrc:视图脚本的源码(路径 → 源码,见 viewload.ts 的 viewSources),页面里从它加载模块 */
+export function exportHtml(store: Store, baseDir: string, viewSrc: Record<string, string> = {}): string {
   process.removeAllListeners('warning'); // stripTypeScriptTypes 的实验性提示对用户是噪音
   const d3 = readFileSync(resolve(viewerDir, 'd3.v7.min.js'), 'utf8');
   const kernel = inlineModules();
@@ -22,5 +23,5 @@ export function exportHtml(store: Store, baseDir: string): string {
     .replace('<script src="/d3.js"></script>', () => `<script>${safe(d3)}</script>`)
     .replace('__STARS_CONFIG__', () => pageConfig(false))   // 只带默认值;个人设置存在看的人的浏览器里
     .replace(/^import \{[^}]*\} from '\/core\/\w+\.js';\n/gm, '')
-    .replace('<script type="module">', () => `<script type="module">\nwindow.__STARS_STATIC__ = ${safe(snapshot)};\n${safe(kernel)}\n`);
+    .replace('<script type="module">', () => `<script type="module">\nwindow.__STARS_STATIC__ = ${safe(snapshot)};\nwindow.__STARS_VIEWSRC__ = ${safe(JSON.stringify(viewSrc))};\n${safe(kernel)}\n`);
 }

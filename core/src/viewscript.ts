@@ -231,3 +231,39 @@ export function scriptRun(g: ViewGraph, X: ViewExprs, signalNames: string[], opt
     },
   };
 }
+
+/** 新建视图脚本时的骨架:能导出的都写好、注释掉(CLI 的 view-set --script 和查看器的 view-script 都用它) */
+export function viewSkeleton(path: string, base = 'galaxy'): string {
+  return `// 视图脚本:一个模板。视图用它:stars view-set <名字> --script ${path}(查看器里也可以把这个文件拖到视图列表上)
+// 导出的函数各接管一步:拿到下面算出的值,返回新的;不返回 = 不改。用不到的删掉就行。
+// n 是节点:n.id、n.label、n.type、n.attrs;别的名字都是「列」,和表达式里一样(n.size、n.ext、n.degree、n.fileChanged、n.stale ……);
+//   n.parent、n.kids、n.edges(类型?, 'out' | 'in' | 'both')。
+// v 是这次计算:v.params、v.now、v.expr('表达式')、v.query('名字')、v.fn.名字、v.node(id)、v.nodes、v.max(f)、v.scale(…)、v.warn(…),
+//   以及表达式里的辅助函数:v.mix、v.hsl、v.hash、v.days、v.recent、v.clamp ……
+// 可以 import 同一个文件夹里的辅助文件(import { x } from './工具.js'),改了它视图也会跟着重算。
+
+/** 这一层的规则(和视图规格同一种写法);base = 垫在下面的视图 */
+export const spec = { base: ${JSON.stringify(base)} };
+
+/** 参数的默认值;视图里写的 params 盖掉它,函数里用 v.params 读 */
+export const params = {};
+
+// /** 哪些节点出现;base = 规则的结论 */
+// export function select(n, v, base) { return base; }
+
+// /** 半径(像素);r = 下面算出的 */
+// export function size(n, v, r) { return n.type === 'dir' ? r * 1.2 : r; }
+
+// /** 颜色 #rrggbb */
+// export function color(n, v, c) { return n.stale ? '#ff5a5a' : c; }
+
+// /** 形状:dot / star / nebula / ringed / pulsar */
+// export function shape(n, v, s) { return s; }
+
+// /** 显示的名字 */
+// export function label(n, v, t) { return t; }
+
+// /** 每种边类型一次:返回 { mode, color, width, arrow, distance, strength, spin } 里想改的几项 */
+// export function edge(type, v, base) { return type === 'dependsOn' ? { color: '#7aa7ff' } : undefined; }
+`;
+}

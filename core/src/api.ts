@@ -1,18 +1,19 @@
 // 服务端的 HTTP 接口(/api/*):一张"方法 + 路径 → 处理函数"的表。
 // 处理函数返回一个对象 = 200 + JSON;抛 HttpError = 指定的状态码;自己写了响应(图片)就返回 undefined。
 // 所有接口都要求页面里内嵌的 token,并拒绝跨源请求(见 serve.ts 开头的说明)。
-import { randomBytes } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { isConfigName, readUserConfig, writeUserConfig } from './config.ts';
 import { draftPreview } from './draft.ts';
 import { FileConflict, IMAGE_TYPES, patchProjectFile, readProjectFile, resolveInside, writeProjectFile } from './files.ts';
 import { diffUniverses, gitFirstParent, gitHistory, gitParentSnapshot, gitSnapshot, type HistoryScope } from './history.ts';
+import { moduleGraph } from './imports.ts';
 import { StarsError } from './model.ts';
 import { apply, type Op } from './ops.ts';
 import { expandHome, readRecent, type Project } from './project.ts';
-import { selfRel } from './scan.ts';
+import { planImportsToggle, selfRel } from './scan.ts';
 import { planStamp, seenDiff, stampOnSummary } from './stale.ts';
 import { applyDraft, updateDraft } from './store.ts';
 import { arrange, saveUploads, undoWithFs } from './fsops.ts';
@@ -36,7 +37,7 @@ export interface ServerCtx {
 export interface Body {
   op?: Op; author?: string; dir?: string; create?: boolean; path?: string; content?: string; mtime?: number | null;
   name?: string; line?: string; file?: string; from?: string; id?: string; wait?: number; ids?: string[];
-  action?: string; indices?: number[]; args?: string[]; draft?: boolean;
+  action?: string; indices?: number[]; args?: string[]; draft?: boolean; on?: boolean;
   patch?: { start: number; end: number; insert: string }; baseHash?: string;
   /** 整理(/api/arrange) */
   mode?: string; target?: string | null; rel?: string; fromMap?: Record<string, string | null>;
@@ -77,6 +78,18 @@ const conflict = (err: unknown): never => {
 const selfOf = (p: Project) => selfRel(p.baseDir, p.store.file);
 
 export const GET: Record<string, Handler> = {
+  // 视图脚本的整串依赖(入口 + 它 import 的,只认相对路径):查看器按 version 换加载地址,依赖里哪个改了都重新加载
+  '/api/viewdeps': ({ url, proj }) => {
+    const path = (url.searchParams.get('path') ?? '').replace(/\\/g, '/').replace(/^(\.\/|\/)+/, '');
+    if (!path) throw new HttpError(400, '需要 path');
+    const stat = new Map<string, string>();
+    const g = moduleGraph(path, (p) => {
+      try { const abs = resolveInside(proj.baseDir, p), st = statSync(abs); if (!st.isFile()) return null; stat.set(p, `${st.size}:${st.mtimeMs}`); return readFileSync(abs, 'utf8'); }
+      catch { return null; }
+    });
+    const version = createHash('sha1').update(g.files.map((f) => `${f}=${stat.get(f)}`).join('\n')).digest('hex').slice(0, 12);
+    return { files: g.files, missing: g.missing, version };
+  },
   '/api/projects': ({ s }) => {
     const open = [...s.projects.values()].map((p) => p.info());
     const openDirs = new Set(open.map((p) => p.dir));
@@ -149,7 +162,7 @@ export const POST: Record<string, Handler> = {
     try {
       const self = selfOf(proj);
       const r = body.patch ? patchProjectFile(proj.baseDir, body.path, body.patch, body.baseHash!, { self })
-        : writeProjectFile(proj.baseDir, body.path, body.content!, typeof body.mtime === 'number' ? body.mtime : null, { self });
+        : writeProjectFile(proj.baseDir, body.path, body.content!, typeof body.mtime === 'number' ? body.mtime : null, { self, create: body.create === true });
       if (!proj.watching) proj.filesChanged([body.path.replace(/\\/g, '/').replace(/^\.\//, '')]);   // 开着监听器时由它发现
       return r;
     } catch (err) { return conflict(err); }
@@ -192,6 +205,12 @@ export const POST: Record<string, Handler> = {
     return s.openProject(body.dir, !!body.create).info();
   },
   '/api/undo': ({ proj, author }) => ({ ok: true, n: undoWithFs(proj.store, proj.baseDir, author).n }),
+  // import 边开 / 关(和 stars imports on / off 一样)
+  '/api/imports': ({ body, s, proj, author }) => {
+    const op = planImportsToggle(proj.store.peek(), proj.baseDir, s.mountId, body.on === true);
+    const n = op.op === 'batch' && op.ops.length ? proj.store.commit(op, { author }).entry.n : proj.store.logCount();
+    return { ok: true, n, changed: op.op === 'batch' ? op.ops.length : 0 };
+  },
   // 外面来的文件(粘贴、拖进查看器):存进 dir 这个文件夹(不给 = 项目根),建好节点;container 也装着它们
   '/api/upload': ({ body, s, proj, author }) => {
     const files = Array.isArray(body.files) ? body.files.filter((f) => f && typeof f.name === 'string' && typeof f.b64 === 'string').map((f) => ({ name: f.name, data: Buffer.from(f.b64, 'base64'), dir: f.dir === true })) : [];

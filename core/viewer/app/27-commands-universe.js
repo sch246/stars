@@ -387,3 +387,16 @@ defCmd('help', {
 });
 defCmd('clear', { group: '控制台', effect: 'ui', title: '清空控制台', run: () => { $('con-out').innerHTML = ''; } });
 defCmd('palette', { group: '控制台', effect: 'ui', title: '命令面板:搜索全部命令', run: () => togglePalette(true) });
+defCmd('imports', {
+  group: '宇宙', effect: 'write', title: '代码文件之间的 import 写成 dependsOn 边(via=import;扫描、实时同步跟着更新;手画的不动);不给参数 = 看现在的状态', usage: 'imports [on|off]',
+  args: [{ name: '开关', values: () => ['on', 'off'] }],
+  run: async ([v], o, c) => {
+    const mount = fsMount(), on = !!mount && (raw.get(mount) || { attrs: {} }).attrs.imports === 'true';
+    const count = () => data.edges.filter((e) => e.type === 'dependsOn' && e.attrs.via === 'import').length;
+    if (v !== 'on' && v !== 'off') return `import 边:${on ? '开' : '关'}(${count()} 条)`;
+    if (!mount) throw new Error('这个宇宙没有对应的文件夹(没有扫描过的根目录)');
+    const r = await api('/api/imports', { on: v === 'on', author: (c && c.author) || 'viewer' });
+    await waitApplied(r.n);
+    return `import 边:${v === 'on' ? '开' : '关'}(现在 ${count()} 条)`;
+  },
+});

@@ -140,7 +140,8 @@ export function startServer(
     // 页面里的相对路径(css / js / 图片)自然落在同一个前缀下。预览 token 和 /api 的 token 是两个:页面能从自己的地址读到它,
     // 但它只能读项目里的文件。HTML / SVG 带 CSP sandbox:就算在新标签页里直接打开也是不同源的,碰不到查看器;
     // 允许跨源读(预览里的脚本 fetch 同目录的 json)。?bridge=<暗号>:往 HTML 里注入 window.stars(页面桥,见 bridge.ts)。
-    const pv = /^\/preview\/([0-9a-f]+)\/([0-9a-f]+|_)\/(.*)$/.exec(path);
+    // 视图脚本从 /preview/…/~v<版本>/<路径> 加载:版本那一段只是让浏览器换个地址重新加载整串模块,这里去掉
+    const pv = /^\/preview\/([0-9a-f]+)\/([0-9a-f]+|_)\/(?:~v[0-9a-f]+\/)?(.*)$/.exec(path);
     if (pv) {
       const proj = pv[2] === '_' ? main : projects.get(pv[2]!);
       if (pv[1] !== previewToken) { res.writeHead(403).end('forbidden'); return; }

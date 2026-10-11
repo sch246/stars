@@ -29,6 +29,7 @@
 </div>
 <div class="panel" id="editor" hidden>
   <div id="ed-head"><b id="ed-name"></b><span>JSON · 改动即时预览,保存后写入宇宙</span></div>
+  <div id="ed-layers"></div>
   <textarea id="ed-text" spellcheck="false"></textarea>
   <div id="ed-msg"></div>
   <div class="btns">
@@ -103,6 +104,9 @@
 <script type="module">
 import { compileView, hashColor } from '/core/view.js';
 import { listViews, validateSpec } from '/core/viewspec.js';
+import { resolveView } from '/core/viewlayers.js';
+import { viewModuleOf, viewSkeleton } from '/core/viewscript.js';
+import { resolveImport, rewriteImports } from '/core/imports.js';
 import { edgeKey } from '/core/model.js';
 import { apply } from '/core/ops.js';
 import { nodeProposalKey, trackProposals } from '/core/proposals.js';

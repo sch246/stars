@@ -176,6 +176,8 @@ export interface CompileOptions {
   modules?: ReadonlyMap<string, ViewModule | Error>;
   /** 这个视图自己的名字:~view/galaxy 里写 base: "galaxy" 时指向内置的 galaxy(不然是循环引用) */
   name?: string;
+  /** 每一层的规格先过一遍它(查看器用来把「体积半径」设置套到每层的 size 规则上) */
+  mapLayer?: (spec: ViewSpec) => ViewSpec;
 }
 /** 折叠选项:决定"现在显示哪些"(每次展开/收起都变,必须很便宜)。 */
 export interface FoldOptions {

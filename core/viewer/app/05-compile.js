@@ -63,6 +63,7 @@ function withVolume(spec) {
 }
 function recompute(structural = true) {
   if (!uni) return;
+  if ((structural || !compiled) && !viewScriptsReady(draftSpec ?? specs[currentView])) return;   // 视图脚本还在加载:加载完会再来
   banner(viewErrors.length ? viewErrors.join(';') : null);
   const opened = [], shut = [];
   const ids = new Set([...auto.keys(), ...manual.keys()]);
@@ -70,11 +71,14 @@ function recompute(structural = true) {
   const t0 = performance.now();
   if (structural || !compiled) {
     const base = draftSpec ?? specs[currentView];
-    const spec0 = base.layout === 'spaces' && hiddenTypes.size // 空间模式下,类型过滤交给内核(被隐藏的容器是"透明"的)
-      ? { ...base, select: { ...(base.select || {}), hideTypes: [...((base.select && base.select.hideTypes) || []), ...hiddenTypes] } } : base;
-    const spec = withVolume(spec0);
-    try { compiled = compileView(uni, spec, { signals: { ...(data.signals || {}), stale: staleSignal() }, now: Date.now() }); }
+    let merged;   // 合并好的规格(base 链、脚本的 spec 都算上)
+    try { merged = resolveView(uni, base, viewMods, currentView).spec; } catch (err) { banner('视图无法编译: ' + err.message); return; }
+    const spec = merged.layout === 'spaces' && hiddenTypes.size // 空间模式下,类型过滤交给内核(被隐藏的容器是"透明"的)
+      ? { ...base, select: { ...(base.select || {}), hideTypes: [...((merged.select && merged.select.hideTypes) || []), ...hiddenTypes] } } : base;
+    try { compiled = compileView(uni, spec, { signals: { ...(data.signals || {}), stale: staleSignal() }, now: Date.now(), modules: viewMods, name: currentView, mapLayer: withVolume }); }
     catch (err) { banner('视图无法编译: ' + err.message); return; }
+    const notes = [...viewErrors, ...compiled.warnings, ...viewReloadNotes()];
+    if (notes.length) banner(notes.join(';'));
   }
   const t1 = performance.now();
   if (compiled.layout === 'spaces') {

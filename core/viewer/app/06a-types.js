@@ -27,11 +27,23 @@ function typeOverrides(name) {
   const sample = data.nodes.find((n) => n.attrs.type === name && !n.id.startsWith('~'));
   const ex = sample && compiled.explain(sample.id);
   if (!ex) return [];
-  const sp = curSpec(), out = [];
-  const cr = ex.color >= 0 ? (sp.color || [])[ex.color] : null;
-  if (cr && cr.by !== 'type') out.push(`颜色由视图规则 color[${ex.color}] 决定(${cr.by ? 'by ' + cr.by : cr.expr ? '表达式' : cr.value ? '固定 ' + cr.value : '规则'})`);
-  const st = ex.style >= 0 ? (sp.style || [])[ex.style] : null;
-  if (st && st.by !== 'type') out.push(`形状由视图规则 style[${ex.style}] 决定(${st.expr ? '表达式' : st.shape})`);
+  // 规则在哪一层(有 base / 脚本时):按层名从上往下找那一层的规格
+  let layers = null;
+  try { layers = resolveView(uni, curSpec(), viewMods, currentView).layers; } catch { /* base 写错:顶上有提示 */ }
+  const specOf = (step) => {
+    if (!layers) return curSpec();
+    const name = ex.layer ? ex.layer[step] : layers[layers.length - 1].name;
+    for (let i = layers.length - 1; i >= 0; i--) if (layers[i].name === name) return layers[i].spec;
+    return {};
+  };
+  const at = (step) => (ex.layer && ex.layer[step] ? `(在「${ex.layer[step]}」那层)` : '');
+  const out = [];
+  const cr = ex.color >= 0 ? (specOf('color').color || [])[ex.color] : null;
+  if (ex.script && ex.script.color) out.push(`颜色由视图脚本 ${ex.script.color} 决定`);
+  else if (cr && cr.by !== 'type') out.push(`颜色由视图规则 color[${ex.color}]${at('color')} 决定(${cr.by ? 'by ' + cr.by : cr.expr ? '表达式' : cr.value ? '固定 ' + cr.value : '规则'})`);
+  const st = ex.style >= 0 ? (specOf('style').style || [])[ex.style] : null;
+  if (ex.script && ex.script.style) out.push(`形状由视图脚本 ${ex.script.style} 决定`);
+  else if (st && st.by !== 'type') out.push(`形状由视图规则 style[${ex.style}]${at('style')} 决定(${st.expr ? '表达式' : st.shape})`);
   return out;
 }
 function edgeOverrides(name) {

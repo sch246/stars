@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { runKernel } from '../src/commands.ts';
+import { listFiles, planScan, statMeta } from '../src/scan.ts';
 import { parse } from '../src/format.ts';
 import { importsOf, moduleGraph, resolveImport } from '../src/imports.ts';
 import { apply, type Op } from '../src/ops.ts';
@@ -204,4 +205,30 @@ test('resolveView:参数从下往上合并,脚本自己的 spec 也能有 base',
   assert.deepEqual(r.layers.map((l) => l.name), ['tree', 'm.js', '']);
   assert.deepEqual(r.params, { b: 1, c: 3, a: 1 });
   assert.equal(r.spec.layout, BUILTIN_VIEWS.tree!.layout);
+});
+
+test('import 边:stars imports on 把相对 import 写成 dependsOn(via=import);scan 跟着更新;off 只删扫描得来的', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'stars-imp-'));
+  mkdirSync(join(dir, 'src'));
+  writeFileSync(join(dir, 'src/app.ts'), "import { login } from './auth';\nimport { ok } from './util.js';\nimport fs from 'node:fs';\n");
+  writeFileSync(join(dir, 'src/auth.ts'), "export const login = 1;\n");
+  writeFileSync(join(dir, 'src/util.ts'), "export const ok = 1;\n");
+  writeFileSync(join(dir, 'src/view.js'), "import './util.js';\n");
+  const store = new Store(join(dir, 'universe.stars'));
+  store.create(genesis);
+  store.commit(planScan(store.load(), listFiles(dir, 'universe.stars'), 'repo', 'p', statMeta(dir)), { author: 't' });
+  store.commit({ op: 'addEdge', from: 'src/app.ts', type: 'dependsOn', to: 'src/auth.ts' }, { author: 't' });   // 手画的
+  const ctx = { store, author: 't', root: dir };
+  const deps = () => [...store.load().edges.values()].filter((e) => e.type === 'dependsOn').map((e) => `${e.from}>${e.to}${e.attrs.via ? '*' : ''}`).sort();
+  assert.match(runKernel('imports', [], {}, ctx).out, /关/);
+  runKernel('imports', ['on'], {}, ctx);
+  assert.deepEqual(deps(), ['src/app.ts>src/auth.ts', 'src/app.ts>src/util.ts*', 'src/view.js>src/util.ts*'], '省略扩展名、TS 的 .js 写法都认得;手画的那条不重复加');
+  assert.equal(store.load().nodes.get('repo')!.attrs.imports, 'true');
+  writeFileSync(join(dir, 'src/view.js'), "// 不再 import\n");
+  writeFileSync(join(dir, 'src/new.ts'), "import { login } from './auth';\n");
+  runKernel('scan', [dir], {}, ctx);
+  assert.deepEqual(deps(), ['src/app.ts>src/auth.ts', 'src/app.ts>src/util.ts*', 'src/new.ts>src/auth.ts*'], 'scan:新文件的 import 进来,不再 import 的删掉');
+  runKernel('imports', ['off'], {}, ctx);
+  assert.deepEqual(deps(), ['src/app.ts>src/auth.ts'], 'off:只删扫描得来的');
+  assert.equal(store.load().nodes.get('repo')!.attrs.imports, undefined);
 });

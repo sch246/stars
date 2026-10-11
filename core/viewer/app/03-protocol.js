@@ -72,6 +72,7 @@ function applyOps(entries) {
   wakeApplied();
 }
 function applySignals(m) {
+  if (m.changed) viewFilesChanged(Object.keys(m.changed).map((id) => (raw.get(id) && raw.get(id).attrs.file) || id));   // 视图脚本(或它 import 的)改了
   if (fp && fp.handler === 'html' && m.changed && Object.keys(m.changed).some((id) => id !== fp.id || !fp.opts.live)) htmlRefreshSoon();   // 页面引用的 css / js 改了
   if (fp && ((m.changed && m.changed[fp.id] !== undefined) || (m.size && m.size[fp.id] !== undefined) || m.replace)) checkDisk();
   const sg = (data.signals = data.signals || {});

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { execFileSync } from 'node:child_process';
 import { CLI_OPTIONS, KERNEL_COMMANDS, runKernel } from './commands.ts';
-import { viewModulesFor } from './viewload.ts';
+import { viewModulesFor, viewSources } from './viewload.ts';
 import { parse, serialize } from './format.ts';
 import { mergeUniverses } from './merge.ts';
 import { StarsError } from './model.ts';
@@ -60,6 +60,7 @@ const HELP = `stars —— 关系编辑器(内核 CLI)
   query-set <名字>                   保存一个查询(= 动态区域,成员随宇宙变化)   --expr '<表达式>' [-l 显示名] [-s 说明] [-a color=#rrggbb]
   queries                            列出保存的查询和各自的匹配数
   log                                操作日志   [-n 20]
+  imports [on|off]                   代码文件之间的 import 写成 dependsOn 边(via=import;扫描、实时同步跟着更新;手画的不动)   [--under 挂载根]
   views                              列出视图(内置 + 宇宙里 kind=view 的节点)
   view <name>                        计算一个视图并输出场景摘要   [--depth N 展开层数] [--max-nodes N 节点预算] [--expand id,id 强制展开] [--json 完整场景]
   view-set <name>                    新建/覆盖一个视图(规格会先校验)   --spec '<JSON>' 或 --from <文件>   [--label 显示名]
@@ -202,9 +203,13 @@ function run(): void {
     }
     case 'export': {
       need(1, 'export <out.html>');
-      const html = exportHtml(store, process.env.STARS_ROOT ?? dirname(file));
-      writeFileSync(resolve(args[0]!), html);
-      console.log(`已导出 ${resolve(args[0]!)}(${(html.length / 1024).toFixed(0)} KB,自包含,只读)`);
+      const base = process.env.STARS_ROOT ?? dirname(file);
+      viewSources(store.load(), base).then((src) => {   // 视图脚本的源码一起打进去
+        const html = exportHtml(store, base, src);
+        writeFileSync(resolve(args[0]!), html);
+        const n = Object.keys(src).length;
+        console.log(`已导出 ${resolve(args[0]!)}(${(html.length / 1024).toFixed(0)} KB,自包含,只读${n ? `;带上 ${n} 个视图脚本文件` : ''})`);
+      }).catch((err: Error) => { console.error(err instanceof StarsError ? `错误: ${err.message}` : err); process.exitCode = err instanceof StarsError ? 2 : 1; });
       return;
     }
     case 'watch': {

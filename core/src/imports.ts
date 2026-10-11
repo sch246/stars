@@ -46,6 +46,13 @@ export function resolveImport(from: string, spec: string): string | null {
 
 /** TS / Node 习惯省略扩展名(./auth → auth.ts):按顺序试这些 */
 export const IMPORT_GUESSES = ['', '.ts', '.tsx', '.js', '.mjs', '.jsx', '/index.ts', '/index.js'];
+/** 一个 import 解出的路径可能对应的文件:原样、补扩展名;TS 里写 ./a.js 实际是 a.ts */
+export function importCandidates(base: string): string[] {
+  const out = IMPORT_GUESSES.map((g) => base + g);
+  const m = /\.(m?)js(x?)$/.exec(base);
+  if (m) out.push(base.slice(0, -m[0].length) + `.${m[1]}ts${m[2]}`);
+  return out;
+}
 
 /**
  * 从入口出发的整串文件(含入口,先入口后依赖)。read(路径) 返回源码,读不到 = null(记进 missing)。
@@ -59,11 +66,17 @@ export function moduleGraph(entry: string, read: (path: string) => string | null
     if (seen.has(p)) continue;
     seen.add(p);
     let src: string | null = null, real = p;
-    for (const ext of guess ? IMPORT_GUESSES : ['']) { src = read(p + ext); if (src !== null) { real = p + ext; break; } }
+    for (const c of guess ? importCandidates(p) : [p]) { src = read(c); if (src !== null) { real = c; break; } }
     if (src === null) { missing.push(p); continue; }
     if (real !== p) { if (seen.has(real)) continue; seen.add(real); }
     files.push(real);
     for (const spec of importsOf(src)) { const q = resolveImport(real, spec); if (q !== null && !seen.has(q)) queue.push(q); }
   }
   return { files, missing };
+}
+
+const SPEC_AT = /(\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)(['"])([^'"\n]+)\2/g;
+/** 把源码里 import 的模块名换掉(fn 返回 null = 不换);静态导出时把相对路径换成页面里的模块地址 */
+export function rewriteImports(src: string, fn: (spec: string) => string | null): string {
+  return src.replace(SPEC_AT, (m, pre: string, q: string, spec: string) => { const r = fn(spec); return r === null ? m : pre + q + r + q; });
 }

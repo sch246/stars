@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { parse } from '../src/format.ts';
 import { apply } from '../src/ops.ts';
+import { edgeKey } from '../src/model.ts';
 import { Store } from '../src/store.ts';
 import { FsWatcher } from '../src/watch.ts';
 import { planScan, listFiles, statMeta } from '../src/scan.ts';
@@ -127,4 +128,24 @@ test('扫描:跳过宇宙文件本身与各种附属文件,别的 .stars 文件�
   const dir = mkdtempSync(join(tmpdir(), 'stars-self-'));
   for (const f of ['universe.stars', 'universe.stars.log', 'universe.stars.tmp', 'universe.stars.sig', 'genesis.stars', 'a.md']) writeFileSync(join(dir, f), 'x\n');
   assert.deepEqual(listFiles(dir, 'universe.stars').sort(), ['a.md', 'genesis.stars']);
+});
+
+test('监听:开着 import 边时,改了代码文件 / 新建的文件,dependsOn(via=import)跟着变', async () => {
+  const { dir, store } = project();
+  writeFileSync(join(dir, 'src/b.ts'), 'export const b = 2;\n');
+  const u = store.load();
+  apply(u, planScan(u, listFiles(dir), 'repo', 'proj', statMeta(dir)));
+  apply(u, { op: 'setNode', id: 'repo', set: { imports: 'true' } });
+  store.save(u);
+  const w = new FsWatcher({ root: dir, mountId: 'repo', store, debounceMs: 30, pollSec: 0 });
+  w.start();
+  const dep = (a: string, b: string) => store.load().edges.get(edgeKey(a, 'dependsOn', b));
+  try {
+    writeFileSync(join(dir, 'src/a.ts'), "import { b } from './b';\nexport const a = b;\n");
+    await until(() => dep('src/a.ts', 'src/b.ts')?.attrs.via === 'import');
+    writeFileSync(join(dir, 'src/c.ts'), "import { a } from './a.js';\n");
+    await until(() => !!dep('src/c.ts', 'src/a.ts'));
+    writeFileSync(join(dir, 'src/a.ts'), 'export const a = 1;\n');
+    await until(() => !dep('src/a.ts', 'src/b.ts'));
+  } finally { w.stop(); }
 });

@@ -53,7 +53,7 @@ function releaseFile() {
   if (!fpDirty(cur)) return;
   const content = cur.text;
   api('/api/file', saveBody(cur, content, false))
-    .then(() => toast(`已保存 ${esc(cur.path)}`))
+    .then(() => { toast(`已保存 ${esc(cur.path)}`); if (!data.watching) viewFilesChanged([cur.path]); })
     .catch((e) => { fpOrphan = { id: cur.id, content }; toast(`${esc(cur.path)} 的修改没能保存:${esc(e.message)} <span class="btn" data-sel="${esc(cur.id)}">回去处理</span>`, true, 15000); });
 }
 function focusEditor() { const t = $('fp-text'); if (t) t.focus(); }
@@ -112,6 +112,7 @@ async function saveFile(force) {
     cur.info = { ...cur.info, mtime: r.mtime, size: r.size, content };
     cur.base = content;   // 新基线;保存期间又改了的话,当前文本 ≠ 基线,自然还是脏的
     if (cur.handler === 'html' && !cur.opts.live) htmlRefreshSoon();   // 只看保存版本的 HTML 预览:存完刷新
+    if (!data.watching) viewFilesChanged([cur.path]);   // 存的是视图脚本(或它 import 的):重新加载(开着监听时由实时信号触发)
     fpFlash('已保存');
   } catch (e) {
     if (/改过/.test(e.message)) fpBar(`保存被拒绝:文件在你打开之后被别处改过了。<span class="btn" data-fp="load">载入磁盘版本(丢弃我的)</span><span class="btn" data-fp="force">用我的覆盖</span>`);
