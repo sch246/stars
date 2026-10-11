@@ -54,6 +54,18 @@ test('对账:新增文件与目录(递归发现整棵新子树),节点属性与 
   assert.deepEqual(lint(u).filter((i) => i.severity === 'error'), []);
 });
 
+test('对账:新目录自己的创建事件丢了,只剩它里面文件的事件 —— 往上找到认得的目录,照样整棵发现', () => {
+  const { fsv, u } = setup({ 'src/a.ts': 10 });
+  for (let d = 0; d < 3; d++) for (let f = 0; f < 2; f++) fsv.files.set(`gen/d${d}/f${f}.txt`, { size: 1, mtimeMs: 1 });
+  fsv.files.set('src/new/x.ts', { size: 2, mtimeMs: 1 });
+  sync(u, fsv, ['gen/d2/', 'gen/d0/', 'src/new/']);   // 只有最深一层的脏目录(gen/、gen/d*、src/new 的创建事件都没收到)
+  for (const id of ['gen/', 'gen/d0/', 'gen/d1/f1.txt', 'gen/d2/f0.txt', 'src/new/x.ts']) assert.ok(u.nodes.has(id), id);
+  assert.ok([...u.edges.values()].some((e) => e.from === 'gen/d1/' && e.type === 'contains' && e.to === 'gen/d1/f0.txt'));
+  // 被忽略的目录里的事件:往上读到认得的目录,忽略规则照旧,什么都不加
+  fsv.ignore.add('dist'); fsv.files.set('dist/out.js', { size: 3, mtimeMs: 1 });
+  assert.equal(reconcile(u, fsv, { mountId: 'repo', dirs: ['dist/'] }).op, null);
+});
+
 test('对账:再对账一次不产生任何操作(幂等),只读脏目录', () => {
   const { fsv, u } = setup({ 'a/x.ts': 10, 'b/y.ts': 20, 'c/z.ts': 30 });
   fsv.reads = 0;

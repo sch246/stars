@@ -45,6 +45,8 @@ export class FsWatcher {
   stats = { events: 0, flushes: 0, fullSyncs: 0 };
   /** 宇宙文件相对于根目录的路径:它自己的写入不是文件系统的变化 */
   private readonly self: string;
+  /** 局部对账读磁盘用的,跨批次复用(git check-ignore 的结果缓存着;改了 .gitignore 就清掉) */
+  private fsv: ReturnType<typeof liveFs> | null = null;
 
   constructor(opts: WatchOptions) {
     const given = Object.fromEntries(Object.entries(opts).filter(([, v]) => v !== undefined)); // 显式的 undefined 不覆盖默认值
@@ -110,13 +112,15 @@ export class FsWatcher {
   // ---------- 对账 ----------
   private syncAll(): SyncResult & { full: boolean; ms: number } {
     this.stats.fullSyncs++;
+    this.fsv?.forget?.();   // 全量对账 = 从头来:忽略规则也重新问
     return this.run('all', [], true);
   }
 
   private run(dirs: string[] | 'all', touched: string[], full: boolean): SyncResult & { full: boolean; ms: number } {
     const t0 = performance.now();
     const u = this.o.store.peek(); // 只读;提交时复用同一份内存里的宇宙,不用每次重新解析
-    const r = reconcile(u, full ? snapshotFs(this.o.root, this.self) : liveFs(this.o.root, this.self), { mountId: this.o.mountId, dirs, touched });
+    if (!full && touched.some((t) => /(^|\/)\.gitignore$/.test(t))) this.fsv?.forget?.();
+    const r = reconcile(u, full ? snapshotFs(this.o.root, this.self) : (this.fsv ??= liveFs(this.o.root, this.self)), { mountId: this.o.mountId, dirs, touched });
     if (r.op) {
       try { this.o.store.commit(r.op, { author: this.o.author }, undefined, { defer: true }); }
       catch (e) {

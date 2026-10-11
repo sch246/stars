@@ -82,6 +82,6 @@ test('合并:作为 git 合并驱动 —— 相邻位置的并发插入,纯文�
   assert.ok(log.includes('"alpha"') && log.includes('"beta"') && !log.includes('<<<<<<<'), '两边的操作日志都在,没有冲突标记');
   const merged = parse(readFileSync(file, 'utf8'));
   assert.ok(merged.nodes.has('alpha') && merged.nodes.has('beta'));
-  assert.equal(serialize(merged), readFileSync(file, 'utf8'), '合并结果仍是规范格式');
+  assert.equal(serialize(merged), readFileSync(file, 'utf8').replace(/\r\n/g, '\n'), '合并结果仍是规范格式(Windows 上 core.autocrlf=true 时 git 检出成 CRLF,只比内容)');
   assert.equal(sh('log', '--format=%P', '-n', '1').trim().split(' ').length, 2, '确实是一个合并提交');
 });

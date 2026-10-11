@@ -20,6 +20,8 @@ export interface FsView {
   stat(rel: string): { size: number; mtimeMs: number } | null;
   /** 返回被忽略的路径子集(目录以 / 结尾);用 git check-ignore 实现,和 .gitignore 语义完全一致 */
   ignored(rels: string[]): Set<string>;
+  /** 忽略规则可能变了(改了 .gitignore):清掉缓存 */
+  forget?(): void;
 }
 
 export interface SyncResult {
@@ -66,17 +68,19 @@ export function reconcile(
   const queue = opts.dirs === 'all'
     ? [...u.nodes.values()].filter((n) => n.id === mountId || (n.attrs.type === 'dir' && n.attrs.file)).map((n) => relOf(n.id))
     : [...new Set(opts.dirs)];
-  const seen = new Set<string>();
+  const seen = new Set<string>(), climbed = new Set<string>();
   const fresh = new Set<string>();           // 本轮新发现的目录(宇宙里还没有)
   let dirsRead = 0;
 
   for (let qi = 0; qi < queue.length; qi++) {
     const drel = queue[qi]!;
     if (seen.has(drel)) continue;
-    seen.add(drel);
     const did = idOfRel(drel);
     const known = isFsNode(did);
-    if (!known && !fresh.has(drel)) continue; // 宇宙里没有、也不是新发现的:由父目录的对账去发现它
+    // 宇宙里没有、也不是这轮新发现的:往上找,由认得的上级目录去发现它(发现了就是 fresh,会再排进来读)。新目录自己的创建事件可能丢了
+    // (macOS 的 FSEvents 会合并事件,监听刚开起来的一小段时间里的事件也收不到),只剩它里面文件的事件
+    if (!known && !fresh.has(drel)) { if (drel !== '' && !climbed.has(drel)) { climbed.add(drel); queue.push(parentRel(drel)); } continue; }
+    seen.add(drel);
     const entries = fsv.readdir(drel);
     dirsRead++;
     if (entries === null) { if (known && drel !== '') queue.push(parentRel(drel)); continue; } // 目录没了:让父目录来处理
