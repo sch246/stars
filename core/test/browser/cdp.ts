@@ -212,9 +212,12 @@ export async function launch({ width = 1400, height = 860, origin }: { width?: n
     page,
     close: async () => {
       try { await Promise.race([cdp.send('Browser.close'), sleep(2000)]); } catch { /* 已经关了 */ }
-      cdp.close(); proc.kill();
-      await sleep(100);
-      rmSync(profile, { recursive: true, force: true });
+      cdp.close();
+      const exited = proc.exitCode !== null || proc.signalCode !== null ? Promise.resolve() : new Promise<void>((ok) => proc.once('exit', () => ok()));
+      proc.kill();
+      await Promise.race([exited, sleep(3000)]);
+      // Chrome 的子进程可能还在往 profile 里写(ENOTEMPTY):让 rmSync 自己重试几次;临时目录删不掉也不算测试失败
+      try { rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch { /* 留在临时目录里 */ }
     },
   };
 }
