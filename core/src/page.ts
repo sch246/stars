@@ -16,7 +16,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const viewerDir = resolve(here, '..', 'viewer');
 
 /** 浏览器能直接 import 的共享模块(都不依赖 Node),按依赖顺序(静态导出按这个顺序拼)。 */
-export const BROWSER_MODULES = ['model', 'expr', 'styles', 'query', 'viewspec', 'viewgraph', 'viewexpr', 'viewfold', 'viewscript', 'viewlayers', 'view', 'cmdspec', 'ops', 'proposals', 'llf', 'format', 'textsync', 'bridge', 'cmdline', 'jsonc', 'toml', 'draft', 'scriptnode', 'arrange'];
+export const BROWSER_MODULES = ['model', 'expr', 'styles', 'query', 'viewspec', 'viewgraph', 'viewexpr', 'viewfold', 'viewscript', 'viewlayers', 'view', 'cmdspec', 'cmdread', 'ops', 'proposals', 'llf', 'format', 'textsync', 'bridge', 'cmdline', 'jsonc', 'toml', 'draft', 'scriptnode', 'arrange'];
 const BROWSER_SET = new Set(BROWSER_MODULES);
 /** 读自己的源码:换行统一成 LF(Windows 上 git 可能检出成 CRLF,下面按行拼接 / 去掉 import 的正则都按 LF 写) */
 const readSrc = (path: string) => readFileSync(path, 'utf8').replace(/\r\n/g, '\n');

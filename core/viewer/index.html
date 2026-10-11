@@ -109,7 +109,6 @@ import { VIEW_HOOKS, VIEW_SCRIPT_FILE, viewModuleOf, viewSkeleton } from '/core/
 import { edgeKey } from '/core/model.js';
 import { apply } from '/core/ops.js';
 import { nodeProposalKey, trackProposals } from '/core/proposals.js';
-import { QUERY_PREFIX, filterNodes, neighborhood, shortestPath } from '/core/query.js';
 import { llfDelete, llfFind, llfParseDoc, llfParseTagExpr, llfSetString } from '/core/llf.js';
 import { jsoncDelete, jsoncInsert, jsoncParse, jsoncSet } from '/core/jsonc.js';
 import { tomlDelete, tomlInsert, tomlParse, tomlSet } from '/core/toml.js';
@@ -118,8 +117,9 @@ import { textDiff, textHash, textNormEol, textPatch } from '/core/textsync.js';
 import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } from '/core/bridge.js';
 import { cmdLine, cmdQuote, cmdTokenize } from '/core/cmdline.js';
 import { CMD_TABLE, cmdParse } from '/core/cmdspec.js';
+import { nodeLine, readLs, readNb, readPath, readShow, readTypes } from '/core/cmdread.js';
 import { draftNodeOf, draftPreview, draftSummary } from '/core/draft.js';
-import { STYLE_DEFAULT_SHAPES, STYLE_SHAPES, styleKindOf, styleOp, styleTypes } from '/core/styles.js';
+import { STYLE_DEFAULT_SHAPES, STYLE_SHAPES, styleOp, styleTypes } from '/core/styles.js';
 import { RUN_PREFIX, SCRIPT_PREFIX, checkScriptAttrs, describeTriggers, listScripts, scriptDef } from '/core/scriptnode.js';
 import { arrangeCleanName, arrangeFreePath, arrangeIsFs, arrangeMount } from '/core/arrange.js';
 (() => {

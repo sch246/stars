@@ -195,45 +195,12 @@ kdef('imports', {
 });
 
 // ---- 读宇宙(在浏览器里算,不用等服务端)。输出给人看;data 给页面和遥控用 ----
-const descNode = (id) => { const n = uni.nodes.get(id); return n ? `${n.id}${n.attrs.type ? ` [${n.attrs.type}]` : ''}  ${n.label}${n.attrs.status === 'proposed' ? '  (proposed)' : ''}` : `${id}  (不存在)`; };
+const descNode = (id) => nodeLine(uni, id);
 const needUni = () => { if (!uni) throw new Error('宇宙还没载入'); return uni; };
-kdef('show', {
-  run: (a) => {
-    need(a, 1, CMDS.get('show'));
-    const id = a[0], u = needUni(), n = u.nodes.get(id); if (!n) throw new Error(`节点不存在:${id}`);
-    const lines = [descNode(id)], out = [], inn = [];
-    for (const e of u.edges.values()) { if (e.from === id) out.push(e); if (e.to === id) inn.push(e); }
-    for (const [k, v] of Object.entries(n.attrs)) if (k !== 'type') lines.push(`  ${k}: ${v}`);
-    for (const e of out) lines.push(`  → -${e.type}-> ${e.to}${e.attrs.status ? ` (${e.attrs.status})` : ''}`);
-    for (const e of inn) lines.push(`  ← ${e.from} -${e.type}->`);
-    return { out: lines.join('\n'), data: { node: n, out, in: inn } };
-  },
-});
-kdef('nb', {
-  run: (a, o) => {
-    need(a, 1, CMDS.get('nb'));
-    const id = a[0], u = needUni(); if (!u.nodes.has(id)) throw new Error(`节点不存在:${id}`);
-    const nb = neighborhood(u, id, { depth: Number(o.depth ?? 1), dir: o.dir ?? 'both', type: o.type });
-    const list = [...nb.dist].sort((x, y) => x[1] - y[1]);
-    return { out: list.map(([nid, d]) => '  '.repeat(d) + descNode(nid)).join('\n'), data: list.map(([nid, d]) => ({ id: nid, depth: d })) };
-  },
-});
-kdef('path', {
-  run: (a, o) => {
-    need(a, 2, CMDS.get('path'));
-    const p = shortestPath(needUni(), a[0], a[1], { type: o.type });
-    if (p === null) return { out: '不可达', data: null };
-    return { out: [a[0], ...p.map((st) => `${st.forward ? `-${st.edge.type}->` : `<-${st.edge.type}-`} ${st.to}`)].join(' '),
-      data: { from: a[0], steps: p.map((st) => ({ type: st.edge.type, forward: st.forward, to: st.to })) } };
-  },
-});
-kdef('ls', {
-  run: (a, o) => {
-    const u = needUni(), ns = filterNodes(u, { type: o.type, where: kvs(o.where), orphans: o.orphans, text: o.q ?? (a.join(' ') || undefined) });
-    const edges = o.edges ? [...u.edges.values()].map((e) => `\n${e.from} -${e.type}-> ${e.to}`).join('') : '';
-    return { out: (ns.slice(0, 300).map((n) => descNode(n.id)).join('\n') || '(空)') + (ns.length > 300 ? `\n… 共 ${ns.length} 个,只列前 300` : '') + edges, data: ns };
-  },
-});
+kdef('show', { run: (a) => { need(a, 1, CMDS.get('show')); return readShow(needUni(), a[0]); } });
+kdef('nb', { run: (a, o) => { need(a, 1, CMDS.get('nb')); return readNb(needUni(), a[0], o); } });
+kdef('path', { run: (a, o) => { need(a, 2, CMDS.get('path')); return readPath(needUni(), a[0], a[1], o); } });
+kdef('ls', { run: (a, o) => readLs(needUni(), { type: o.type, where: kvs(o.where), orphans: o.orphans, text: o.q ?? (a.join(' ') || undefined), edges: o.edges }, 300) });
 kdef('log', {
   run: (a, o) => { const l = data.log.slice(-Number(o.n ?? 20)); return { out: l.map((e) => `#${e.n} ${e.author.padEnd(8)} ${summ(e)}`).join('\n') || '(无记录)', data: l }; },
 });
@@ -284,13 +251,7 @@ kdef('rules', {
     return { out: rows.map((r) => `${r.name.padEnd(16)} ${String(r.count).padStart(5)}  ${r.level.padEnd(5)} ${r.message}   ${r.expr}`).join('\n') || '(还没有自定义规则;rule-set <名字> --expr "<表达式>" -s 提示)', data: rows };
   },
 });
-kdef('types', {
-  run: () => {
-    const t = styleTypes(needUni());
-    const fmt = (x) => `  ${x.name.padEnd(14)} ${String(x.count).padStart(6)}  ${Object.entries(x.style).map(([k, v]) => `${k}=${v}`).join(' ') || '(默认样式)'}${x.label !== x.name ? '  ' + x.label : ''}${x.declared ? '' : '   (还没有类型节点)'}`;
-    return { out: ['节点类型', ...t.nodes.map(fmt), '边类型', ...t.edges.map(fmt)].join('\n'), data: t };
-  },
-});
+kdef('types', { run: () => readTypes(needUni(), '✎ 在「类型」面板里改,或 type-set <类型> -a color=#rrggbb') });
 kdef('views', {
   run: () => ({ out: viewNames.map((v, i) => `${i + 1}. ${v}${v === currentView ? '   ← 当前' : ''}`).join('\n'), data: { current: currentView, names: viewNames } }) });
 

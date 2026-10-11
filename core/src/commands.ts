@@ -11,13 +11,14 @@ import { RULE_PREFIX, lint, listRules } from './lint.ts';
 import { StarsError, getEdge, type Attrs, type Universe } from './model.ts';
 import { type Op } from './ops.ts';
 import { arrange, undoWithFs } from './fsops.ts';
-import { QUERY_PREFIX, filterNodes, listQueries, neighborhood, shortestPath, type Dir } from './query.ts';
+import { QUERY_PREFIX, listQueries } from './query.ts';
+import { nodeLine, readLs, readNb, readPath, readShow, readTypes } from './cmdread.ts';
 import { IMPORT_VIA, importsOn, listFiles, planImports, planImportsToggle, planScan, selfRel, statMeta } from './scan.ts';
 import { planStamp, seenDiff, seenPath, seenState, stampOnSummary } from './stale.ts';
 import { applyDraft, DraftStore, readDraft, Store, updateDraft } from './store.ts';
 import { CMD_OPTIONS, CMD_TABLE, KERNEL_NAMES, cmdParse } from './cmdspec.ts';
 import { draftPreview, draftSummary } from './draft.ts';
-import { styleKindOf, styleOp, styleTypes, type StyleKind, type StyleTypeInfo } from './styles.ts';
+import { styleKindOf, styleOp, type StyleKind } from './styles.ts';
 import { compileView } from './view.ts';
 import { resolveView } from './viewlayers.ts';
 import { viewModulesFor, writeViewSkeleton } from './viewload.ts';
@@ -73,12 +74,8 @@ function queryView(store: Store, root: string, u: Universe, expr = '') {
   return compileView(u, {}, { signals: signalsFor(text, store, root, u) });
 }
 
-export function describeNode(u: Universe, id: string): string {
-  const n = u.nodes.get(id);
-  if (!n) return `${id}  (不存在)`;
-  const t = n.attrs.type ? ` [${n.attrs.type}]` : '';
-  return `${n.id}${t}  ${n.label}`;
-}
+/** 一行:id [类型]  标签(见 cmdread.ts) */
+export const describeNode = nodeLine;
 
 export function summarize(op: Op): string {
   switch (op.op) {
@@ -218,39 +215,11 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
     }
     case 'ls': {
       const u = store.load();
-      const nodes = filterNodes(u, { type: o.type, where: kv(o.where), orphans: o.orphans, text: o.q });
-      let out = nodes.map((n) => describeNode(u, n.id)).join('\n') || '(空)';
-      if (o.edges) out += [...u.edges.values()].map((e) => `\n${e.from} -${e.type}-> ${e.to}`).join('');
-      return { out, data: nodes };
+      return readLs(u, { type: o.type, where: kv(o.where), orphans: o.orphans, text: o.q ?? (args.join(' ') || undefined), edges: o.edges });
     }
-    case 'show': {
-      need(1);
-      const u = store.load();
-      const n = u.nodes.get(args[0]!);
-      if (!n) throw new StarsError(`节点不存在: ${args[0]}`);
-      const out = [...u.edges.values()].filter((e) => e.from === n.id);
-      const inn = [...u.edges.values()].filter((e) => e.to === n.id);
-      const lines = [describeNode(u, n.id)];
-      for (const [k, v] of Object.entries(n.attrs)) if (k !== 'type') lines.push(`  ${k}: ${v}`);
-      for (const e of out) lines.push(`  → -${e.type}-> ${e.to}${e.attrs.status ? ` (${e.attrs.status})` : ''}`);
-      for (const e of inn) lines.push(`  ← ${e.from} -${e.type}->`);
-      return { out: lines.join('\n'), data: { node: n, out, in: inn } };
-    }
-    case 'nb': {
-      need(1);
-      const u = store.load();
-      if (!u.nodes.has(args[0]!)) throw new StarsError(`节点不存在: ${args[0]}`);
-      const nb = neighborhood(u, args[0]!, { depth: Number(o.depth ?? 1), dir: (o.dir as Dir) ?? 'both', type: o.type });
-      return {
-        out: [...nb.dist].sort((a, b) => a[1] - b[1]).map(([id, d]) => `${'  '.repeat(d)}${describeNode(u, id)}`).join('\n'),
-        data: { nodes: Object.fromEntries(nb.dist), edges: nb.edges },
-      };
-    }
-    case 'path': {
-      need(2);
-      const p = shortestPath(store.load(), args[0]!, args[1]!, { type: o.type });
-      return { out: p === null ? '不可达' : [args[0], ...p.map((s) => `${s.forward ? `-${s.edge.type}->` : `<-${s.edge.type}-`} ${s.to}`)].join(' '), data: p };
-    }
+    case 'show': need(1); return readShow(store.load(), args[0]);
+    case 'nb': need(1); return readNb(store.load(), args[0], o);
+    case 'path': need(2); return readPath(store.load(), args[0], args[1], o);
     case 'lint': {
       const issues = lint(store.load(), { baseDir: ctx.root });
       return {
@@ -398,16 +367,8 @@ export function runKernel(cmd: string, args: string[], o: CliOpts, ctx: KernelCt
         data: rows,
       };
     }
-    case 'types': {   // 节点类型、边类型:用量与样式
-      const t = styleTypes(store.peek());
-      const fmt = (x: StyleTypeInfo) => `  ${x.name.padEnd(14)} ${String(x.count).padStart(6)}  ${Object.entries(x.style).map(([k, v]) => `${k}=${v}`).join(' ') || '(默认样式)'}`
-        + `${x.label !== x.name ? `  ${x.label}` : ''}${x.declared ? '' : '   (还没有类型节点)'}`;
-      return {
-        out: ['节点类型', ...t.nodes.map(fmt), '边类型', ...t.edges.map(fmt),
-          'stars type-set <类型> -a color=#rrggbb -a shape=ringed -a scale=1.5 改节点类型 · -a width=2 -a arrow=false -a mode=faint 改边类型(没专门规定它的视图里立刻生效)'].join('\n'),
-        data: t,
-      };
-    }
+    case 'types':   // 节点类型、边类型:用量与样式
+      return readTypes(store.peek(), 'stars type-set <类型> -a color=#rrggbb -a shape=ringed -a scale=1.5 改节点类型 · -a width=2 -a arrow=false -a mode=faint 改边类型(没专门规定它的视图里立刻生效)');
     case 'type-set': {   // 改类型的样式:写到类型节点 ~<类型> 上(不在就建)
       need(1);
       const set = kv(o.attr), u = store.peek();
