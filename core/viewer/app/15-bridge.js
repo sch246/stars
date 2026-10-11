@@ -72,5 +72,18 @@ window.addEventListener('message', (ev) => {
     throw new Error('不认识的请求:' + m.kind);
   } catch (e) { reply(false, (e && e.message) || e); }
 });
+// 页面的 localStorage:沙箱里用的是替身(bridgeStorageShim),改了就整份发过来,按项目 + 页面路径存在查看器这边,下次打开接着用
+const pageLSKey = (path) => 'stars.pageLS:' + projDir() + ':' + path;
+function pageStorage(path) {
+  try { const o = JSON.parse(localStorage.getItem(pageLSKey(path)) || '{}'); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; } catch { return {}; }
+}
+window.addEventListener('message', (ev) => {
+  const m = ev.data, f = $('fp-html');
+  if (!m || typeof m !== 'object' || !m.starsStorage || typeof m.starsStorage !== 'object' || !f || !fp || ev.source !== f.contentWindow) return;
+  const data = {};
+  for (const [k, v] of Object.entries(m.starsStorage)) if (typeof v === 'string') data[k] = v;
+  try { if (Object.keys(data).length) localStorage.setItem(pageLSKey(fp.path), JSON.stringify(data)); else localStorage.removeItem(pageLSKey(fp.path)); }
+  catch (e) { conLog(`[${fp.path.replace(/^.*\//, '')}] localStorage 存不下了(${e.message}):这次的改动只在页面开着时有效`, 'err'); }
+});
 const htmlRefreshSoon = debounce(() => { if (fp && fp.handler === 'html' && fp.renderView) fp.renderView(); }, 300);
 onEvent('file', ({ ids }) => { if (fp && fp.handler === 'html' && ids.some((id) => id !== fp.id || !fp.opts.live)) htmlRefreshSoon(); });   // 页面引用的 css / js 改了(实时同步发现的)

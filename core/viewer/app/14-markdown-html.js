@@ -182,14 +182,17 @@ $('fp-body').addEventListener('click', (ev) => {   // 预览里的链接:项目�
   const a = ev.target.closest('#fp-md a[data-open], #fp-md a[data-anchor]'); if (!a) return;
   ev.preventDefault();
   if (a.dataset.anchor !== undefined) { const h = $('fp-md').querySelector(`[id="md-${CSS.escape(a.dataset.anchor)}"]`); if (h) h.scrollIntoView({ behavior: 'smooth' }); return; }
-  exec('open ' + quoteArg(a.dataset.open), 'ui');
+  exec('open ' + quoteArg(a.dataset.open) + (fp && fp.big ? '' : ' --side'), 'ui');   // 在大窗里点的就在大窗里打开,侧栏里点的还在侧栏
 });
 
 // ---- HTML 预览:沙箱 iframe(不同源,碰不到查看器和 token)。脚本:每个预览可开关;实时:跟着编辑器里没保存的改动走,
 // 关掉则显示保存了的版本。项目里其它文件变了(serve --watch 的实时信号)也刷新 —— 像 VS Code 的 Live Preview。
 // 相对路径的 css / js / 图片从 /preview/<token>/<项目>/… 取,所以页面引用的资源都能加载。
+// 页面是拼成 srcdoc 的全文:只载入了开头 24 KB 的要先载入全文 —— 不然页面被截在半截,脚本一句都跑不了。
+// 太大载入不了全文的(超过 2 MB)才让 iframe 直接从 /preview 取。开了脚本时最前面垫上 localStorage 等的替身(见 bridgeStorageShim)。
 const previewUrl = (path) => transport.fileUrl(path);
 function mountHtml(body) {
+  if (!fp.full && fp.info.editable) { body.innerHTML = '<div id="fp-media">载入全文…</div>'; loadFull(); return; }   // 载入完会重新挂上来
   fp.onEditRender = !!fp.opts.live;
   mountPreview(body, (pane) => {
     const o = fp.opts, level = o.scripts ? levelOf(fp.path) : 'off';
@@ -200,9 +203,9 @@ function mountHtml(body) {
     f.id = 'fp-html'; f.title = 'HTML 预览'; f.referrerPolicy = 'no-referrer';
     f.setAttribute('sandbox', o.scripts ? 'allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox' : '');
     const nonce = level === 'off' ? null : bridgeNonce();   // 页面桥:每次载入换一个暗号,旧页面发来的消息不再认
-    if (o.live) {
+    if (fp.full) {
       const dir = fp.path.includes('/') ? fp.path.replace(/[^/]*$/, '') : '';
-      f.srcdoc = bridgeInject(fp.text, `<base href="${esc(location.origin + previewUrl(dir))}">` + (nonce ? bridgeShim(nonce) : ''));
+      f.srcdoc = bridgeInject(o.live ? fp.text : fp.base, `<base href="${esc(location.origin + previewUrl(dir))}">` + (o.scripts ? bridgeStorageShim(pageStorage(fp.path)) : '') + (nonce ? bridgeShim(nonce) : ''));
     } else f.src = previewUrl(fp.path) + '?v=' + Math.round(fp.info.mtime) + (nonce ? '&bridge=' + nonce : '');
     old.replaceWith(f);
     setPageBridge(nonce ? { nonce, frame: f, path: fp.path, level, subs: new Set(), kind: 'page', author: 'page:' + fp.path } : null);

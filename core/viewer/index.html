@@ -86,12 +86,13 @@
 <div class="panel" id="tagbar" hidden></div>
 <div class="panel" id="side"><div id="side-grip" title="拖动调整宽度 · 双击恢复默认"></div><div id="side-info"></div>
   <div id="side-file">
-    <div id="fp-head"><span class="mini" id="fp-pin" data-cmd="pin toggle" title="固定:单击选中别的节点时侧栏不换(双击 / open 照样打开别的文件)">📌</span><span id="fp-state"></span><span class="seg" id="fp-with" title="打开方式"></span><span class="mini" id="fp-remember" hidden>记住</span><span class="btn pri" id="fp-save" data-cmd="save" title="Ctrl/⌘ + S;切走时也会自动保存">保存</span><a class="btn" id="fp-code" title="用本机的 VS Code 打开(查看器和文件在同一台机器上时)" style="text-decoration:none">VS Code ↗</a></div>
+    <div id="fp-head"><span class="mini" id="fp-pin" data-cmd="pin toggle" title="固定:单击选中别的节点时侧栏不换(双击 / open 照样打开别的文件)">📌</span><span id="fp-title"></span><span id="fp-state"></span><span class="seg" id="fp-with" title="打开方式"></span><span class="mini" id="fp-remember" hidden>记住</span><span class="btn pri" id="fp-save" data-cmd="save" title="Ctrl/⌘ + S;切走时也会自动保存">保存</span><a class="btn" id="fp-code" title="用本机的 VS Code 打开(查看器和文件在同一台机器上时)" style="text-decoration:none">VS Code ↗</a><span class="mini" id="fp-big" data-cmd="reader toggle"></span></div>
     <div id="fp-bar" hidden></div>
     <div id="fp-body"></div>
     <div id="fp-more" hidden></div>
   </div>
 </div>
+<div id="reader" hidden><div class="panel" id="reader-box"></div></div>
 <div id="toast" hidden></div>
 <div id="ask" hidden><div class="panel" id="ask-box"><div id="ask-t"></div><input id="ask-in" autocomplete="off" spellcheck="false" hidden><div class="btns"><button class="btn" id="ask-no">取消</button><button class="btn pri" id="ask-ok">确认</button></div></div></div>
 <div id="lightbox" hidden title="点一下关闭(Esc)"><img alt=""></div>
@@ -116,7 +117,7 @@ import { jsoncDelete, jsoncInsert, jsoncParse, jsoncSet } from '/core/jsonc.js';
 import { tomlDelete, tomlInsert, tomlParse, tomlSet } from '/core/toml.js';
 import { parse } from '/core/format.js';
 import { textDiff, textHash, textNormEol, textPatch } from '/core/textsync.js';
-import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim } from '/core/bridge.js';
+import { BRIDGE_LEVELS, bridgeAllows, bridgeInject, bridgeIsLevel, bridgeShim, bridgeStorageShim } from '/core/bridge.js';
 import { cmdLine, cmdQuote, cmdTokenize } from '/core/cmdline.js';
 import { CMD_TABLE, cmdParse } from '/core/cmdspec.js';
 import { nodeLine, readLs, readNb, readPath, readShow, readTypes } from '/core/cmdread.js';

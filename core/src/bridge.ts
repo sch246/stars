@@ -76,6 +76,58 @@ export function bridgeShim(nonce: string): string {
 })();</script>`;
 }
 
+/**
+ * 沙箱里的页面没有自己的源(不给 allow-same-origin,免得它碰到查看器),一碰 localStorage / sessionStorage / document.cookie
+ * 就抛 SecurityError —— 很多现成的页面一上来就读 localStorage,整段脚本就跑不起来了。这段放在最前面:先试一下,用不了才换成
+ * 内存里的替身(getItem / setItem / key(i) / length、localStorage.x、Object.keys 都照常)。
+ * 查看器拼页面时给 seed(上次存下的,可以是 {}):localStorage 的内容交给查看器存(按项目 + 页面路径,见 15-bridge.js),
+ * 下次打开接着用。seed = null(服务端注入的:新标签页、页面里点链接跳过去的)只在内存里,免得覆盖别的页面存的东西。
+ * 和页面桥无关:没开连接的页面也有。
+ */
+export function bridgeStorageShim(seed: Record<string, string> | null = null): string {
+  const data = JSON.stringify(seed ?? {}).replace(/</g, '\\u003c');   // 别让内容里的 </script> 提前结束这段脚本
+  return `<script>(function () {
+  var P = window.parent, timer = 0, local = null;
+  function works(get) { try { get(); return true; } catch (e) { return false; } }
+  function flush() { clearTimeout(timer); timer = 0; if (local && P && P !== window) { try { P.postMessage({ starsStorage: Object.fromEntries(local) }, '*'); } catch (e) { /* 存不了就算了 */ } } }
+  function store(init, persist) {
+    var m = new Map(Object.entries(init));
+    var save = persist ? function () { local = m; clearTimeout(timer); timer = setTimeout(flush, 200); } : function () {};
+    var api = {
+      getItem: function (k) { k = String(k); return m.has(k) ? m.get(k) : null; },
+      setItem: function (k, v) { m.set(String(k), String(v)); save(); },
+      removeItem: function (k) { m.delete(String(k)); save(); },
+      clear: function () { m.clear(); save(); },
+      key: function (i) { var ks = Array.from(m.keys()); return i >= 0 && i < ks.length ? ks[i] : null; },
+    };
+    return new Proxy(api, {
+      get: function (t, k) { if (k === 'length') return m.size; if (typeof k !== 'string' || k in t) return t[k]; return m.has(k) ? m.get(k) : undefined; },
+      set: function (t, k, v) { if (typeof k !== 'string' || k in t) return false; api.setItem(k, v); return true; },
+      has: function (t, k) { return k in t || (typeof k === 'string' && m.has(k)); },
+      deleteProperty: function (t, k) { if (typeof k === 'string') api.removeItem(k); return true; },
+      ownKeys: function () { return Array.from(m.keys()); },
+      getOwnPropertyDescriptor: function (t, k) { return typeof k === 'string' && m.has(k) ? { value: m.get(k), writable: true, enumerable: true, configurable: true } : undefined; },
+    });
+  }
+  function put(name, value) { try { Object.defineProperty(window, name, { value: value, configurable: true, enumerable: true }); } catch (e) { /* 换不掉就算了 */ } }
+  if (!works(function () { window.localStorage.getItem('x'); })) put('localStorage', store(${data}, ${seed ? 'true' : 'false'}));
+  if (!works(function () { window.sessionStorage.getItem('x'); })) put('sessionStorage', store({}, false));
+  if (!works(function () { return document.cookie; })) {
+    var jar = new Map();
+    try {
+      Object.defineProperty(document, 'cookie', { configurable: true,
+        get: function () { return Array.from(jar, function (e) { return e[0] + '=' + e[1]; }).join('; '); },
+        set: function (v) {
+          var parts = String(v).split(';'), kv = parts[0], i = kv.indexOf('='), k = (i < 0 ? '' : kv.slice(0, i)).trim(), val = (i < 0 ? kv : kv.slice(i + 1)).trim();
+          var dead = parts.slice(1).some(function (a) { a = a.trim().toLowerCase(); return (a.indexOf('max-age=') === 0 && +a.slice(8) <= 0) || (a.indexOf('expires=') === 0 && Date.parse(a.slice(8)) < Date.now()); });
+          if (dead) jar.delete(k); else jar.set(k, val);
+        } });
+    } catch (e) { /* 换不掉就算了 */ }
+  }
+  addEventListener('pagehide', function () { if (timer) flush(); });
+})();</script>`;
+}
+
 /** 把几个标签插进 HTML 的开头:<head> 之后;没有就 <html> 之后;再没有就 <!doctype> 之后;都没有就放最前面 */
 export function bridgeInject(html: string, tags: string): string {
   const at = (re: RegExp) => { const m = re.exec(html); return m ? m.index + m[0].length : -1; };

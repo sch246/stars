@@ -55,7 +55,7 @@ function renderSide() {
   const el = $('side-info');
   if (el.querySelector('.nd-editing:focus')) return;   // 正在侧栏里改名 / 改说明 / 改属性:别把输入框重画掉(改完会再画)
   const n = selected && raw.get(selected);
-  syncFile(n || null);
+  syncFile(selection.size > 1 ? null : n || null);   // 多选时没有一个特定的目标:不预览哪个文件(固定了的照旧留着)
   const sn = selected && (isSpaces() ? compiled.node(selected) : sim.get(selected));
   if (selection.size > 1) { el.innerHTML = multiPanel(); return; }
   if (selEdge) { el.innerHTML = edgePanel(selEdge); return; }

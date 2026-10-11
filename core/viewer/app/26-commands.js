@@ -207,7 +207,7 @@ defCmd('view-script', {
     try { await api('/api/file?stat=1&path=' + encodeURIComponent(path)); }
     catch { await api('/api/file', { path, content: viewSkeleton(path, o.base || currentView), mtime: null, create: true }); made = true; }
     const id = await viewFromScript(path, name);
-    if (made && id) setTimeout(() => { try { exec(`open ${quoteArg(path)}`, 'ui'); } catch { /* 还没进图(没开监听) */ } }, 600);
+    if (made && id) setTimeout(() => { try { exec(`open ${quoteArg(path)} --side`, 'ui'); } catch { /* 还没进图(没开监听) */ } }, 600);
     return id ? `视图 ${id}${made ? `,新建了骨架 ${path}` : ''}` : false;
   },
 });
@@ -228,6 +228,7 @@ defCmd('cancel', {
     if (!$('lightbox').hidden) { $('lightbox').hidden = true; return; }
     if (!$('palette').hidden) { togglePalette(false); return; }
     if (!$('keys').hidden) { toggleKeys(false); return; }
+    if (fp && fp.big) { fp.big = false; fpPlace(); return; }   // 大窗收回侧栏
     if (replay) { exitReplay(); return; }
     if (draftOn) { exitDraft(); return; }
     if (!$('projects').hidden) { toggleProjects(false); return; }
@@ -278,9 +279,9 @@ defCmd('jump', {
 
 // ---- 文件 ----
 defCmd('open', {
-  group: '文件', effect: 'ui', title: '打开节点的文件:侧栏里按它的种类显示(--with 指定视图;--remember / --forget 记住或忘掉这类扩展名的打开方式;--full 全屏看图)',
-  usage: 'open [id|文件路径] [--with text|markdown|form|image|universe|info] [--remember|--forget] [--full]',
-  flags: { with: 'with', w: 'with' }, bools: ['remember', 'forget', 'full'], args: [nodeArg()],
+  group: '文件', effect: 'ui', title: '打开节点的文件:居中的大窗里按它的种类显示(--side 只在侧栏预览;--with 指定视图;--remember / --forget 记住或忘掉这类扩展名的打开方式;--full 全屏看图)',
+  usage: 'open [id|文件路径] [--with text|markdown|html|form|image|universe|info] [--remember|--forget] [--full] [--side]',
+  flags: { with: 'with', w: 'with' }, bools: ['remember', 'forget', 'full', 'side'], args: [nodeArg()],
   palette: () => [{ line: 'open ', title: '打开一个文件', more: true }, ...(fp && fp.info ? handlersFor(fpDesc()).map(({ h }) => ({ line: `open ${quoteArg(fp.id)} --with ${h.id}`, title: `用「${h.label}」看 ${fp.path}` })) : [])],
   run: ([id], o) => {
     id = id || selected; if (!id) return false;
@@ -293,15 +294,28 @@ defCmd('open', {
     else if (o.remember) { const h = o.with || (fp && fp.id === id ? fp.handler : null); if (h) { openWith[ext] = h; saveOpenWith(); } }
     if (o.full) { if (fileTypeOf(path) !== 'image' || window.__STARS_STATIC__) return false; showLightbox(path); }
     const focus = !o.with && !o.remember && !o.forget && !o.full;   // 双击 / 回车打开:光标放进去;切视图、记住、看大图不抢焦点
+    const big = focus && !o.side;                                   // 打开 = 大窗;切视图、记住这些不挪地方
     if (fp && fp.id === id) {
       if (o.with) fp.want = o.with;
       if (fp.info && (o.with || o.remember || o.forget)) renderFileBody();
+      if (big && !fp.big) { fp.big = true; fpPlace(); }
       if (focus) focusPrimary();
       return;
     }
-    fpNext = { id, want: o.with, focus };
+    fpNext = { id, want: o.with, focus, big };
     if (fp && fp.pinned) fp.pinned = false;   // 明确要打开别的文件:固定让位
     select(id, true);
+  },
+});
+defCmd('reader', {
+  group: '文件', effect: 'ui', title: '大窗:在居中的大窗里看 / 改当前文件(off = 收回侧栏预览)', usage: 'reader [on|off|toggle]',
+  args: [{ name: '值', values: () => ['on', 'off', 'toggle'] }],
+  run: ([v]) => {
+    if (!fp) return false;
+    const on = onOff(v, !!fp.big);
+    if (on === !!fp.big) return;
+    fp.big = on; fpPlace();
+    if (on) focusPrimary();
   },
 });
 defCmd('preview', {

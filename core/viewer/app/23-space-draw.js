@@ -56,6 +56,8 @@ function drawSpace(sp, tx, ty, s, alpha, depth, now, skipId, mode = '', opt = {}
   const hitsOn = mode !== 'context' && !(mode === 'preview' && alpha < 0.5);
   const hit = (h) => { if (!hitsOn) return; if (mode) h.pv = true; frameHits.push(h); }; // pv:预览里的东西可以点选,但不能作为"放大进入"的目标
   const morph = opt.morph && opt.morph.e < 0.999 ? opt.morph : null, mE = morph ? morph.e : 1;
+  const orb = orbitOn(sp);
+  if (orb) orbitStep(sp, now);   // 开普勒轨道:这一帧每个成员画在轨道上的哪里(布局不动,见 23a-orbit.js)
   // 焦点容器:放大时正被钻进去的那个(指针所在、盘最大;刚从它里面退出来时优先它)。
   // 它的内部随 ρ 展开(见 morph)、它自己的光晕随 ρ 淡出,外面的东西随 ρ 淡出
   let focus = null, aIn = 0, aOutF = 1;
@@ -69,7 +71,7 @@ function drawSpace(sp, tx, ty, s, alpha, depth, now, skipId, mode = '', opt = {}
       for (const n of sp.nodes) {
         if (!n.container || expandedSet.has(n.id) || n.id === skipId) continue;
         const R = n.D * s; if (R < 0.4 * T) continue;
-        const d = Math.hypot(tx + n.x * s - px, ty + n.y * s - py);
+        const q = dispOf(n), d = Math.hypot(tx + q.x * s - px, ty + q.y * s - py);
         if (n.id === stickyFocus && d <= R * 1.6) { pick = n; break; }
         if (d <= R && (!pick || R > pick.D * s)) pick = n;
       }
@@ -80,27 +82,30 @@ function drawSpace(sp, tx, ty, s, alpha, depth, now, skipId, mode = '', opt = {}
     if (focus && focus.D * s < 0.4 * T) focus = null; // 没在"进入"的容器不画预览,避免残留
   }
   if (focus) { const r = focus.D * s / enterT(); aIn = innerAlpha(r); aOutF = outerAlpha(r); }
-  // 展开中:匹配到粒子的节点从粒子的位置插值到真实位置(用代理对象画,不动模拟里的节点)
+  // 展开中:匹配到粒子的节点从粒子的位置插值到真实位置;开着开普勒轨道时真实位置是轨道上的位置。
+  // 都用代理对象画,不动模拟里的节点
   let nodesV = sp.nodes, mapN = null;
-  if (morph) {
-    const { host, hs, e } = morph, f = hs / s, kids = host.kidRgb || [], len = kids.length;
+  if (morph || orb) {
+    const host = morph && morph.host, e = morph ? morph.e : 1, f = morph ? morph.hs / s : 1, kids = (host && host.kidRgb) || [], len = kids.length;
     const idx = new Map(kids.map((k, i) => [k[2], i])), prox = new Map();
     nodesV = sp.nodes.map((n) => {
-      const i = idx.get(n.id);
-      if (i === undefined) return n;
-      const [dx, dy, pr] = armPoint(host, i, len, now), p = Object.create(n);
-      p.real = n; p.x = dx * f + (n.x - dx * f) * e; p.y = dy * f + (n.y - dy * f) * e; p.r = pr * f + (n.r - pr * f) * e;
+      const i = idx.get(n.id), q = dispOf(n);
+      if (i === undefined && q === n) return n;
+      const p = Object.create(n);
+      p.real = n;
+      if (i === undefined) { p.x = q.x; p.y = q.y; }
+      else { const [dx, dy, pr] = armPoint(host, i, len, now); p.x = dx * f + (q.x - dx * f) * e; p.y = dy * f + (q.y - dy * f) * e; p.r = pr * f + (n.r - pr * f) * e; }
       prox.set(n, p);
       return p;
     });
     mapN = (n) => prox.get(n) || n;
-    const aq = Math.round(alpha * (1 - e) * 8) / 8; // 粒子:移向自己的节点(孙辈移向它所在的子星系),随 e 淡出
+    const aq = morph ? Math.round(alpha * (1 - e) * 8) / 8 : 0; // 粒子:移向自己的节点(孙辈移向它所在的子星系),随 e 淡出
     if (aq > 0) {
       for (let i = 0; i < len; i++) {
         const [col, , id] = kids[i], [dx, dy, pr] = armPoint(host, i, len, now);
         let to = sp.byId.get(id);
         if (!to) for (let up = compiled.parentOf(id); up && !to; up = compiled.parentOf(up)) to = sp.byId.get(up);
-        const fx = dx * f, fy = dy * f, gx = to ? to.x : fx, gy = to ? to.y : fy;
+        const tq = to ? dispOf(to) : null, fx = dx * f, fy = dy * f, gx = tq ? tq.x : fx, gy = tq ? tq.y : fy;
         pushParticle(col, aq, fx + (gx - fx) * e, fy + (gy - fy) * e, pr * f);
       }
       flushParticles();
@@ -109,7 +114,7 @@ function drawSpace(sp, tx, ty, s, alpha, depth, now, skipId, mode = '', opt = {}
   // 选中:全局变暗。豁免 = 选中的、它的邻居、以及它展开出来的整棵子树(在任意一层都成立)
   const hl = selected && P.highlight > 0 ? hlSet() : null;
   const selSub = !!(hl && sp.id != null && compiled.ancestors(sp.id).some((a) => selection.has(a)));
-  const aOf = (n) => alpha * mE * (n === focus ? 1 - aIn : aOutF) * (filt && !qOK(n) ? 0.12 : (hl && !selSub && !hl.has(n.id)) ? 0.3 : 1);
+  const aOf = (n) => alpha * mE * ((n.real || n) === focus ? 1 - aIn : aOutF) * (filt && !qOK(n) ? 0.12 : (hl && !selSub && !hl.has(n.id)) ? 0.3 : 1);
   ctx.globalCompositeOperation = look === 'galaxy' ? 'lighter' : 'source-over';
   drawSpaceEdges(sp, tx, ty, s, morph ? (n) => aOf(n) * mE : aOf, mapN, hitsOn); // 展开中连线晚一点出现(∝ e²)
   const real = (n) => n.real || n;
@@ -123,12 +128,12 @@ function drawSpace(sp, tx, ty, s, alpha, depth, now, skipId, mode = '', opt = {}
     if (!onScr(n, n.D * 1.7)) continue;
     const R = n.D * s, sx = tx + n.x * s, sy = ty + n.y * s;
     if (n.r * s < 1.2) { ctx.fillStyle = rgba(n.core, 0.8 * aOf(n)); ctx.fillRect(n.x - 1 / s, n.y - 1 / s, 2 / s, 2 / s); }
-    else drawNode(n, now, aOf(n), n !== focus); // 焦点容器的旋臂由展开中的粒子代替
-    if (real(n) === hovered) hoverRing(real(n));
+    else drawNode(n, now, aOf(n), real(n) !== focus); // 焦点容器的旋臂由展开中的粒子代替
+    if (real(n) === hovered) hoverRing(n);
     hit({ n: real(n), sp, depth, sx, sy, sr: Math.max(R * 0.75, 6), R, tx, ty, s });
     if (R >= 10 || mustLabel(n) || (filt && matchAnc.has(n.id))) {
       const cnt = filt && matchAnc.has(n.id) ? `  ·${matchAnc.get(n.id)} 处匹配` : '';
-      if (lblA > 0.02) frameLabels.push({ text: n.label + cnt, sx, sy: sy + Math.max(R * 0.55, 6) + 3, prio: mustLabel(n) ? 1e9 : 1e5 + R, color: '#dfe3ff', alpha: lab(n), fade: alpha * lblA * (n === focus ? 1 - aIn : aOutF) });
+      if (lblA > 0.02) frameLabels.push({ text: n.label + cnt, sx, sy: sy + Math.max(R * 0.55, 6) + 3, prio: mustLabel(n) ? 1e9 : 1e5 + R, color: '#dfe3ff', alpha: lab(n), fade: alpha * lblA * (real(n) === focus ? 1 - aIn : aOutF) });
     }
   }
   flushParticles();
@@ -137,7 +142,7 @@ function drawSpace(sp, tx, ty, s, alpha, depth, now, skipId, mode = '', opt = {}
     const sx = tx + n.x * s, sy = ty + n.y * s, sr = n.r * s;
     if (sr < 2.2 && n.id !== selected) { const q = Math.max(1.2 / s, n.r * 0.9); ctx.fillStyle = rgba(n.core, 0.9 * aOf(n)); ctx.fillRect(n.x - q / 2, n.y - q / 2, q, q); }
     else drawNode(n, now, aOf(n));
-    if (real(n) === hovered) hoverRing(real(n));
+    if (real(n) === hovered) hoverRing(n);
     const age = now - (n.born || -1e9);
     if (age < 1800) { const p = age / 1800; ctx.strokeStyle = rgba(n.rgb, (1 - p) * 0.9 * alpha); ctx.lineWidth = 2 / s; ctx.beginPath(); ctx.arc(n.x, n.y, n.r + 4 + p * 50, 0, TAU); ctx.stroke(); }
     hit({ n: real(n), sp, depth, sx, sy, sr: Math.max(sr * 1.4, 5), R: sr, tx, ty, s });
@@ -158,51 +163,54 @@ function drawSpace(sp, tx, ty, s, alpha, depth, now, skipId, mode = '', opt = {}
     hit({ n: real(n), sp, depth, sx: cx, sy: cy, sr: R, R, tx, ty, s, domain: true });
     drawSpace(child, cx, cy, s2, alpha * mE * aOutF, depth + 1, now, null, mode);
     setT();
-    drawInnerLinks(child, n, sp, s, alpha * mE * aOutF, cs);
+    drawInnerLinks(child, n, sp, s, alpha * mE * aOutF, cs, mapN);
   }
   if (focus && mode !== 'context' && fadeOn()) { // 正在钻进去的容器:它的小星系展开成内部的空间(同样的几何,画在盘里)
-    const child = getSpace(focus.id);
-    drawSpace(child, tx + focus.x * s, ty + focus.y * s, s * scOf(focus, child), alpha, depth + 1, now, null, 'preview', { morph: { host: focus, hs: s, e: aIn } });
+    const child = getSpace(focus.id), fq = dispOf(focus);
+    drawSpace(child, tx + fq.x * s, ty + fq.y * s, s * scOf(focus, child), alpha, depth + 1, now, null, 'preview', { morph: { host: focus, hs: s, e: aIn } });
     setT();
   }
 }
 
-/** 就地展开的容器里,通向外面的关系:如果对方在这个空间里看得见,直接连过去(不同层级在一起时才能看到的连线) */
-function drawInnerLinks(child, container, sp, s, alpha, cs = 1) {
+/** 就地展开的容器里,通向外面的关系:如果对方在这个空间里看得见,直接连过去(不同层级在一起时才能看到的连线)。
+ *  container / map 给的是画的位置(开普勒轨道、展开中的代理) */
+function drawInnerLinks(child, container, sp, s, alpha, cs = 1, map = null) {
   if (!child.external.length) return;
   ctx.globalCompositeOperation = look === 'galaxy' ? 'lighter' : 'source-over';
   for (const x of child.external) {
-    const q = child.byId.get(x.node), target = sp.byId.get(x.other);
-    if (!q || !target || target === container) continue;
+    const q0 = child.byId.get(x.node), t0 = sp.byId.get(x.other);
+    if (!q0 || !t0 || t0 === (container.real || container)) continue;
+    const q = dispOf(q0), target = map ? map(t0) : t0;
     const a = { x: container.x + q.x * cs, y: container.y + q.y * cs }, b = endPoint(target, a);
-    const col = hex2rgb(x.color), hot = edgeHot(q.id, target.id);
+    const col = hex2rgb(x.color), hot = edgeHot(q0.id, t0.id);
     ctx.strokeStyle = rgba(col, alpha * (hot ? 0.9 : 0.38)); ctx.lineWidth = (hot ? 1.6 : 1) / s;
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-    if (x.out) drawArrow(a, { ...b, r: target.r || 0 }, col, alpha * 0.7, s); else drawArrow(b, { ...a, r: q.r * cs }, col, alpha * 0.7, s);
+    if (x.out) drawArrow(a, { ...b, r: target.r || 0 }, col, alpha * 0.7, s); else drawArrow(b, { ...a, r: q0.r * cs }, col, alpha * 0.7, s);
   }
 }
 
 /** 当前空间通向外面的关系:从子节点伸向空间边界的短桩,方向指向外面那个对象在父空间里的方位 */
 function drawStubs(sp, tx, ty, s, alpha) {
   if (curSpaceId === null || !sp.external.length) return;
-  const ps = holderOf(curSpaceId), me = ps.byId.get(curSpaceId);
-  if (!me) return;
+  const ps = holderOf(curSpaceId), me0 = ps.byId.get(curSpaceId);
+  if (!me0) return;
+  const me = dispOf(me0);
   const R = sp.E * 1.05, dirCache = new Map();
   const dirTo = (other) => {
     if (dirCache.has(other)) return dirCache.get(other);
     let t = ps.byId.get(other);
     if (!t) for (const id of compiled.ancestors(other)) { t = ps.byId.get(id); if (t) break; }
     let dx, dy;
-    if (t && t !== me) { dx = t.x - me.x; dy = t.y - me.y; } else { dx = me.x || 1; dy = me.y || 0; } // 在更外层:朝外
+    if (t && t !== me0) { const tq = dispOf(t); dx = tq.x - me.x; dy = tq.y - me.y; } else { dx = me.x || 1; dy = me.y || 0; } // 在更外层:朝外
     const d = Math.hypot(dx, dy) || 1, v = [dx / d, dy / d];
     dirCache.set(other, v); return v;
   };
   ctx.setTransform((devicePixelRatio || 1) * s, 0, 0, (devicePixelRatio || 1) * s, (devicePixelRatio || 1) * tx, (devicePixelRatio || 1) * ty);
   ctx.globalCompositeOperation = 'source-over';
   for (const x of sp.external) {
-    const n = sp.byId.get(x.node); if (!n) continue;
-    const [ux, uy] = dirTo(x.other), ex = ux * R, ey = uy * R, col = hex2rgb(x.color);
-    const hot = selected && n.id === selected;
+    const n0 = sp.byId.get(x.node); if (!n0) continue;
+    const n = dispOf(n0), [ux, uy] = dirTo(x.other), ex = ux * R, ey = uy * R, col = hex2rgb(x.color);
+    const hot = selected && n0.id === selected;
     ctx.strokeStyle = rgba(col, alpha * (hot ? 0.85 : 0.4)); ctx.lineWidth = 1 / s; ctx.setLineDash([3 / s, 4 / s]);
     ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(ex, ey); ctx.stroke(); ctx.setLineDash([]);
     ctx.fillStyle = rgba(col, alpha * 0.8); ctx.beginPath(); ctx.arc(ex, ey, 2.5 / s, 0, TAU); ctx.fill();

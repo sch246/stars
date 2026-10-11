@@ -259,6 +259,14 @@ code.qexpr { display: block; white-space: pre-wrap; word-break: break-all; font:
 #fp-form .fm-addtype { font-size: 11px; background: #0b0b14; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 2px; }
 #fp-form .sg-h .fm-addtype { opacity: 0; transition: opacity .12s; } #fp-form .sg-h:hover .fm-addtype, #fp-form .sg-h .fm-addtype:focus { opacity: 1; }
 #fp-uni .chip { cursor: default; }
+/* 大窗:双击 / 回车打开的文件。和侧栏是同一个文件面板(#side-file),挪进来而已 —— 编辑、保存、预览都一样;侧栏只做预览 */
+#reader { position: fixed; inset: 0; z-index: 12; background: #02020aa8; } #reader[hidden] { display: none; }
+#reader-box { left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(1180px, calc(100vw - 48px)); height: calc(100vh - 56px); display: flex; flex-direction: column; background: #0b0b14f4; }
+#reader-box #side-file { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 6px; }
+#fp-title { display: none; } #reader #fp-title { display: block; flex: 0 1 auto; min-width: 0; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#reader #fp-state { flex: 1 1 0; } #fp-big { flex: none; font-size: 12px; }
+#reader #fp-md, #reader #fp-form, #reader #fp-uni { padding: 18px 28px; } #reader #fp-md { font-size: 14.5px; }
+#console, #keys { z-index: 15; }
 #lightbox { position: fixed; inset: 0; z-index: 30; background: #000000d8; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
 #lightbox[hidden] { display: none; } #lightbox img { max-width: 94vw; max-height: 94vh; box-shadow: 0 0 60px #000; }
 /* 预览的开关条、并排编辑、HTML 预览 */
