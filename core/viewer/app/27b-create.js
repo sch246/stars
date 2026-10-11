@@ -1,11 +1,15 @@
 // ---------- 新建、打包、解散(键盘:空格 = 新建节点,Tab = 新建域 / 把选中的打包成域,Shift+Tab = 解散;右键菜单里也有)----------
 // 新建放在指针那里:指针在就地展开的文件夹里 = 放进它,否则 = 当前空间;平铺视图里指针在某个展开容器的疆界里 = 放进它。
-// 弹出的小框:名字(新建节点还有类型,记住上次的)。回车确定,Shift+回车 = 建完接着建下一个,Esc / 点别处 = 取消。
-// 类型写 file / dir = 在磁盘上新建空文件 / 文件夹。新节点就出现在指针的位置(spawnAt)。id 由名字来:空白换成 -,重名加 -2。
+// 弹出的小框:名字(新建节点还有类型)。回车确定,Shift+回车 = 建完接着建下一个,Esc / 点别处 = 取消。
+// 类型 file / dir = 在磁盘上新建空文件 / 文件夹(名字原样当文件名,不补扩展名)。放进文件夹时默认是 file,别处默认 concept;
+// 两处各记各的上次选择。新节点就出现在指针的位置(spawnAt)。id 由名字来:空白换成 -,重名加 -2。
 // 域:在文件夹里(文件视角)就是文件夹,在概念里就是一个概念域(core/src/arrange.ts 的 group / ungroup)。
 let creator = null;   // { el, cx, cy, target, local, mode: 'node' | 'domain' | 'group', items }
-const NEW_TYPE_KEY = 'stars.newType';
-const lastNewType = () => { try { return localStorage.getItem(NEW_TYPE_KEY) ?? 'concept'; } catch { return 'concept'; } };
+/** 上次选的类型:放进文件夹时(inFolder)和别处分开记,默认 file / concept */
+const newTypeKey = (inFolder) => (inFolder ? 'stars.newType.fs' : 'stars.newType');
+const lastNewType = (inFolder = false) => { const d = inFolder && fsMount() ? 'file' : 'concept'; try { return localStorage.getItem(newTypeKey(inFolder)) || d; } catch { return d; } };
+/** 新建框里的类型快捷按钮(有挂载的文件夹才有 文件 / 文件夹) */
+const quickTypes = () => [...(fsMount() ? [['file', '文件'], ['dir', '文件夹']] : []), ['concept', '概念'], ['note', '笔记']];
 
 /** 双击的位置 → 放进哪个容器、在那个空间里的坐标 */
 function creatorPlace(cx, cy, domainId) {
@@ -22,29 +26,48 @@ function creatorPlace(cx, cy, domainId) {
 function closeCreator() { if (creator) { creator.el.remove(); creator = null; } }
 /** 新建的域会是什么:在文件夹里(文件视角)= 文件夹,否则 = 概念域 */
 const domainIsFolder = (target, items = []) => target != null && isFsDir(target) && (!items.length || items.some((x) => isFsNode(x)));
-function creatorHint(mode, target, items) {
+/** 新建文件 / 文件夹会落在哪:{ dir: 放进的文件夹节点(null = 项目根), container: 另外装着它的概念, path: 预计的路径 } */
+function fileTarget(target, name, isDir) {
+  const dir = target != null && isFsDir(target) ? target : null, container = dir ? null : target;
+  const dirPath = dir == null || dir === fsMount() ? '' : raw.get(dir).attrs.file;
+  return { dir, container, path: arrangeFreePath(dirPath, arrangeCleanName(name || (isDir ? '新文件夹' : '新文件')), isDir, (p) => raw.has(p)) };
+}
+function creatorHint(mode, target, items, name = '', type = '') {
   const where = `「${esc(lblOf(target))}」`;
   if (mode === 'group') return `把选中的 ${items.length} 个打包成${domainIsFolder(target, items) ? '一个新文件夹' : '一个域'}(放在${where}里)· 回车确定 · Esc 取消`;
   if (mode === 'domain') return `在${where}里新建${domainIsFolder(target) ? '文件夹' : '域'} · 回车确定 · Esc 取消`;
-  return `放进${where} · 回车新建 · Shift+回车接着建 · Esc 取消 · 类型 file / dir = 在磁盘上新建`;
+  const keys = '回车新建 · Shift+回车接着建 · Esc 取消';
+  if ((type === 'file' || type === 'dir') && fsMount()) {
+    const f = fileTarget(target, name, type === 'dir');
+    return `在磁盘上新建${type === 'dir' ? '文件夹' : '文件'} <b>${esc(f.path)}</b>${f.container != null ? `,${where}也装着它` : ''} · ${keys}`;
+  }
+  return `新建${type ? `「${esc(type)}」` : ''}节点,放进${where} · ${keys}`;
 }
-/** cx, cy:client 坐标;domainId:指针所在的就地展开的容器(不给 = 当前空间);mode:node 新建节点 · domain 新建域 · group 把 items 打包成域(target 给定) */
+/** cx, cy:client 坐标;domainId:指针所在的就地展开的容器(不给 = 当前空间);mode:node 新建节点 · domain 新建域 · group 把 items 打包成域;
+ *  target:直接指定放进哪个容器(不看指针;打包时必给) */
 function openCreator(cx, cy, domainId, { name = '', type, mode = 'node', items = [], target } = {}) {
   if (window.__STARS_STATIC__ || replay) { toast('静态导出 / 回放里不能新建', true); return; }
   closeCreator(); closeMenu(); closeLinkPicker();
-  const place = mode === 'group' ? { target, local: null } : creatorPlace(cx, cy, domainId);
+  const place = target !== undefined ? { target, local: null } : creatorPlace(cx, cy, domainId);
   const el = document.createElement('div');
   el.id = 'creator'; el.className = 'panel';
-  const types = [...new Set([...styleTypes(uni).nodes.map((t) => t.name), 'concept', 'note', 'file', 'dir'])];
+  const types = [...new Set([...styleTypes(uni).nodes.map((t) => t.name), 'concept', 'note', ...(fsMount() ? ['file', 'dir'] : [])])];
+  const label = { file: '文本文件(在磁盘上新建)', dir: '文件夹(在磁盘上新建)' };
   el.innerHTML = `<div class="cr-row"><input class="cr-name" placeholder="${mode === 'node' ? '名字' : '域的名字'}" spellcheck="false">${mode === 'node' ? '<input class="cr-type" list="cr-types" placeholder="类型" spellcheck="false">' : ''}</div>`
-    + (mode === 'node' ? `<datalist id="cr-types">${types.map((t) => `<option value="${esc(t)}">`).join('')}</datalist>` : '')
-    + `<div class="cr-hint">${creatorHint(mode, place.target, items)}</div>`;
+    + (mode === 'node' ? `<div class="cr-types">${quickTypes().map(([t, l]) => `<button type="button" data-crtype="${t}">${l}</button>`).join('')}</div>`
+      + `<datalist id="cr-types">${types.map((t) => `<option value="${esc(t)}"${label[t] ? ` label="${label[t]}"` : ''}>`).join('')}</datalist>` : '')
+    + `<div class="cr-hint"></div>`;
   document.body.appendChild(el);
   creator = { el, cx, cy, ...place, mode, items };
   const nameIn = el.querySelector('.cr-name'), typeIn = el.querySelector('.cr-type');
   nameIn.value = name || (mode === 'node' ? '' : domainIsFolder(place.target, items) ? '新文件夹' : '新域');
-  if (mode !== 'node') nameIn.select();
-  if (typeIn) typeIn.value = type ?? lastNewType();
+  if (typeIn) {
+    typeIn.value = type ?? lastNewType(isFsDir(place.target));
+    for (const inp of [nameIn, typeIn]) inp.addEventListener('input', refreshCreator);
+    el.querySelector('.cr-types').addEventListener('mousedown', (ev) => ev.preventDefault());   // 焦点留在名字框
+    el.querySelector('.cr-types').addEventListener('click', (ev) => { const b = ev.target.closest('[data-crtype]'); if (b) { typeIn.value = b.dataset.crtype; refreshCreator(); } });
+  }
+  refreshCreator();
   const r = el.getBoundingClientRect();
   el.style.left = Math.max(6, Math.min(cx - 14, innerWidth - r.width - 8)) + 'px';
   el.style.top = Math.max(6, Math.min(cy + 14, innerHeight - r.height - 8)) + 'px';
@@ -57,6 +80,15 @@ function openCreator(cx, cy, domainId, { name = '', type, mode = 'node', items =
   });
   nameIn.focus();
   if (mode !== 'node') nameIn.select();
+}
+/** 名字 / 类型变了:提示(预计的路径)、按钮高亮、名字框的提示字跟着变 */
+function refreshCreator() {
+  const C = creator; if (!C) return;
+  const nameIn = C.el.querySelector('.cr-name'), typeIn = C.el.querySelector('.cr-type'), type = typeIn ? typeIn.value.trim() : '';
+  C.el.querySelector('.cr-hint').innerHTML = creatorHint(C.mode, C.target, C.items, nameIn.value.trim(), type);
+  if (!typeIn) return;
+  for (const b of C.el.querySelectorAll('[data-crtype]')) b.classList.toggle('on', b.dataset.crtype === type);
+  nameIn.placeholder = type === 'file' ? '文件名(如 笔记.md)' : type === 'dir' ? '文件夹名' : '名字';
 }
 addEventListener('mousedown', (ev) => { if (creator && !creator.el.contains(ev.target)) closeCreator(); }, true);
 overlayDrawers.push((now) => {   // 新节点会出现的位置
@@ -72,23 +104,19 @@ async function createFromBox(keepOpen) {
   const name = C.el.querySelector('.cr-name').value.trim(), typeIn = C.el.querySelector('.cr-type'), type = typeIn ? typeIn.value.trim().replace(/\s+/g, '-') : '';
   if (!name) { closeCreator(); return; }
   if (C.mode !== 'node') { closeCreator(); groupInto(C.items, C.target, name, C.local).catch((e) => toast(esc(e.message), true)); return; }
-  try { localStorage.setItem(NEW_TYPE_KEY, type); } catch { /* 隐私模式 */ }
+  try { localStorage.setItem(newTypeKey(isFsDir(C.target)), type); } catch { /* 隐私模式 */ }
   closeCreator();
   try { await createNode(name, type, C.target, C.local); }
   catch (e) { toast(esc(e.message), true); return; }
-  if (keepOpen) {   // 接着建:框挪到下面一点(新节点也跟着往下排),放进同一个容器
-    openCreator(C.cx, C.cy + 34, isSpaces() && C.target !== curSpaceId ? C.target ?? undefined : undefined, { type });
-    if (creator && !C.local) { creator.target = C.target; creator.local = null; }
-  }
+  if (keepOpen)   // 接着建:框挪到下面一点(新节点也跟着往下排),放进同一个容器
+    openCreator(C.cx, C.cy + 34, isSpaces() && C.target !== curSpaceId ? C.target ?? undefined : undefined, { type, target: C.local ? undefined : C.target });
 }
 /** 新建:普通节点一次提交(节点 + 放进容器的边 + 新类型的登记);file / dir 走 /api/upload 在磁盘上建 */
 async function createNode(name, type, target, local) {
   const rel = compiled ? compiled.relation : 'contains';
   if (type === 'file' || type === 'dir') {
     if (!fsMount()) throw new Error('这个宇宙没有对应的文件夹(没有扫描过的根目录),建不了文件');
-    const dir = target != null && isFsDir(target) ? target : null, container = dir ? null : target;
-    const dirPath = dir == null || dir === fsMount() ? '' : raw.get(dir).attrs.file;
-    const guess = arrangeFreePath(dirPath, arrangeCleanName(name), type === 'dir', (p) => raw.has(p));
+    const { dir, container, path: guess } = fileTarget(target, name, type === 'dir');
     if (local) spawnAt.set(guess, local);
     did(`# 在「${lblOf(dir ?? fsMount())}」里新建${type === 'dir' ? '文件夹' : '文件'} ${guess}`);
     const r = await api('/api/upload', { dir, container, files: [{ name, b64: '', dir: type === 'dir' }], rel, author: 'viewer' });
@@ -141,7 +169,7 @@ defCmd('new', {
       return;
     }
     const target = o.in !== undefined ? o.in : isSpaces() ? curSpaceId : null;
-    const id = await createNode(a.join(' '), o.type ?? lastNewType(), target, null);
+    const id = await createNode(a.join(' '), o.type ?? lastNewType(isFsDir(target)), target, null);
     return { data: { id } };
   },
 });
@@ -171,13 +199,7 @@ menuProviders.push((id, ids) => {
   return out;
 });
 /** 放进指定容器(不管指针在哪):右键菜单的「在里面新建…」 */
-function openCreatorIn(id, cx, cy, mode = 'node') {
-  openCreator(cx, cy, undefined, { mode });
-  if (!creator) return;
-  creator.target = id; creator.local = null;
-  creator.el.querySelector('.cr-hint').innerHTML = creatorHint(mode, id, []);
-  if (mode !== 'node') { const nameIn = creator.el.querySelector('.cr-name'); nameIn.value = domainIsFolder(id) ? '新文件夹' : '新域'; nameIn.select(); }
-}
+function openCreatorIn(id, cx, cy, mode = 'node') { openCreator(cx, cy, undefined, { mode, target: id }); }
 /** 指针在哪(client 坐标)、在哪个就地展开的容器里;指针不在画布上 = 画面中间 */
 function pointerPlace() {
   const r = canvas.getBoundingClientRect();

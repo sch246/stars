@@ -6,8 +6,8 @@
 //   · 点一下就打开,所以要轻:head=N 只读开头 N 字节(切在最后一个换行处),点进编辑框或滚到底再要全文
 //   · 重新载入也是增量的:服务端记着最近给出去 / 存下来的几版(按内容哈希),查看器带着手上那版的哈希来要(since),
 //     就只回"改动的那一段";记不得那一版(重启过、被挤掉了)就回整份
-import { closeSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs';
-import { extname, relative, resolve, sep } from 'node:path';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, extname, relative, resolve, sep } from 'node:path';
 import { StarsError } from './model.ts';
 import { isStorage } from './scan.ts';
 import { textDiff, textHash, textNormEol, textPatch, type TextPatch } from './textsync.ts';
@@ -124,10 +124,16 @@ export function readProjectFile(baseDir: string, rel: string, opts: { self?: str
 
 /** baseMtime = 打开时的修改时间;null = 不检查(用户选择了"用我的覆盖") */
 /** 写入;内容和磁盘上一字不差时什么也不做(不改修改时间,也不算冲突),返回 unchanged: true */
-export function writeProjectFile(baseDir: string, rel: string, content: string, baseMtime: number | null, opts: { self?: string } = {}): { size: number; mtime: number; unchanged?: boolean } {
+export function writeProjectFile(baseDir: string, rel: string, content: string, baseMtime: number | null, opts: { self?: string; create?: boolean } = {}): { size: number; mtime: number; unchanged?: boolean } {
   const abs = resolveInside(baseDir, rel);
   const r = relOf(baseDir, abs);
   if (readonlyPath(r, opts.self)) throw new StarsError(`这个文件只读(宇宙自己的存储或 .git): ${r}`);
+  if (opts.create && !existsSync(abs)) {   // 新建(查看器里新建视图脚本):缺的文件夹一起建
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, content, { flag: 'wx' });
+    const st0 = statSync(abs);
+    return { size: st0.size, mtime: st0.mtimeMs };
+  }
   const st = statSync(abs);
   if (!st.isFile()) throw new StarsError(`不是文件: ${rel}`);
   const disk = readFileSync(abs, 'utf8');

@@ -1,5 +1,5 @@
 // 实时查看器的服务端:监听宇宙文件,变化时通过 SSE 推给浏览器。零依赖。
-// 视图的计算在浏览器里做(同一份 model.ts / view.ts,去掉类型后原样提供),
+// 视图的计算在浏览器里做(同一份 model.ts / view*.ts,去掉类型后原样提供),
 // 所以展开/收起不需要和服务端往返,CLI 与查看器永远是同一套逻辑。
 //
 // 一个服务可以同时开多个项目(每个项目 = 一个目录里的 universe.stars),查看器里随时切换,
@@ -140,7 +140,8 @@ export function startServer(
     // 页面里的相对路径(css / js / 图片)自然落在同一个前缀下。预览 token 和 /api 的 token 是两个:页面能从自己的地址读到它,
     // 但它只能读项目里的文件。HTML / SVG 带 CSP sandbox:就算在新标签页里直接打开也是不同源的,碰不到查看器;
     // 允许跨源读(预览里的脚本 fetch 同目录的 json)。?bridge=<暗号>:往 HTML 里注入 window.stars(页面桥,见 bridge.ts)。
-    const pv = /^\/preview\/([0-9a-f]+)\/([0-9a-f]+|_)\/(.*)$/.exec(path);
+    // 视图脚本从 /preview/…/~v<版本>/<路径> 加载:版本那一段只是让浏览器换个地址重新加载整串模块,这里去掉
+    const pv = /^\/preview\/([0-9a-f]+)\/([0-9a-f]+|_)\/(?:~v[0-9a-f]+\/)?(.*)$/.exec(path);
     if (pv) {
       const proj = pv[2] === '_' ? main : projects.get(pv[2]!);
       if (pv[1] !== previewToken) { res.writeHead(403).end('forbidden'); return; }

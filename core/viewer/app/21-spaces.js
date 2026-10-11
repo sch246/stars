@@ -55,11 +55,11 @@ function applyForces(sp) { // d3 的力在 initialize 时缓存每个节点的�
 /** 视图里 contains 关系的 spin:空间里的成员绕空间中心公转(像星系自转),只在保持热量时生效 */
 const spaceSpin = () => { const sp = draftSpec ?? specs[currentView] ?? {}; return (sp.relations && sp.relations[(sp.expand && sp.expand.relation) || 'contains'] || {}).spin ?? 0; };
 
-/** 视图里 spec.forces 列出的函数节点:~fn/名字 的 code 编译成 (nodes, links, alpha, ctx) => void */
+/** 视图脚本导出的 forces,加上 spec.forces 列出的函数节点(~fn/名字 的 code 编译成 (nodes, links, alpha, ctx) => void) */
 function compileForces() {
-  const spec = draftSpec ?? specs[currentView] ?? {};
-  if (!Array.isArray(spec.forces)) return [];
-  const out = [];
+  const spec = (compiled && compiled.spec) || draftSpec || specs[currentView] || {};   // 合并好的(base 链上写的 forces 也算)
+  const out = [...((compiled && compiled.forces) || [])];   // 视图脚本导出的 forces
+  if (!Array.isArray(spec.forces)) return out;
   for (const name of spec.forces) {
     const id = String(name).startsWith('~') ? String(name) : '~fn/' + name;
     const code = raw.get(id) && raw.get(id).attrs && raw.get(id).attrs.code;

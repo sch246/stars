@@ -15,6 +15,7 @@ import { BROWSER_MODULES } from '../src/page.ts';
 import { startServer } from '../src/serve.ts';
 import { exportHtml } from '../src/exporter.ts';
 import { Store } from '../src/store.ts';
+import { viewSources } from '../src/viewload.ts';
 
 const genesis = readFileSync(new URL('../genesis.stars', import.meta.url), 'utf8');
 process.env.XDG_CONFIG_HOME = mkdtempSync(join(tmpdir(), 'stars-cfg-')); // "最近打开"别写进真实的家目录
@@ -411,6 +412,38 @@ test('共享模块:浏览器拿到的 /core/*.js 去掉了类型、能直接 imp
   const file = join(out, 'export-check.mjs');
   writeFileSync(file, mod);
   execFileSync(process.execPath, ['--check', file], { stdio: 'pipe' });
+});
+
+test('视图脚本:/api/viewdeps 给整串依赖和版本(改了依赖版本就变);/preview 去掉版本那一段;静态导出带上源码', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'stars-vdeps-'));
+  const store = new Store(join(dir, 'universe.stars'));
+  store.create(genesis);
+  store.commit({ op: 'addNode', id: '~view/heat', label: 'heat', attrs: { kind: 'view', spec: JSON.stringify({ script: 'views/heat.js' }) } }, { author: 't' });
+  mkdirSync(join(dir, 'views'));
+  writeFileSync(join(dir, 'views/heat.js'), "import { hot } from './pal.js';\nexport function color() { return hot; }\n");
+  writeFileSync(join(dir, 'views/pal.js'), "export const hot = '#ff00ff';\n");
+  const port = await freePort();
+  const srv = startServer(store, port, dir, '127.0.0.1', () => {});
+  await new Promise((r) => setTimeout(r, 150));
+  const get = (p: string) => fetch(`http://127.0.0.1:${port}${p}`, { headers: { 'x-stars-token': srv.token } });
+  try {
+    const d1 = await (await get('/api/viewdeps?path=views/heat.js')).json() as { files: string[]; missing: string[]; version: string };
+    assert.deepEqual([d1.files, d1.missing], [['views/heat.js', 'views/pal.js'], []]);
+    await new Promise((r) => setTimeout(r, 20));
+    writeFileSync(join(dir, 'views/pal.js'), "export const hot = '#00ffaa';\n");
+    const d2 = await (await get('/api/viewdeps?path=views/heat.js')).json() as { version: string };
+    assert.notEqual(d2.version, d1.version, '依赖改了,版本就变');
+    const r = await fetch(`http://127.0.0.1:${port}/preview/${srv.previewToken}/_/~v${d2.version}/views/pal.js`);
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get('content-type') ?? '', /javascript/);
+    assert.match(await r.text(), /#00ffaa/);
+    const missing = await (await get('/api/viewdeps?path=views/nope.js')).json() as { missing: string[] };
+    assert.deepEqual(missing.missing, ['views/nope.js']);
+  } finally { srv.close(); }
+  const src = await viewSources(store.load(), dir);
+  assert.deepEqual(Object.keys(src).sort(), ['views/heat.js', 'views/pal.js']);
+  const html = exportHtml(store, dir, src);
+  assert.match(html, /window\.__STARS_VIEWSRC__ = \{"views\/heat\.js":/);
 });
 
 /** 读 SSE:把收到的具名事件交给 onEvent;返回关闭函数 */

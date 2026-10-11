@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { execFileSync } from 'node:child_process';
 import { CLI_OPTIONS, KERNEL_COMMANDS, runKernel } from './commands.ts';
+import { viewModulesFor, viewSources } from './viewload.ts';
 import { parse, serialize } from './format.ts';
 import { mergeUniverses } from './merge.ts';
 import { StarsError } from './model.ts';
@@ -59,9 +60,11 @@ const HELP = `stars —— 关系编辑器(内核 CLI)
   query-set <名字>                   保存一个查询(= 动态区域,成员随宇宙变化)   --expr '<表达式>' [-l 显示名] [-s 说明] [-a color=#rrggbb]
   queries                            列出保存的查询和各自的匹配数
   log                                操作日志   [-n 20]
+  imports [on|off]                   代码文件之间的 import 写成 dependsOn 边(via=import;扫描、实时同步跟着更新;手画的不动)   [--under 挂载根]
   views                              列出视图(内置 + 宇宙里 kind=view 的节点)
   view <name>                        计算一个视图并输出场景摘要   [--depth N 展开层数] [--max-nodes N 节点预算] [--expand id,id 强制展开] [--json 完整场景]
   view-set <name>                    新建/覆盖一个视图(规格会先校验)   --spec '<JSON>' 或 --from <文件>   [--label 显示名]
+                                     --base <视图> 从另一个视图起步 · --script <文件.js> 用视图脚本当模板(文件不在就写一份骨架)· --params '<JSON>' 参数
   fn-set <name>                      新建/覆盖一个函数节点,供视图表达式里 fn.<name>(...) 调用   --code '<函数表达式>' 或 --from <文件>
   rule-set <名字>                    自定义体检规则(存成节点 ~rule/<名字>):命中表达式的节点在 lint / 查看器里各报一条
                                      --expr '<表达式>' [-s 提示] [-a level=warn|error|info]   例:--expr "type == 'file' && !summary" -s 文件没有说明
@@ -136,11 +139,16 @@ function run(): void {
     return;
   }
   if (KERNEL_COMMANDS.has(cmd)) {   // add / link / ls / show …:见 commands.ts(脚本里的 stars.exec 也走它)
-    const r = runKernel(cmd, args, o, { store, author: ctx.author, root: root() });
-    if (o.json && r.data !== undefined) console.log(JSON.stringify(r.data, null, 2));
-    else if (r.out) console.log(r.out);
-    if (r.exitCode) process.exitCode = r.exitCode;
-    if (o.draft && cmd !== 'draft') draftNote();
+    const go = (modules?: Awaited<ReturnType<typeof viewModulesFor>>) => {
+      const r = runKernel(cmd, args, o, { store, author: ctx.author, root: root(), modules });
+      if (o.json && r.data !== undefined) console.log(JSON.stringify(r.data, null, 2));
+      else if (r.out) console.log(r.out);
+      if (r.exitCode) process.exitCode = r.exitCode;
+      if (o.draft && cmd !== 'draft') draftNote();
+    };
+    if (cmd !== 'view' || !args[0]) { go(); return; }
+    viewModulesFor(store.load(), args[0], root()).then(go)   // 视图脚本要先异步 import 进来
+      .catch((err: Error) => { console.error(err instanceof StarsError ? `错误: ${err.message}` : err); process.exitCode = err instanceof StarsError ? 2 : 1; });
     return;
   }
   switch (cmd) {
@@ -195,9 +203,13 @@ function run(): void {
     }
     case 'export': {
       need(1, 'export <out.html>');
-      const html = exportHtml(store, process.env.STARS_ROOT ?? dirname(file));
-      writeFileSync(resolve(args[0]!), html);
-      console.log(`已导出 ${resolve(args[0]!)}(${(html.length / 1024).toFixed(0)} KB,自包含,只读)`);
+      const base = process.env.STARS_ROOT ?? dirname(file);
+      viewSources(store.load(), base).then((src) => {   // 视图脚本的源码一起打进去
+        const html = exportHtml(store, base, src);
+        writeFileSync(resolve(args[0]!), html);
+        const n = Object.keys(src).length;
+        console.log(`已导出 ${resolve(args[0]!)}(${(html.length / 1024).toFixed(0)} KB,自包含,只读${n ? `;带上 ${n} 个视图脚本文件` : ''})`);
+      }).catch((err: Error) => { console.error(err instanceof StarsError ? `错误: ${err.message}` : err); process.exitCode = err instanceof StarsError ? 2 : 1; });
       return;
     }
     case 'watch': {

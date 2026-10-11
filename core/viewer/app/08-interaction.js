@@ -31,6 +31,12 @@ d3.select(canvas).call(zoom).on('dblclick.zoom', null);
 // 修饰键 = 整理(见「整理」一节):Shift 拖 = 移动 · Ctrl/⌘ 拖 = 复制 · Alt 拖 = 引用;拖的途中按 / 松键,模式跟着变。
 // 多选时拖其中一个 = 选中的(同一个空间里的)都被拉向指针。
 let drag = null;   // { sx, sy, px, py, cx, cy, h, n, sim, moved, warmed, pulling, group, op, g, gpw }
+/** 拖着一个 .js 文件节点,指针在视图列表上:松手 = 用它当视图脚本新建视图 */
+function overViews(d) {
+  if (!d || !d.moved || !d.n || !scriptFileOf(d.n.id) || window.__STARS_STATIC__) return false;
+  const r = $('views').getBoundingClientRect();
+  return d.cx >= r.left - 6 && d.cx <= r.right + 6 && d.cy >= r.top - 6 && d.cy <= r.bottom + 6;
+}
 let pullDbg = null;   // 调试用:最近一次拖动力的计算
 /** 普通拖:开始给指针拉力。热量关着时临时加热(见上);就地展开空间里的成员,父空间也得热 */
 function warmDrag(d) {
@@ -69,11 +75,14 @@ d3.select(canvas).call(d3.drag()
       if (lockT && drag.n && drag.n.id !== lockT) { followId = null; camFrom = null; }   // 拖别的元素 = 脱离锁定(选中照旧);拖锁定本体不脱离 —— 它钉在中心、世界绕它转
     }
     setDragMode(drag, dragMode(se));
+    $('views').classList.toggle('drop', overViews(drag));
   })
   .on('end', () => {
     const d = drag; drag = null;
     if (!d) return;
-    if (d.op) finishOp(d);
+    $('views').classList.remove('drop');
+    if (overViews(d)) { if (d.op) { clearCrumbDrop(d.op); d.op = null; canvas.style.cursor = 'default'; } viewFromScript(scriptFileOf(d.n.id)).catch((e) => toast(esc(e.message), true)); }   // .js 拖到视图列表上 = 用它当模板新建视图
+    else if (d.op) finishOp(d);
     // 单击(没拖动)不在这里选中:交给 canvas 的 click 统一处理,好把"原地双击"算在第一次点击的目标上
     if (d.warmed) { if (d.h) d.h.sp.dragging = false; d.sim.alphaTarget(d.h ? (heated.has(d.h.sp) ? heatLevel() : 0) : heatLevel()); }
     if (d.gpw) { d.gpw.dragging = false; d.gpw.sim.alphaTarget(heated.has(d.gpw) ? heatLevel() : 0); }

@@ -1,0 +1,53 @@
+# 星罗内核(core/):类型检查 + 单元测试;浏览器测试单独一个任务(慢一些,约 3 分钟)
+name: core
+
+on:
+  push:
+    paths: ['core/**', '.github/workflows/core.yml']
+  pull_request:
+    paths: ['core/**', '.github/workflows/core.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: core-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: core
+
+jobs:
+  check:
+    # 同仓库分支的 PR 已经有 push 触发的那次了,只给外部 fork 的 PR 跑
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: core/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  browser:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - run: npm run test:ui   # 用机器上装好的 Chrome;找不到会直接失败,不会悄悄跳过
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-screenshots
+          path: /tmp/stars-ui-*.png
+          if-no-files-found: ignore

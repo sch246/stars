@@ -160,12 +160,51 @@ defCmd('select', {
   },
 });
 defCmd('screen', {
-  group: '视图', effect: 'read', title: '画面里节点的位置(屏幕坐标,像素);给 id 只看这些。页面、脚本、测试用',
+  group: '视图', effect: 'read', title: '画面里节点的位置(屏幕坐标,像素;就地展开的容器还有第三个数:疆界的半径);给 id 只看这些。页面、脚本、测试用',
   usage: 'screen [id…]', args: [nodeArg()],
   run: (ids) => {
     const want = ids.length ? new Set(ids) : null, pos = {};
-    for (const p of screenNodes()) if (!want || want.has(p.id)) pos[p.id] = [Math.round(p.sx), Math.round(p.sy)];
+    for (const p of screenNodes()) if (!want || want.has(p.id)) pos[p.id] = p.r ? [Math.round(p.sx), Math.round(p.sy), Math.round(p.r)] : [Math.round(p.sx), Math.round(p.sy)];
     return { out: Object.entries(pos).map(([id, [x, y]]) => `${String(x).padStart(5)} ${String(y).padStart(5)}  ${id}`).join('\n') || '(都不在画面里)', data: pos };
+  },
+});
+defCmd('look', {
+  group: '视图', effect: 'read', title: '节点在当前视图里的样子(颜色、半径、形状、显示的名字、由哪条规则 / 哪个脚本决定);不给 id = 这个视图的层、脚本、参数和提醒。页面、脚本、测试用',
+  usage: 'look [id…]', args: [nodeArg()],
+  run: (ids) => {
+    if (!compiled) return false;
+    if (!ids.length) {
+      const d = { view: currentView, layers: compiled.layers, scripts: compiled.scripts, params: compiled.params, warnings: compiled.warnings };
+      return { out: [`${currentView}:${compiled.layers.map((l) => l.script || l.name || '(这个视图)').join(' → ')}`, ...compiled.warnings.map((w) => '⚠ ' + w)].join('\n'), data: d };
+    }
+    const d = {};
+    for (const id of ids) { const n = compiled.node(id); d[id] = n ? { color: n.color, r: n.r, shape: n.shape, label: n.label, explain: compiled.explain(id) } : null; }
+    return { out: ids.map((id) => d[id] ? `${d[id].color} ${String(d[id].r).padStart(5)} ${d[id].shape.padEnd(6)} ${id}${d[id].label !== (raw.get(id) || {}).label ? `  「${d[id].label}」` : ''}` : `(不在这个视图里) ${id}`).join('\n'), data: d };
+  },
+});
+// 视图脚本(逻辑在 05a-viewscripts.js)
+defCmd('view-reload', {
+  group: '视图', effect: 'ui', title: '重新加载当前视图用到的视图脚本(连同它们 import 的文件)', usage: 'view-reload',
+  run: () => {
+    const list = [...viewMods.keys()];
+    if (!list.length) return '当前视图没有用视图脚本';
+    return reloadViewScripts(list).then(() => `重新加载 ${list.length} 个视图脚本${viewErr.size ? `(${viewErr.size} 个失败了,先用着上一次的)` : ''}`);
+  },
+});
+
+defCmd('view-script', {
+  group: '视图', effect: 'write', title: '新建一个用视图脚本当模板的视图:--file 指向已有的 .js(不给 = views/<名字>.js,不存在就写一份以当前视图为底的骨架,在侧栏打开)',
+  usage: 'view-script <名字> [--file 路径.js] [--base 视图]', flags: { file: 'file', base: 'base' },
+  run: async ([name], o) => {
+    if (!name || !/^[\p{L}\p{N}_-]+$/u.test(name)) throw new Error('需要视图名(文字、数字、_ 和 -)');
+    const path = (o.file || `views/${name}.js`).replace(/^\.\//, '');
+    if (!/\.m?js$/.test(path)) throw new Error('视图脚本要是 .js 文件');
+    let made = false;
+    try { await api('/api/file?stat=1&path=' + encodeURIComponent(path)); }
+    catch { await api('/api/file', { path, content: viewSkeleton(path, o.base || currentView), mtime: null, create: true }); made = true; }
+    const id = await viewFromScript(path, name);
+    if (made && id) setTimeout(() => { try { exec(`open ${quoteArg(path)}`, 'ui'); } catch { /* 还没进图(没开监听) */ } }, 600);
+    return id ? `视图 ${id}${made ? `,新建了骨架 ${path}` : ''}` : false;
   },
 });
 defCmd('edge', {

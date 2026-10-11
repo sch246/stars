@@ -11,7 +11,7 @@ import { type FSWatcher, watch } from 'node:fs';
 import { join } from 'node:path';
 import { reconcile, type SyncResult } from './fssync.ts';
 import { liveFs, snapshotFs } from './nodefs.ts';
-import { isStorage, selfRel } from './scan.ts';
+import { importsOn, isStorage, planImports, selfRel } from './scan.ts';
 import { type Op } from './ops.ts';
 import { type Store } from './store.ts';
 
@@ -126,6 +126,13 @@ export class FsWatcher {
         return { ...r, op: null, full, ms: performance.now() - t0 };
       }
       if (this.watchers.size > 0 || this.recursive === null) this.syncDirWatchers();
+    }
+    // 开着 import 边:改了的代码文件重新看一遍(有新文件 / 全量对账时整个重算:别的文件可能正等着 import 它)
+    if (importsOn(this.o.store.peek(), this.o.mountId) && (r.op || touched.length)) {
+      try {
+        const imp = planImports(this.o.store.peek(), this.o.root, full || r.stats.added || r.stats.renamed ? undefined : touched);
+        if (imp.length) this.o.store.commit({ op: 'batch', ops: imp }, { author: this.o.author }, undefined, { defer: true });
+      } catch { /* 下次再说 */ }
     }
     const out = { ...r, full, ms: performance.now() - t0 };
     this.o.onSync?.(out);

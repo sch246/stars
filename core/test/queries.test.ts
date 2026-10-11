@@ -7,7 +7,9 @@ import { runKernel, type CliOpts } from '../src/commands.ts';
 import { parse } from '../src/format.ts';
 import { apply, type Op } from '../src/ops.ts';
 import { Store } from '../src/store.ts';
-import { compileView, listQueries, QUERY_PREFIX, validateSpec } from '../src/view.ts';
+import { compileView } from '../src/view.ts';
+import { validateSpec } from '../src/viewspec.ts';
+import { QUERY_PREFIX, listQueries } from '../src/query.ts';
 
 const genesis = readFileSync(new URL('../genesis.stars', import.meta.url), 'utf8');
 

@@ -6,6 +6,22 @@ function loadEditor(clearMsg = true) {
   ta.value = JSON.stringify(specs[currentView], null, 2);
   $('ed-name').textContent = currentView + (isCustom(currentView) ? '' : '(内置)');
   draftSpec = null; editorDirty = false; if (clearMsg) msg.innerHTML = '';
+  renderEdLayers();
+}
+/** 规格下面一行:这个视图由哪几层叠成(base、视图脚本),脚本可以打开 / 重新载入 */
+function renderEdLayers() {
+  const el = $('ed-layers');
+  if (!el || $('editor').hidden) return;
+  const L = (compiled && compiled.layers) || [];
+  if (L.length <= 1) {
+    el.innerHTML = `<span class="ed-hint">写 <code>"base": "galaxy"</code> 从别的视图起步;<code>"script": "views/x.js"</code> 用视图脚本当模板(也可以把 .js 文件拖到视图列表上)· `
+      + `<span class="link" data-cmd="view-script ${esc(quoteArg(currentView + '-脚本'))}" title="写一份以这个视图为底的骨架 views/${esc(currentView)}-脚本.js,新建一个用它的视图">新建脚本视图</span></span>`;
+    return;
+  }
+  el.innerHTML = '<span class="ed-hint">层(从下往上)</span> ' + L.map((l) => (l.script
+    ? `<span class="ed-l sc" title="视图脚本">${esc(l.script)} <span class="link" data-cmd="open ${esc(quoteArg(l.script))}">打开</span></span>`
+    : `<span class="ed-l">${esc(l.name || '这个视图')}</span>`)).join(' → ')
+    + (compiled.scripts.length ? ` <span class="link" data-cmd="view-reload" title="连同它们 import 的文件">重新载入脚本</span>` : '');
 }
 function layoutPanels() { const b = $('tools').getBoundingClientRect().bottom + 10; for (const id of ['editor', 'review', 'projects', 'physics']) { $(id).style.top = b + 'px'; $(id).style.maxHeight = `calc(100vh - ${b + 30}px)`; } }
 addEventListener('resize', () => { layoutPanels(); updateCrumbWidth(); });
@@ -21,6 +37,7 @@ function toggleEditor(on) {
   layoutPanels();
   $('editor').hidden = !on; $('btn-edit').classList.toggle('on', on);
   if (on) loadEditor(); else if (draftSpec) { draftSpec = null; editorDirty = false; recompute(); }
+  renderEdLayers();
 }
 ta.addEventListener('input', debounce(() => {
   let spec;
@@ -32,7 +49,7 @@ ta.addEventListener('input', debounce(() => {
   recompute();
 }, 250));
 async function saveView(name) {
-  if (!/^[\w-]+$/.test(name)) { msg.innerHTML = '<span class="bad">视图名只能含字母、数字、_ 和 -</span>'; return; }
+  if (!/^[\p{L}\p{N}_-]+$/u.test(name)) { msg.innerHTML = '<span class="bad">视图名只能含文字、数字、_ 和 -</span>'; return; }
   const spec = draftSpec || specs[currentView];
   const id = '~view/' + name, compact = JSON.stringify(spec);
   const op = uni.nodes.has(id) ? { op: 'setNode', id, set: { spec: compact } } : { op: 'addNode', id, label: name, attrs: { kind: 'view', spec: compact } };
