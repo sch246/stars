@@ -133,7 +133,7 @@ function mountText(body) {
   });
 }
 // ---- 图片(点一下全屏看)----
-const rawUrl = (path, v) => withP('/api/raw?path=' + enc(path) + '&t=' + token) + (v ? '&v=' + v : '');
+const rawUrl = (path, v) => transport.rawUrl(path, v);
 function mountImage(body) {
   body.innerHTML = `<div id="fp-media"><img alt="${esc(fp.path)}" title="点一下全屏看" style="cursor:zoom-in" src="${rawUrl(fp.path, fp.info.mtime)}" data-cmd="open ${esc(quoteArg(fp.id))} --full"></div>`;
 }

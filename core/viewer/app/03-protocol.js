@@ -6,22 +6,20 @@ function connect() {
     $('status').innerHTML += ' · <b>静态导出(只读)</b>';
     return;
   }
-  if (es) es.close();
-  es = new EventSource(withP('/events'));
-  es.onmessage = (ev) => handle(JSON.parse(ev.data));
-  es.onerror = () => { $('status').textContent = '连接断开,重连中…'; };
-  // 个人设置 / 快捷键在别处改了(编辑器、别的标签页、stars ui):立即生效
-  es.addEventListener('config', (ev) => { const m = JSON.parse(ev.data); adoptCfg(m.name, m); });
-  // 看着的项目被关掉了(别的标签页、project --close):回到主项目
-  es.addEventListener('closed', () => {
-    if (!projectId) return;   // 自己关的、已经切回主项目了
-    toast(`项目 ${esc(project ? project.name : '')} 已关闭,回到主项目`);
-    api('/api/projects').then((r) => switchProject(r.open.find((x) => x.primary))).catch(() => { projectId = null; setHash(); connect(); });
-  });
-  // 遥控:stars ui <命令> → 在这里执行 → 把输出回报给服务端,由它交回 CLI
-  es.addEventListener('ui', (ev) => {
-    const m = JSON.parse(ev.data);
-    exec(m.line, 'remote', (r) => { api('/api/ui-result', { id: m.id, ...r }).catch(() => { /* CLI 已经不等了 */ }); }, m.from);
+  if (stopListening) stopListening();
+  stopListening = transport.listen({
+    message: handle,
+    error: () => { $('status').textContent = '连接断开,重连中…'; },
+    // 个人设置 / 快捷键在别处改了(编辑器、别的标签页、stars ui):立即生效
+    config: (m) => adoptCfg(m.name, m),
+    // 看着的项目被关掉了(别的标签页、project --close):回到主项目
+    closed: () => {
+      if (!projectId) return;   // 自己关的、已经切回主项目了
+      toast(`项目 ${esc(project ? project.name : '')} 已关闭,回到主项目`);
+      api('/api/projects').then((r) => switchProject(r.open.find((x) => x.primary))).catch(() => { projectId = null; setHash(); connect(); });
+    },
+    // 遥控:stars ui <命令> → 在这里执行 → 把输出回报给服务端,由它交回 CLI
+    ui: (m) => exec(m.line, 'remote', (r) => { api('/api/ui-result', { id: m.id, ...r }).catch(() => { /* CLI 已经不等了 */ }); }, m.from),
   });
 }
 
@@ -43,7 +41,7 @@ function handle(m) {
   }
   ingest(m);
 }
-function resync() { if (es) es.close(); connect(); }   // 日志出现缺口等不一致:重新连接,服务端会先发一份完整快照
+function resync() { connect(); }   // 日志出现缺口等不一致:重新连接,服务端会先发一份完整快照
 function scheduleRecompute() {
   if (recomputeTimer) return;
   // 编译较贵:变化很密集时按上一次编译耗时自适应地合并,保证界面不被拖死

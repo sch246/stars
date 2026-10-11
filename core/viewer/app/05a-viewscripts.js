@@ -24,7 +24,7 @@ function loadViewScript(path, keepOld = false) {
         const d = await api('/api/viewdeps?path=' + encodeURIComponent(path));
         viewDeps.set(path, d);
         if (d.missing.includes(path)) throw new Error('文件不存在: ' + path);
-        ns = await import(`/preview/${pvToken}/${(project && project.id) || '_'}/~v${d.version}/` + path.split('/').map(encodeURIComponent).join('/'));
+        ns = await import(transport.fileUrl(path, d.version));
       }
       viewMods.set(path, viewModuleOf(ns)); viewErr.delete(path);
     } catch (e) {
